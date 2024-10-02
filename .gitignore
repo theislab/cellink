@@ -187,3 +187,4 @@ __pycache__/
 /docs/_build/
 
 software
+*.sqlite
