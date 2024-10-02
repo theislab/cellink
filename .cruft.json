@@ -1,0 +1,30 @@
+{
+  "template": "https://github.com/scverse/cookiecutter-scverse",
+  "commit": "ab6df8677b2e65fc8ae7ae9b7425373b706af3ee",
+  "checkout": null,
+  "context": {
+    "cookiecutter": {
+      "project_name": "Single-cell Genetics (Cellink)",
+      "package_name": "cellink",
+      "project_description": "cellink enables genetic analyses on single-cell data",
+      "author_full_name": "Jan Engelmann",
+      "author_email": "jan.engelmann@helmholtz-munich.de",
+      "github_user": "theislab",
+      "github_repo": "sc-genetics",
+      "license": "Apache License Version 2.0",
+      "ide_integration": false,
+      "_copy_without_render": [
+        ".github/workflows/build.yaml",
+        ".github/workflows/test.yaml",
+        "docs/_templates/autosummary/**.rst"
+      ],
+      "_render_devdocs": false,
+      "_jinja2_env_vars": {
+        "lstrip_blocks": true,
+        "trim_blocks": true
+      },
+      "_template": "https://github.com/scverse/cookiecutter-scverse"
+    }
+  },
+  "directory": null
+}
