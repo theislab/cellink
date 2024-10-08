@@ -206,6 +206,7 @@ def read_vep_annos(
     vep_anno_file, cols_to_explode=["Consequence"], cols_to_dummy=["Consequence"]
 ):
 
+    # TODO: rename annotation columns
     annos = pd.read_csv(
         vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
     )
@@ -221,3 +222,18 @@ def read_vep_annos(
     )
     annos = _aggregate_dup_rows(annos, id_col="#Uploaded_variation")
     return annos
+
+
+def merge_annos_into_gdata(annos, gdata, id_col="#Uploaded_variation"):
+
+    annos = annos.reset_index().rename(columns={id_col: "variant_id"})
+
+    annos["variant_id"] = annos["variant_id"].str.replace("/", "_")
+    annos = annos.set_index("variant_id")
+    assert len(set(gdata.var.index) - set(annos.index)) == 0
+
+    var_merged = gdata.var.copy()
+    logger.info("Joining gdata.var with annos on index")
+    var_merged = var_merged.join(annos, how="left", validate="1:1")
+    gdata.var = var_merged
+    return gdata
