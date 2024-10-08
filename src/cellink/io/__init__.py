@@ -1,1 +1,1 @@
-from .sgkit import read_sgkit_zarr
+from .sgkit import from_sgkit
