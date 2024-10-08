@@ -66,8 +66,20 @@ SGVAR_TO_GDATA = {
 }
 
 
-def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None) -> AnnData:
-    """Read SgKit Zarr Format"""
+def from_sgkit_dataset(
+    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None
+) -> AnnData:
+    """Read SgKit Zarr Format
+
+    Params
+    ------
+    sgkit_dataset
+        sgkit's xarray datastructure
+    var_rename
+        mapping from sgkit's variant annotation keys to desired gdata.var column
+    obs_rename
+        mapping from sgkit's sample annotation keys to desired gdata.obs column
+    """
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
 
@@ -104,15 +116,43 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     return gdata
 
 
-def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
-    """Read SgKit Zarr Format"""
+def read_sgkit_zarr(
+    path: str | Path, *, var_rename=None, obs_rename=None, **kwargs
+) -> AnnData:
+    """Read SgKit Zarr Format
+
+    Params
+    ------
+    path
+        path to sgkit zarr format
+    var_rename
+        mapping from sgkit's variant annotation keys to desired gdata.var column
+    obs_rename
+        mapping from sgkit's sample annotation keys to desired gdata.obs column
+    """
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename
+    )
     return gdata
 
 
-def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
-    """Read Plink Format"""
+def read_plink(
+    path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs
+) -> AnnData:
+    """Read Plink Format
+
+    Params
+    ------
+    path
+        path to plink format
+    var_rename
+        mapping from sgkit's variant annotation keys to desired gdata.var column
+    obs_rename
+        mapping from sgkit's sample annotation keys to desired gdata.obs column
+    """
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename
+    )
     return gdata
