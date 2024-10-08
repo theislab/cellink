@@ -52,7 +52,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://Single-cell Genetics (Cellink).readthedocs.io/"
+urls.Documentation = "https://cellink.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/sc-genetics"
 urls.Source = "https://github.com/theislab/sc-genetics"
 
