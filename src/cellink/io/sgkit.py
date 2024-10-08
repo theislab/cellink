@@ -1,12 +1,13 @@
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
-import xarray as xr
-import dask.dataframe as dd
 import pandas as pd
 import sgkit as sg
+import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
+from sgkit.io import plink as sg_plink
 
 warnings.filterwarnings(
     "ignore",
@@ -15,81 +16,103 @@ warnings.filterwarnings(
 )
 
 
-@dataclass(frozen=True)
-class VAnn:
-    """Variant annotation fields in GenoAnndata"""
-
-    CHROM: str = "chrom"
-    POS: str = "pos"
-    A0: str = "a0"
-    A1: str = "a1"
-    MAF: str = "maf"
-
-
-@dataclass(frozen=True)
-class SgAnn:
-    """Fields in SgKit Zarr Format"""
-
-    sample: str = "samples"
-    variant: str = "variants"
-    contig_id: str = "contig_id"
-    filter: str = "filters"
-    filter_id: str = "filter_id"
-    variant_allele: str = "variant_allele"
-
-
-SGKIT_ZARR_TO_GDATA = {
-    "variant_AF": "AF",
-    "variant_ER2": "ER2",
-    "variant_MAF": VAnn.MAF,
-    "variant_R2": "R2",
-    "variant_contig": "contig",
-    "variant_id": "id",
-    "variant_id_mask": "id_mask",
-    "variant_position": VAnn.POS,
-    "variant_quality": "quality",
-}
-
-
-def _get_snp_index(var: pd.DataFrame | dd.DataFrame):
-    df = var[[VAnn.CHROM, VAnn.POS, VAnn.A0, VAnn.A1]].astype(str)
+def _get_snp_index(var: pd.DataFrame) -> pd.Index:
+    df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
     index = df.apply("_".join, axis=1)
-    return index
+    return pd.Index(index, name="snp_id")
 
 
 def _to_df_only_dim(gdata, dims):
-    df = gdata.drop_dims(set(gdata.dims.keys()).difference({dims})).to_dataframe()
+    df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
     df.index = df.index.astype(str)
     return df
 
 
-def from_sgkit(sgkit_dataset: xr.Dataset) -> AnnData:
+@dataclass(frozen=True)
+class VAnn:
+    """Variant annotation fields in GenoAnndata"""
+
+    chrom: str = "chrom"
+    pos: str = "pos"
+    a0: str = "a0"
+    a1: str = "a1"
+    maf: str = "maf"
+    contig: str = "contig"  # index for contig_id
+
+
+@dataclass(frozen=True)
+class SgDims:
+    """Dims in SgKit Zarr Format"""
+
+    samples: str = "samples"
+    variants: str = "variants"
+
+
+@dataclass(frozen=True)
+class SgVars:
+    """Vars in SgKit Zarr Format"""
+
+    contig_label: str = "contig_id"  # maps the variant_contig column to chromosome name
+    alleles: str = "variant_allele"
+    filter: str = "variant_filter"  # idx for vcf genotype filters
+    filter_id: str = "filter_id"  # maps variant_filter to filter name
+    genotype: str = "call_genotype"
+
+
+SGVAR_TO_GDATA = {
+    "variant_MAF": VAnn.maf,
+    "variant_position": VAnn.pos,
+    "variant_contig": VAnn.contig,
+}
+
+
+def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None) -> AnnData:
     """Read SgKit Zarr Format"""
-    X = sgkit_dataset.call_genotype.data.sum(-1).T  # additive model encoding
+    var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
+    obs_rename = {} if obs_rename is None else obs_rename
 
-    obs = _to_df_only_dim(sgkit_dataset, SgAnn.sample)
-    var = _to_df_only_dim(sgkit_dataset, SgAnn.variant)
-    var = var.rename(columns=SGKIT_ZARR_TO_GDATA)
+    X = sgkit_dataset[SgVars.genotype].data.sum(-1).T  # additive model encoding
 
-    contig_mapping = dict(enumerate(asarray(sgkit_dataset[SgAnn.contig_id])))
-    var[VAnn.CHROM] = var.contig.map(contig_mapping)
-    var[[VAnn.A0, VAnn.A1]] = asarray(sgkit_dataset[SgAnn.variant_allele]).astype(str)
+    obs = _to_df_only_dim(sgkit_dataset, SgDims.samples)
+    obs = obs.rename(columns=obs_rename)
+    obs.columns = obs.columns.str.replace("sample_", "")
 
-    first_cols = [VAnn.CHROM, VAnn.POS, VAnn.A0, VAnn.A1]
+    var = _to_df_only_dim(sgkit_dataset, SgDims.variants)
+    var = var.rename(columns=var_rename)
+    var.columns = var.columns.str.replace("variant_", "")
+
+    contig_mapping = dict(enumerate(asarray(sgkit_dataset[SgVars.contig_label])))
+    var[VAnn.chrom] = var[VAnn.contig].map(contig_mapping)
+    var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+
+    first_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
     var = var[first_cols + [c for c in var.columns if c not in first_cols]]
 
-    index = _get_snp_index(var)
-    var.index = index
+    var.index = _get_snp_index(var)
 
     varm = {}
-    if SgAnn.filter in sgkit_dataset and SgAnn.filter_id in sgkit_dataset:
+    if SgVars.filter in sgkit_dataset and SgVars.filter_id in sgkit_dataset:
         filters = pd.DataFrame(
-            asarray(sgkit_dataset[SgAnn.filter]),
-            columns=asarray(sgkit_dataset[SgAnn.filter_id]),
+            asarray(sgkit_dataset[SgVars.filter]),
+            columns=asarray(sgkit_dataset[SgVars.filter_id]),
             index=var.index,
         )
         varm["filter"] = filters
 
     gdata = AnnData(X=X, obs=obs, var=var, varm=varm)
 
+    return gdata
+
+
+def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+    """Read SgKit Zarr Format"""
+    sgkit_dataset = sg.load_dataset(store=path, **kwargs)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    return gdata
+
+
+def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+    """Read Plink Format"""
+    sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
     return gdata

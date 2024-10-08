@@ -1,6 +1,13 @@
+import warnings
 from importlib.metadata import version
 
-from . import io, pl, pp, tl
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API",
+    category=DeprecationWarning,
+)
+
+from . import io, pl, pp, tl  # noqa: E402
 
 __all__ = ["pl", "pp", "tl", "io"]
 
