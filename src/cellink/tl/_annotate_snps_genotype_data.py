@@ -5,6 +5,15 @@ import pickle
 import sgkit as sg
 from pathlib import Path
 import logging 
+import sys 
+
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
+    level=logging.INFO,
+    stream=sys.stdout,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def setup_snpeff():
@@ -27,6 +36,7 @@ def run_annotation_with_favor():
 
 def _write_variants_to_vcf(variants, out_file):
     #TODO add check for if file allready exists
+    logger.info(f"Writing variants to {out_file}")
     with open(out_file, "w") as f:
         # Write the VCF header
         f.write("##fileformat=VCFv4.0\n")
@@ -34,7 +44,6 @@ def _write_variants_to_vcf(variants, out_file):
 
         # Write each variant without ID, QUAL, FILTER, or INFO
         for row in variants:
-            logger.info(row)
             chrom, pos, ref, alt = row.split("_")
             vcf_row = f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
             f.write(vcf_row)
