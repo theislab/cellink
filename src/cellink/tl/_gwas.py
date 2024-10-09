@@ -1,9 +1,10 @@
-from time import time
-
 import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
 
+from time import time
+from anndata import AnnData
+from anndata.utils import asarray
 
 class GWAS:
     r"""
@@ -122,3 +123,25 @@ class GWAS:
         z = np.sign(beta) * np.sqrt(st.chi2(1).isf(pv))
         ste = beta / z
         return ste
+    
+def run_eqtl_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
+    ## retrieving the pseudo-bulked data
+    Y = pbdata[:, [target_gene]].layers["mean"]
+    Y = asarray(Y)
+    ## retrieving start and end position for each gene
+    start = pbdata.var.loc[target_gene].start
+    end = pbdata.var.loc[target_gene].end
+    chrom = pbdata.var.loc[target_gene].chrom
+    ## retrieving the variants within the cis window
+    subgadata = gdata[:, (gdata.var.chrom == chrom) & (gdata.var.pos >= start - cis_window) & (gdata.var.pos <= end + cis_window)]
+    G = subgadata.X.compute()
+    gwas = GWAS(Y)
+    gwas.process(G)
+    ## retrieve p-values
+    pv = gwas.getPv()
+    pv[np.isnan(pv)] = 1
+    min_pv = pv.min()
+    ## retrieving the variants associated with the lowest p-value
+    min_pv_idx = pv.argmin()
+    min_pv_variant = gdata.var.index[min_pv_idx]
+    return {"terget_gene": target_gene, "no_tested_variants": G.shape[1], "min_pv": min_pv, "min_pv_variant": min_pv_variant}
