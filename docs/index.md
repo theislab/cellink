@@ -12,5 +12,5 @@ contributing.md
 references.md
 
 notebooks/example
-notebooks/08_10_24_hackathon_gwas_single_gene
+notebooks/example_eqtl
 ```
