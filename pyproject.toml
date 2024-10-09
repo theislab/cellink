@@ -138,4 +138,5 @@ skip = [
   "docs/references.bib",
   "docs/references.md",
   "docs/notebooks/example.ipynb",
+  "docs/notebooks/08_10_24_hackathon_gwas_single_gene.ipynb",
 ]
