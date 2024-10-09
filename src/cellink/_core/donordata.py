@@ -4,7 +4,9 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
+from pandas import Index
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +21,8 @@ class DonorData:
 
     Raises
     ------
-        ValueError: If the specified donor_key_in_sc is not found in adata.obs
-        ValueError: If the specified donor_key_in_sc is not categorical
-        ValueError: _description_
-        ValueError: _description_
+        ValueError: If the specified donor_key_in_adata is not found in adata.obs
+        ValueError: If the specified donor_key_in_adata is not categorical
 
     Returns
     -------
@@ -35,16 +35,15 @@ class DonorData:
 
     def __post_init__(self):
         self._validate_data()
-
-        # TODO: get overlap of donors and sync data
+        self._match_donors()
 
     def _validate_data(self):
         """Validates that the donor key exists in the single-cell data and is categorical.
 
         Raises
         ------
-            ValueError: If the donor_key_in_sc is not found
-            ValueError: If adata.obs[self.donor_key_in_sc] is not categorical
+            ValueError: If the donor_key_in_adata is not found
+            ValueError: If adata.obs[self.donor_key_in_adata] is not categorical
         """
         if self.donor_key_in_adata not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_adata}' not found in adata.obs")
@@ -126,3 +125,50 @@ class DonorData:
         self._sync_data(valid_donors)
 
         return DonorData(self.adata, self.gdata, self.donor_key_in_adata)
+
+    def _match_donors(self):
+        """Match donors between genetic and single-cell data.
+
+        This method aligns the donors in genetic and single-cell data,
+        keeping only the donors' data that is present in both datasets, and sorts the single-cell adata on the donors.
+
+        Raises
+        ------
+            None
+
+        Returns
+        -------
+            None
+
+        Notes
+        -----
+        - Donor's data where a donor is not present in both datasets is dropped.
+        - Warnings are logged about the number of donors kept and dropped.
+        """
+        # Sort single-cell data by the specified column
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].sort_values().index]
+
+        # Get unique sample identifiers from both datasets
+        sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_adata].unique())
+        g_index: Index = self.gdata.obs.index
+
+        # Find common donors and all unique donors
+        keep_donors: Index = sc_index.intersection(g_index)
+        all_donors: Index = sc_index.union(g_index)
+
+        # Log warnings about sample matching
+        logger.warning("Keeping %s/%s donors", len(keep_donors), len(all_donors))
+        logger.warning(
+            "Dropping %s/%s donors from genetic data",
+            len(g_index) - len(keep_donors),
+            len(g_index),
+        )
+        logger.warning(
+            "Dropping %s/%s donors from single-cell data",
+            len(sc_index) - len(keep_donors),
+            len(sc_index),
+        )
+
+        # Filter both datasets to keep only matched donors
+        self.gdata = self.gdata[keep_donors]
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].isin(keep_donors)]
