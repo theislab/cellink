@@ -8,6 +8,11 @@ import pandas as pd
 from anndata import AnnData
 from pandas import Index
 
+from rich.console import Console
+from rich.table import Table
+from rich import box
+from rich.text import Text
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +53,9 @@ class DonorData:
         if self.donor_key_in_adata not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_adata}' not found in adata.obs")
         if not self.adata.obs[self.donor_key_in_adata].dtype.name == "category":
-            raise ValueError(f"'{self.donor_key_in_adata}' in adata.obs is not categorical")
+            raise ValueError(
+                f"'{self.donor_key_in_adata}' in adata.obs is not categorical"
+            )
 
     def get_donor_adata(self, donor: str) -> AnnData:
         """Retrieve single-cell data for a specific donor.
@@ -92,7 +99,9 @@ class DonorData:
         Args:
             valid_donors (np.ndarray): An array of valid donor names.
         """
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].isin(valid_donors)]
+        self.adata = self.adata[
+            self.adata.obs[self.donor_key_in_adata].isin(valid_donors)
+        ]
         self.gdata = self.gdata[self.gdata.obs_names.isin(valid_donors)]
 
     def slice_cells(self, cell_condition) -> DonorData:
@@ -121,7 +130,9 @@ class DonorData:
         -------
             DonorData: A new DonorData object with sliced data.
         """
-        valid_donors = np.intersect1d(self.adata.obs[self.donor_key_in_adata].unique(), donors)
+        valid_donors = np.intersect1d(
+            self.adata.obs[self.donor_key_in_adata].unique(), donors
+        )
         self._sync_data(valid_donors)
 
         return DonorData(self.adata, self.gdata, self.donor_key_in_adata)
@@ -146,7 +157,9 @@ class DonorData:
         - Warnings are logged about the number of donors kept and dropped.
         """
         # Sort single-cell data by the specified column
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].sort_values().index]
+        self.adata = self.adata[
+            self.adata.obs[self.donor_key_in_adata].sort_values().index
+        ]
 
         # Get unique sample identifiers from both datasets
         sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_adata].unique())
@@ -171,4 +184,89 @@ class DonorData:
 
         # Filter both datasets to keep only matched donors
         self.gdata = self.gdata[keep_donors]
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].isin(keep_donors)]
+        self.adata = self.adata[
+            self.adata.obs[self.donor_key_in_adata].isin(keep_donors)
+        ]
+
+    # def __repr__(self) -> str:
+    #     """String representation of DonorData showing side-by-side adata and gdata views."""
+    #     adata_repr = str(self.adata)
+    #     gdata_repr = str(self.gdata)
+
+    #     # Split the representations into lines for easy columnization
+    #     adata_lines = adata_repr.splitlines()
+    #     gdata_lines = gdata_repr.splitlines()
+
+    #     # Ensure both have the same number of lines by padding with empty lines if necessary
+    #     max_lines = max(len(adata_lines), len(gdata_lines))
+    #     adata_lines += [""] * (max_lines - len(adata_lines))
+    #     gdata_lines += [""] * (max_lines - len(gdata_lines))
+
+    #     # Highlight the donor key in the adata representation
+    #     adata_lines = [
+    #         line.replace(self.donor_key_in_adata, f"**{self.donor_key_in_adata}**")
+    #         for line in adata_lines
+    #     ]
+
+    #     # Combine the lines into side-by-side columns
+    #     combined_lines = []
+    #     for adata_line, gdata_line in zip(adata_lines, gdata_lines):
+    #         combined_line = f"{adata_line:<60} | {gdata_line}"
+    #         combined_lines.append(combined_line)
+
+    #     # Add a header to clarify what each column represents
+    #     header = f"{'Single-cell data (adata)':<60} | Genetic data (gdata)"
+    #     separator = "-" * 60 + " | " + "-" * 60
+    #     joined_str = "\n".join([header, separator] + combined_lines)
+
+    #     return joined_str
+
+    def __repr__(self) -> str:
+        """String representation of DonorData showing side-by-side adata and gdata views."""
+        # Create a console for rich
+        console = Console()
+
+        # Create a table
+        table = Table(show_header=True, header_style="bold magenta", box=box.SIMPLE)
+
+        # Add two columns to represent adata and gdata
+        table.add_column("Single-cell data (adata)", max_width=200)
+        table.add_column("Genetic data (gdata)", max_width=200)
+
+        # Prepare the string representation of adata and gdata
+        adata_repr = str(self.adata)
+        gdata_repr = str(self.gdata)
+
+        # Split the representations into lines for easy columnization
+        adata_lines = adata_repr.splitlines()
+        gdata_lines = gdata_repr.splitlines()
+
+        # Ensure both have the same number of lines by padding with empty lines if necessary
+        max_lines = max(len(adata_lines), len(gdata_lines))
+        adata_lines += [""] * (max_lines - len(adata_lines))
+        gdata_lines += [""] * (max_lines - len(gdata_lines))
+
+        # Prepare the lines with highlighted donor key for adata
+        highlighted_donor_key = self.donor_key_in_adata  # The donor key to highlight
+        adata_text_lines = []
+
+        for line in adata_lines:
+            if highlighted_donor_key in line:
+                # If the donor key is found in the line, highlight it
+                parts = line.split(highlighted_donor_key)
+                highlighted_line = (
+                    Text(parts[0])
+                    + Text(highlighted_donor_key, style="blue")
+                    + Text(parts[1])
+                )
+            else:
+                highlighted_line = Text(line)
+            adata_text_lines.append(highlighted_line)
+
+        # Add rows to the table, combining adata and gdata lines
+        for adata_line, gdata_line in zip(adata_text_lines, gdata_lines):
+            table.add_row(adata_line, gdata_line)
+
+        # Use the console to print the table and return the string
+        console.print(table)
+        return ""
