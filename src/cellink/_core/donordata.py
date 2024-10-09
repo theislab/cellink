@@ -49,9 +49,7 @@ class DonorData:
         if self.donor_key_in_adata not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_adata}' not found in adata.obs")
         if not self.adata.obs[self.donor_key_in_adata].dtype.name == "category":
-            raise ValueError(
-                f"'{self.donor_key_in_adata}' in adata.obs is not categorical"
-            )
+            raise ValueError(f"'{self.donor_key_in_adata}' in adata.obs is not categorical")
 
     def get_donor_adata(self, donor: str) -> AnnData:
         """Retrieve single-cell data for a specific donor.
@@ -90,20 +88,16 @@ class DonorData:
         return self.gdata[donor]
 
     def _sync_data(self, valid_donors: np.ndarray):
-        """
-        Syncs the adata and gdata objects by filtering to only include valid donors.
+        """Syncs the adata and gdata objects by filtering to only include valid donors.
 
         Args:
             valid_donors (np.ndarray): An array of valid donor names.
         """
-        self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_adata].isin(valid_donors)
-        ]
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_adata].isin(valid_donors)]
         self.gdata = self.gdata[self.gdata.obs_names.isin(valid_donors)]
 
     def slice_cells(self, cell_condition) -> DonorData:
-        """
-        Returns a new DonorData object with single-cell data sliced based on the provided cell condition.
+        """Returns a new DonorData object with single-cell data sliced based on the provided cell condition.
 
         Args:
             cell_condition: A boolean mask, condition, or slice to apply to the single-cell data.
@@ -119,8 +113,7 @@ class DonorData:
         return DonorData(new_adata, self.gdata, self.donor_key_in_adata)
 
     def slice_donors(self, donors: list[str]) -> DonorData:
-        """
-        Returns a new DonorData object with both single-cell and genetic data sliced to only include the specified donors.
+        """Returns a new DonorData object with both single-cell and genetic data sliced to only include the specified donors.
 
         Args:
             donors (list[str]): A list of donor names to retain.
@@ -129,9 +122,7 @@ class DonorData:
         -------
             DonorData: A new DonorData object with sliced data.
         """
-        valid_donors = np.intersect1d(
-            self.adata.obs[self.donor_key_in_adata].unique(), donors
-        )
+        valid_donors = np.intersect1d(self.adata.obs[self.donor_key_in_adata].unique(), donors)
         self._sync_data(valid_donors)
 
         return DonorData(self.adata, self.gdata, self.donor_key_in_adata)
