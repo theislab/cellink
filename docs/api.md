@@ -1,5 +1,19 @@
 # API
 
+## Input-Output
+
+```{eval-rst}
+.. module:: cellink.io
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    io.from_sgkit_dataset
+    io.read_plink
+    io.read_sgkit_zarr
+```
+
 ## Preprocessing
 
 ```{eval-rst}

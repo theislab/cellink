@@ -38,6 +38,7 @@ optional-dependencies.doc = [
   "pandas",
   # Until pybtex >0.23.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
   "setuptools",
+  "sgkit",
   "sphinx>=4",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
@@ -51,7 +52,7 @@ optional-dependencies.test = [
   "pytest",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://Single-cell Genetics (Cellink).readthedocs.io/"
+urls.Documentation = "https://cellink.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/sc-genetics"
 urls.Source = "https://github.com/theislab/sc-genetics"
 
@@ -116,6 +117,9 @@ testpaths = [ "tests" ]
 xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
 [tool.coverage.run]
