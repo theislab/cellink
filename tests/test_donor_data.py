@@ -18,6 +18,7 @@ def test_donordata():
     )
     dd = DonorData(adata, gdata, "individual")
     print(dd)
+    assert False
 
 
 if __name__ == "__main__":
