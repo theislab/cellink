@@ -8,20 +8,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DonorData:
-    """
-    A class to store and manage donor-related data with single-cell readouts to allow donor-level, especially genetic, analysis with single-cell datasets.
+    """Store and manage donor-related data with single-cell readouts.
 
-    This class holds AnnData objects for single-cell (adata) and genetic (gdata) data.
-
-    Attributes
-    ----------
-        adata (AnnData): Single-cell data in AnnData format.
-        gdata (AnnData): Genetic data in AnnData format.
-        donor_key_in_sc (str): Column name in adata.obs that identifies donors.
+    This class allows donor-level, especially genetic, analysis with single-cell datasets.
+    It holds AnnData objects for single-cell (adata) and genetic (gdata) data.
+    The donor key in adata.obs must be a categorical column.
 
     Raises
     ------
-        ValueError: If the specified donor_key_in_sc is not found in adata.obs.
+        ValueError: If the specified donor_key_in_sc is not found in adata.obs
+        ValueError: If the specified donor_key_in_sc is not categorical
+        ValueError: _description_
+        ValueError: _description_
+
+    Returns
+    -------
+        _type_: DonorData object
     """
 
     adata: AnnData
@@ -32,44 +34,50 @@ class DonorData:
         self._validate_data()
 
     def _validate_data(self):
-        """
-        Validates that the donor key exists in the single-cell data.
+        """Validates that the donor key exists in the single-cell data and is categorical.
 
         Raises
         ------
-            ValueError: If the donor_key_in_sc is not found in adata.obs.
+            ValueError: If the donor_key_in_sc is not found
+            ValueError: If adata.obs[self.donor_key_in_sc] is not categorical
         """
         if self.donor_key_in_sc not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_sc}' not found in adata.obs")
+        if not self.adata.obs[self.donor_key_in_sc].dtype.name == "category":
+            raise ValueError(f"'{self.donor_key_in_sc}' in adata.obs is not categorical")
 
-    def get_donor_adata(self, donor: str) -> AnnData | None:
-        """
-        Retrieves single-cell data for a specific donor.
+    def get_donor_adata(self, donor: str) -> AnnData:
+        """Retrieve single-cell data for a specific donor.
 
         Args:
             donor (str): The name of the donor.
 
+        Raises
+        ------
+            ValueError: If the donor is not found in the data.
+
         Returns
         -------
-            Optional[AnnData]: AnnData object containing the donor's single-cell data,
-                               or None if the donor is not found.
+            AnnData: AnnData object containing the donor's single-cell data.
         """
-        if donor not in self.adata.obs[self.donor_key_in_sc].unique():
-            return None
+        if donor not in self.adata.obs[self.donor_key_in_sc].cat.categories:
+            raise ValueError(f"Donor '{donor}' not found in adata")
         return self.adata[self.adata.obs[self.donor_key_in_sc] == donor]
 
-    def get_donor_gdata(self, donor: str) -> AnnData | None:
-        """
-        Retrieves genetic data for a specific donor.
+    def get_donor_gdata(self, donor: str) -> AnnData:
+        """Retrieve genetic data for a specific donor.
 
         Args:
             donor (str): The name of the donor.
 
+        Raises
+        ------
+            ValueError: If the donor is not found in the data.
+
         Returns
         -------
-            Optional[AnnData]: AnnData object containing the donor's genetic data,
-                               or None if the donor is not found.
+            AnnData: AnnData object containing the donor's genetic data.
         """
         if donor not in self.gdata.obs_names:
-            return None
+            raise ValueError(f"Donor '{donor}' not found in gdata")
         return self.gdata[donor]
