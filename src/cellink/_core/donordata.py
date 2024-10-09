@@ -36,7 +36,7 @@ class DonorData:
 
     adata: AnnData
     gdata: AnnData
-    donor_key_in_adata: str
+    donor_key_in_sc_adata: str
 
     def __post_init__(self):
         self._validate_data()
@@ -50,11 +50,11 @@ class DonorData:
             ValueError: If the donor_key_in_adata is not found
             ValueError: If adata.obs[self.donor_key_in_adata] is not categorical
         """
-        if self.donor_key_in_adata not in self.adata.obs.columns:
-            raise ValueError(f"'{self.donor_key_in_adata}' not found in adata.obs")
-        if not self.adata.obs[self.donor_key_in_adata].dtype.name == "category":
+        if self.donor_key_in_sc_adata not in self.adata.obs.columns:
+            raise ValueError(f"'{self.donor_key_in_sc_adata}' not found in adata.obs")
+        if not self.adata.obs[self.donor_key_in_sc_adata].dtype.name == "category":
             raise ValueError(
-                f"'{self.donor_key_in_adata}' in adata.obs is not categorical"
+                f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical"
             )
 
     def get_donor_adata(self, donor: str) -> AnnData:
@@ -71,9 +71,9 @@ class DonorData:
         -------
             AnnData: AnnData object containing the donor's single-cell data.
         """
-        if donor not in self.adata.obs[self.donor_key_in_adata].cat.categories:
+        if donor not in self.adata.obs[self.donor_key_in_sc_adata].cat.categories:
             raise ValueError(f"Donor '{donor}' not found in adata")
-        return self.adata[self.adata.obs[self.donor_key_in_adata] == donor]
+        return self.adata[self.adata.obs[self.donor_key_in_sc_adata] == donor]
 
     def get_donor_gdata(self, donor: str) -> AnnData:
         """Retrieve genetic data for a specific donor.
@@ -100,7 +100,7 @@ class DonorData:
             valid_donors (np.ndarray): An array of valid donor names.
         """
         self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_adata].isin(valid_donors)
+            self.adata.obs[self.donor_key_in_sc_adata].isin(valid_donors)
         ]
         self.gdata = self.gdata[self.gdata.obs_names.isin(valid_donors)]
 
@@ -115,10 +115,10 @@ class DonorData:
             DonorData: A new DonorData object with sliced single-cell data.
         """
         new_adata = self.adata[cell_condition]
-        valid_donors = new_adata.obs[self.donor_key_in_adata].unique()
+        valid_donors = new_adata.obs[self.donor_key_in_sc_adata].unique()
         self._sync_data(valid_donors)
 
-        return DonorData(new_adata, self.gdata, self.donor_key_in_adata)
+        return DonorData(new_adata, self.gdata, self.donor_key_in_sc_adata)
 
     def slice_donors(self, donors: list[str]) -> DonorData:
         """Returns a new DonorData object with both single-cell and genetic data sliced to only include the specified donors.
@@ -131,13 +131,13 @@ class DonorData:
             DonorData: A new DonorData object with sliced data.
         """
         valid_donors = np.intersect1d(
-            self.adata.obs[self.donor_key_in_adata].unique(), donors
+            self.adata.obs[self.donor_key_in_sc_adata].unique(), donors
         )
         self._sync_data(valid_donors)
 
-        return DonorData(self.adata, self.gdata, self.donor_key_in_adata)
+        return DonorData(self.adata, self.gdata, self.donor_key_in_sc_adata)
 
-    def _match_donors(self):
+    def _match_donors(self) -> None:
         """Match donors between genetic and single-cell data.
 
         This method aligns the donors in genetic and single-cell data,
@@ -158,11 +158,11 @@ class DonorData:
         """
         # Sort single-cell data by the specified column
         self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_adata].sort_values().index
+            self.adata.obs[self.donor_key_in_sc_adata].sort_values().index
         ]
 
         # Get unique sample identifiers from both datasets
-        sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_adata].unique())
+        sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_sc_adata].unique())
         g_index: Index = self.gdata.obs.index
 
         # Find common donors and all unique donors
@@ -170,13 +170,13 @@ class DonorData:
         all_donors: Index = sc_index.union(g_index)
 
         # Log warnings about sample matching
-        logger.warning("Keeping %s/%s donors", len(keep_donors), len(all_donors))
-        logger.warning(
+        logger.info("Keeping %s/%s donors", len(keep_donors), len(all_donors))
+        logger.info(
             "Dropping %s/%s donors from genetic data",
             len(g_index) - len(keep_donors),
             len(g_index),
         )
-        logger.warning(
+        logger.info(
             "Dropping %s/%s donors from single-cell data",
             len(sc_index) - len(keep_donors),
             len(sc_index),
@@ -185,41 +185,8 @@ class DonorData:
         # Filter both datasets to keep only matched donors
         self.gdata = self.gdata[keep_donors]
         self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_adata].isin(keep_donors)
+            self.adata.obs[self.donor_key_in_sc_adata].isin(keep_donors)
         ]
-
-    # def __repr__(self) -> str:
-    #     """String representation of DonorData showing side-by-side adata and gdata views."""
-    #     adata_repr = str(self.adata)
-    #     gdata_repr = str(self.gdata)
-
-    #     # Split the representations into lines for easy columnization
-    #     adata_lines = adata_repr.splitlines()
-    #     gdata_lines = gdata_repr.splitlines()
-
-    #     # Ensure both have the same number of lines by padding with empty lines if necessary
-    #     max_lines = max(len(adata_lines), len(gdata_lines))
-    #     adata_lines += [""] * (max_lines - len(adata_lines))
-    #     gdata_lines += [""] * (max_lines - len(gdata_lines))
-
-    #     # Highlight the donor key in the adata representation
-    #     adata_lines = [
-    #         line.replace(self.donor_key_in_adata, f"**{self.donor_key_in_adata}**")
-    #         for line in adata_lines
-    #     ]
-
-    #     # Combine the lines into side-by-side columns
-    #     combined_lines = []
-    #     for adata_line, gdata_line in zip(adata_lines, gdata_lines):
-    #         combined_line = f"{adata_line:<60} | {gdata_line}"
-    #         combined_lines.append(combined_line)
-
-    #     # Add a header to clarify what each column represents
-    #     header = f"{'Single-cell data (adata)':<60} | Genetic data (gdata)"
-    #     separator = "-" * 60 + " | " + "-" * 60
-    #     joined_str = "\n".join([header, separator] + combined_lines)
-
-    #     return joined_str
 
     def __repr__(self) -> str:
         """String representation of DonorData showing side-by-side adata and gdata views."""
@@ -227,11 +194,11 @@ class DonorData:
         console = Console()
 
         # Create a table
-        table = Table(show_header=True, header_style="bold magenta", box=box.SIMPLE)
+        table = Table(show_header=True, header_style="bold magenta")
 
         # Add two columns to represent adata and gdata
-        table.add_column("Single-cell data (adata)", max_width=200)
-        table.add_column("Genetic data (gdata)", max_width=200)
+        table.add_column("Cells (adata)", max_width=100, justify="left")
+        table.add_column("Donors (gdata)", max_width=100, justify="left")
 
         # Prepare the string representation of adata and gdata
         adata_repr = str(self.adata)
@@ -247,7 +214,7 @@ class DonorData:
         gdata_lines += [""] * (max_lines - len(gdata_lines))
 
         # Prepare the lines with highlighted donor key for adata
-        highlighted_donor_key = self.donor_key_in_adata  # The donor key to highlight
+        highlighted_donor_key = self.donor_key_in_sc_adata  # The donor key to highlight
         adata_text_lines = []
 
         for line in adata_lines:
@@ -256,17 +223,15 @@ class DonorData:
                 parts = line.split(highlighted_donor_key)
                 highlighted_line = (
                     Text(parts[0])
-                    + Text(highlighted_donor_key, style="blue")
+                    + Text(highlighted_donor_key, style="bold blue underline")
                     + Text(parts[1])
                 )
             else:
                 highlighted_line = Text(line)
             adata_text_lines.append(highlighted_line)
 
-        # Add rows to the table, combining adata and gdata lines
-        for adata_line, gdata_line in zip(adata_text_lines, gdata_lines):
+        for adata_line, gdata_line in zip(adata_text_lines, gdata_lines, strict=False):
             table.add_row(adata_line, gdata_line)
-
         # Use the console to print the table and return the string
         console.print(table)
         return ""
