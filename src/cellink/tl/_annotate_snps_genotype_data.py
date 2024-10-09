@@ -178,32 +178,26 @@ def run_vep(
         return annos
 
 
-def _aggregate_dup_rows(annos, id_col="#Uploaded_variation"):
-
-    annos_cond = annos.copy()
-    annos_cond = annos_cond.set_index(id_col)
-    indices_to_agg = list(
-        annos_cond.index.to_frame()[annos_cond.index.value_counts() > 1].index.unique()
-    )
-
-    logger.info(f"Number of variant ids with >1 annotation {len(indices_to_agg)}")
-
-    annos_cond_sub = annos_cond.loc[indices_to_agg].copy()
-
-    annos_cond_sub = annos_cond_sub.groupby(id_col).agg(lambda x: list(x))
-    annos_cond_sub = annos_cond_sub.applymap(
-        lambda x: _flatten_single_value(x) if isinstance(x, list) else x
-    )
-    # TODO fix  FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
-    indices_to_keep = list(set(annos_cond.index) - set(indices_to_agg))
-    annos_cond = pd.concat([annos_cond.loc[indices_to_keep], annos_cond_sub])
-
-    assert len(annos_cond) == len(annos[id_col].unique())
-    return annos_cond
+def _change_col_dtype(annos):
+    cols_to_replace = list(annos.dtypes[annos.dtypes == "object"].index)
+    logger.info(f"Changing dtype of categorical columns {cols_to_replace}")
+    for col in cols_to_replace:
+        try:
+            annos[col] = annos[col].astype(float)
+        except:
+            try:
+                annos[col] = annos[col].replace(np.nan, "-")
+            except:
+                logger.warning(f"{col} couldn't be changed")
+    return annos
 
 
-def read_vep_annos(
-    vep_anno_file, cols_to_explode=["Consequence"], cols_to_dummy=["Consequence"]
+def add_vep_annos_to_gdata(
+    vep_anno_file,
+    gdata,
+    id_col="#Uploaded_variation",
+    cols_to_explode=["Consequence"],
+    cols_to_dummy=["Consequence"],
 ):
 
     # TODO: rename annotation columns
@@ -216,24 +210,82 @@ def read_vep_annos(
         annos = _explode_columns(annos, col)
     for col in cols_to_dummy:
         annos = _add_dummy_cols(annos, col)
-    # TODO: make function to collapse such that only one row per variant
-    logger.info(
-        "Aggregating annotations from multiple contexts to get one row per variant"
+
+    annos = _change_col_dtype(annos)
+    # change dtypes such that they can be written
+
+    logger.info("Expanding annotations from multiple contexts per variant")
+    varm = _create_varm_expanded(
+        annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
     )
-    annos = _aggregate_dup_rows(annos, id_col="#Uploaded_variation")
-    return annos
 
+    gdata.varm = varm
 
-def merge_annos_into_gdata(annos, gdata, id_col="#Uploaded_variation"):
-
-    annos = annos.reset_index().rename(columns={id_col: "variant_id"})
-
-    annos["variant_id"] = annos["variant_id"].str.replace("/", "_")
-    annos = annos.set_index("variant_id")
-    assert len(set(gdata.var.index) - set(annos.index)) == 0
-
-    var_merged = gdata.var.copy()
-    logger.info("Joining gdata.var with annos on index")
-    var_merged = var_merged.join(annos, how="left", validate="1:1")
-    gdata.var = var_merged
     return gdata
+
+
+def _expand_annotations(
+    data, id_col, cols_to_exp, max_n_val, key_prefix="annotations_"
+):
+    data_exp = data.groupby(id_col).agg(lambda x: list(x)).reset_index()
+
+    # Iterate over each row in agg_res to populate the new lists for DataFrames
+    col_dict = {i: {col: [] for col in cols_to_exp} for i in range(max_n_val)}
+    for index, row in data_exp.iterrows():
+        # Get the list of values
+        for col in cols_to_exp:
+            values_flat = row[col]
+            while len(values_flat) < max_n_val:
+                values_flat.append(0)  # Fill with zeros
+            for i in range(max_n_val):
+                col_dict[i][col].append(values_flat[i])
+
+    for i in range(max_n_val):
+        col_dict[i][id_col] = data_exp[id_col]
+    df_dict = {
+        f"{key_prefix}{i}": pd.DataFrame(col_dict[i]).set_index(id_col)
+        for i in range(max_n_val)
+    }
+    return df_dict
+
+
+def _create_varm_expanded(
+    annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
+):
+
+    logger.info(f"renaming id column {id_col} into {id_col_new}")
+    annos[id_col] = annos[id_col].str.replace("/", "_")
+    annos = annos.rename(columns={id_col: id_col_new})
+    id_col = id_col_new
+    logger.info("getting unique counts")
+    unique_counts = (
+        annos.groupby(id_col).agg(lambda x: x.nunique(dropna=False)).max(axis=0)
+    )
+
+    cols_to_expand = unique_counts[unique_counts > 1].index
+    cols_to_keep = list(set(annos.columns) - set(cols_to_expand))
+    print(f"Columns with multiple values per variant: {cols_to_expand}")
+
+    max_n_vals = unique_counts.max()
+    logger.info(f"Maximum number of distinct annotations per variant {max_n_vals}")
+
+    annos_exp = _expand_annotations(
+        annos[[id_col, *cols_to_expand]].copy(), id_col, cols_to_expand, max_n_vals
+    )
+
+    logger.info("merging non-expanded annos into first data frame")
+    anno_0 = annos_exp[f"{key_prefix}0"]
+    assert len(annos[cols_to_keep].drop_duplicates()) == len(anno_0)
+
+    anno_0_merged = (
+        annos[cols_to_keep]
+        .drop_duplicates()
+        .set_index(id_col)
+        .join(anno_0, how="left", validate="1:1")
+    )
+    annos_exp[f"{key_prefix}0"] = anno_0_merged
+    id_order = gdata.var.index
+
+    varm = {key: val.loc[id_order] for key, val in annos_exp.items()}
+
+    return varm
