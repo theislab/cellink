@@ -6,11 +6,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from anndata.utils import asarray
 from pandas import Index
-
 from rich.console import Console
 from rich.table import Table
-from rich import box
 from rich.text import Text
 
 logger = logging.getLogger(__name__)
@@ -235,3 +234,31 @@ class DonorData:
         # Use the console to print the table and return the string
         console.print(table)
         return ""
+
+    def pseudobulk(self, key, target_key, agg_func="mean"):
+        if key == "X":
+            data = self.adata.X
+            columns = self.adata.var_names
+        elif key in self.adata.layers:
+            data = self.adata.layers[key]
+            columns = self.adata.var_names
+        elif key in self.adata.obs.columns:
+            data = self.adata.obs[[key]]
+            columns = [key]
+        elif key in self.adata.var.index:
+            data = self.adata[:, [key]].X
+            columns = [key]
+        elif key in self.adata.obsm:
+            data = self.adata.obsm[key]
+            columns = getattr(data, "columns", range(data.shape[1]))
+        else:
+            raise ValueError(f"Key '{key}' not found in adata")
+
+        data = pd.DataFrame(asarray(data), columns=columns)
+        data["group"] = self.adata.obs[self.donor_key_in_sc_adata].values
+        data = data.groupby("group", observed=True).agg(agg_func)
+        data = data.loc[self.gdata.obs_names]
+        if data.shape[1] == 1:
+            self.gdata.obs[target_key] = data.iloc[:, 0]
+        else:
+            self.gdata.obsm[target_key] = data
