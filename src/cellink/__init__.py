@@ -1,8 +1,15 @@
+import warnings
 from importlib.metadata import version
 
-from . import pl, pp, tl
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated as an API",
+    category=DeprecationWarning,
+)
 
-__all__ = ["DonorData", "pl", "pp", "tl"]
+__all__ = ["DonorData", "pl", "pp", "tl", "io"]
+
+from . import io, pl, pp, tl  # noqa: E402
 
 __version__ = version("cellink")
 
