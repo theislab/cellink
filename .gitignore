@@ -188,3 +188,5 @@ __pycache__/
 
 software
 *.sqlite
+
+tests/data
