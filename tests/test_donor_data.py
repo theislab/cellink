@@ -10,7 +10,7 @@ DATA = Path("tests/data")
 
 
 @pytest.mark.slow
-def test_donordata():
+def test_donordata_init():
     gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
     gdata.obs = gdata.obs.set_index("id")
     adata = read_h5ad(
@@ -18,8 +18,25 @@ def test_donordata():
     )
     dd = DonorData(adata, gdata, "individual")
     print(dd)
-    assert False
+
+
+@pytest.mark.slow
+def test_donordata_aggregate():
+    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
+    gdata.obs = gdata.obs.set_index("id")
+    adata = read_h5ad(
+        DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad"
+    )
+    dd = DonorData(adata, gdata, "individual")
+    dd.aggregate("X", "Gex")
+    assert "Gex" in dd.gdata.obsm
+
+    dd.aggregate("X", "Gex_CD4NC", filter_key="cell_label", filter_value="CD4 NC")
+    assert "Gex_CD4NC" in dd.gdata.obsm
+
+    dd.aggregate("age", "age")
+    assert "age" in dd.gdata.obs
 
 
 if __name__ == "__main__":
-    test_donordata()
+    test_donordata_aggregate()
