@@ -6,7 +6,7 @@ from anndata import read_h5ad
 from cellink._core.donordata import DonorData
 from cellink.io import read_sgkit_zarr
 
-DATA = Path("tests/data_new")
+DATA = Path("tests/data")
 
 
 @pytest.mark.slow
