@@ -50,7 +50,7 @@ def variant_qc(
 
     maf_filter = maf >= maf_threshold
 
-    #Could introduce further fitlers here
+    #Could introduce further filters here
 
     combined_filter = maf_filter
 
