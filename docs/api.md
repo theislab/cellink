@@ -35,7 +35,7 @@
 .. autosummary::
     :toctree: generated
 
-    pp.basic_preproc
+    pp.variant_qc
 ```
 
 ## Tools
@@ -47,7 +47,15 @@
 .. autosummary::
     :toctree: generated
 
-    tl.basic_tool
+    tl.get_snp_df
+    tl.write_variants_to_vcf
+    tl.run_vep
+    tl.read_vep_annos
+    tl.merge_annos_into_gdata
+    tl.one_hot_encode_genotypes
+    tl.dosage_per_strand
+    tl.simulate_genotype_data_msprime
+    tl.simulate_genotype_data_numpy
 ```
 
 ## Plotting
