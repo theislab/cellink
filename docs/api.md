@@ -1,5 +1,16 @@
 # API
 
+## Linking Structure
+
+```{eval-rst}
+.. module:: cellink._core
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    _core.donordata.DonorData
+```
 ## Input-Output
 
 ```{eval-rst}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -235,27 +236,56 @@ class DonorData:
         console.print(table)
         return ""
 
-    def pseudobulk(self, key, target_key, agg_func="mean"):
+    def aggregate(
+        self,
+        key,
+        target_key,
+        filter_key: str = None,
+        filter_value: str = None,
+        agg_func: str | Callable = "mean",
+    ):
+        """Aggregate single-cell data to donor-level.
+
+        Args:
+            key:
+                The key in adata to aggregate.
+            target_key:
+                The key in gdata to store the aggregated data.
+            filter_key:
+                The key in adata.obs to filter by. Defaults to None.
+            filter_value:
+                The value in adata.obs[filter_key] to filter by. Defaults to None.
+            agg_func:
+                The aggregation function to use. Defaults to "mean".
+        """
+        assert (filter_key is None) == (
+            filter_value is None
+        ), "filter_key and filter_value both have to be provided or None"
+
+        adata = self.adata
+        if filter_key is not None:
+            adata = adata[adata.obs[filter_key] == filter_value]
+
         if key == "X":
-            data = self.adata.X
-            columns = self.adata.var_names
-        elif key in self.adata.layers:
-            data = self.adata.layers[key]
-            columns = self.adata.var_names
-        elif key in self.adata.obs.columns:
-            data = self.adata.obs[[key]]
+            data = adata.X
+            columns = adata.var_names
+        elif key in adata.layers:
+            data = adata.layers[key]
+            columns = adata.var_names
+        elif key in adata.obs.columns:
+            data = adata.obs[[key]]
             columns = [key]
-        elif key in self.adata.var.index:
-            data = self.adata[:, [key]].X
+        elif key in adata.var.index:
+            data = adata[:, [key]].X
             columns = [key]
-        elif key in self.adata.obsm:
-            data = self.adata.obsm[key]
+        elif key in adata.obsm:
+            data = adata.obsm[key]
             columns = getattr(data, "columns", range(data.shape[1]))
         else:
             raise ValueError(f"Key '{key}' not found in adata")
 
         data = pd.DataFrame(asarray(data), columns=columns)
-        data["group"] = self.adata.obs[self.donor_key_in_sc_adata].values
+        data["group"] = adata.obs[self.donor_key_in_sc_adata].values
         data = data.groupby("group", observed=True).agg(agg_func)
         data = data.loc[self.gdata.obs_names]
         if data.shape[1] == 1:
