@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 from anndata import AnnData
@@ -20,8 +20,16 @@ class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
     This class allows donor-level, especially genetic, analysis with single-cell datasets.
-    It holds AnnData objects for single-cell (adata) and genetic (gdata) data.
+    It holds AnnData objects for single-cell (adata) and genetic (gdata) data,
+    as well as gene annotation information.
     The donor key in adata.obs must be a categorical column.
+
+    Attributes
+    ----------
+        adata (AnnData): Single-cell data
+        gdata (AnnData): Genetic data
+        donor_key_in_sc_adata (str): Key for donor information in adata.obs
+        gene_annotation (pd.DataFrame): Gene annotation information
 
     Raises
     ------
@@ -36,10 +44,28 @@ class DonorData:
     adata: AnnData
     gdata: AnnData
     donor_key_in_sc_adata: str
+    gene_annotation: pd.DataFrame = field(init=False)
 
-    def __post_init__(self):
+    def __init__(
+        self,
+        adata: AnnData,
+        gdata: AnnData,
+        donor_key_in_sc_adata: str,
+        gene_annotation_path: str = "data/Yazar_OneK1K/gene_annotation.csv",
+    ):
+        self.adata = adata
+        self.gdata = gdata
+        self.donor_key_in_sc_adata = donor_key_in_sc_adata
+        self._load_gene_annotation(gene_annotation_path)
         self._validate_data()
         self._match_donors()
+
+    def _load_gene_annotation(self, gene_annotation_path: str):
+        """Loads the gene annotation data from the specified file."""
+        self.gene_annotation = pd.read_csv(gene_annotation_path, index_col="ensembl_gene_id")
+        logger.info(f"Gene annotation loaded from {gene_annotation_path}")
+        error_message = f"Gene annotation file not found at {gene_annotation_path}"
+        raise FileNotFoundError(error_message)
 
     def _validate_data(self):
         """Validates that the donor key exists in the single-cell data and is categorical.
@@ -265,14 +291,14 @@ class DonorData:
         else:
             self.gdata.obsm[target_key] = data
 
-    def slice_genomic_region(self, chrom, start, end, cis_window=0):
+    def _slice_genomic_region(self, chrom, start, end, window_size=1e6):
         """Returns a new DonorData object with genetic data sliced to a specific genomic region.
 
         Args:
             chrom: The chromosome to slice.
             start: The start position of the region.
             end: The end position of the region.
-            cis_window: Additional window size to include around the region. Defaults to 0.
+            window_size: Additional window size to include around the region. Defaults to 0.
 
         Returns
         -------
@@ -289,10 +315,45 @@ class DonorData:
         # Slice the genetic data
         mask = (
             (self.gdata.var.chrom == chrom)
-            & (self.gdata.var.pos >= start - cis_window)
-            & (self.gdata.var.pos <= end + cis_window)
+            & (self.gdata.var.pos >= start - window_size)
+            & (self.gdata.var.pos <= end + window_size)
         )
         new_gdata = self.gdata[:, mask]
 
         # Create a new DonorData object with the sliced genetic data
         return DonorData(self.adata, new_gdata, self.donor_key_in_sc_adata)
+
+    def slice_genomic_region(self, ensembl_id: str, window_size: float = 1e6, tss: bool = True) -> DonorData:
+        """
+        Slice the genetic data to a specific genomic region based on an Ensembl gene ID.
+
+        Args:
+            ensembl_id: The Ensembl gene ID to slice around.
+            window_size: Additional window size to include around the region. Defaults to 1e6.
+            tss: If True, use only the transcription start site. If False, use the entire gene body. Defaults to True.
+
+        Returns
+        -------
+            A new DonorData object with sliced genetic data.
+
+        Raises
+        ------
+            ValueError: If the Ensembl ID is not found in the gene annotation.
+        """
+        if ensembl_id not in self.gene_annotation.index:
+            raise ValueError(f"Ensembl ID '{ensembl_id}' not found in gene annotation.")
+
+        gene_info = self.gene_annotation.loc[ensembl_id]
+        chrom = gene_info["chromosome_name"]
+        strand = gene_info["strand"]
+
+        if tss:
+            if strand == 1:
+                start = end = gene_info["start_position"]
+            else:
+                start = end = gene_info["end_position"]
+        else:
+            start = gene_info["start_position"]
+            end = gene_info["end_position"]
+
+        return self._slice_genomic_region(chrom, start, end, window_size)
