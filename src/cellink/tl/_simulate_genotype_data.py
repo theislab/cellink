@@ -1,9 +1,6 @@
 import anndata
 import anndata as ad
-try:
-    import msprime
-except ImportError:
-    print("msprime missing.")
+import msprime
 import numpy as np
 
 
