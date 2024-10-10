@@ -4,7 +4,6 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import numpy as np
 import pandas as pd
 from anndata import AnnData
 from anndata.utils import asarray
@@ -91,15 +90,6 @@ class DonorData:
             raise ValueError(f"Donor '{donor}' not found in gdata")
         return self.gdata[donor]
 
-    def _sync_data(self, valid_donors: np.ndarray):
-        """Syncs the adata and gdata objects by filtering to only include valid donors.
-
-        Args:
-            valid_donors (np.ndarray): An array of valid donor names.
-        """
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].isin(valid_donors)]
-        self.gdata = self.gdata[self.gdata.obs_names.isin(valid_donors)]
-
     def slice_cells(self, cell_condition) -> DonorData:
         """Returns a new DonorData object with single-cell data sliced based on the provided cell condition.
 
@@ -110,11 +100,7 @@ class DonorData:
         -------
             DonorData: A new DonorData object with sliced single-cell data.
         """
-        new_adata = self.adata[cell_condition]
-        valid_donors = new_adata.obs[self.donor_key_in_sc_adata].unique()
-        self._sync_data(valid_donors)
-
-        return DonorData(new_adata, self.gdata, self.donor_key_in_sc_adata)
+        return DonorData(self.adata[cell_condition], self.gdata, self.donor_key_in_sc_adata)
 
     def slice_donors(self, donors: list[str]) -> DonorData:
         """Returns a new DonorData object with both single-cell and genetic data sliced to only include the specified donors.
@@ -126,10 +112,8 @@ class DonorData:
         -------
             DonorData: A new DonorData object with sliced data.
         """
-        valid_donors = np.intersect1d(self.adata.obs[self.donor_key_in_sc_adata].unique(), donors)
-        self._sync_data(valid_donors)
-
-        return DonorData(self.adata, self.gdata, self.donor_key_in_sc_adata)
+        new_gdata = self.gdata[self.gdata.obs.index.isin(donors)]
+        return DonorData(self.adata, new_gdata, self.donor_key_in_sc_adata)
 
     def _match_donors(self) -> None:
         """Match donors between genetic and single-cell data.
@@ -280,3 +264,35 @@ class DonorData:
             self.gdata.obs[target_key] = data.iloc[:, 0]
         else:
             self.gdata.obsm[target_key] = data
+
+    def slice_genomic_region(self, chrom, start, end, cis_window=0):
+        """Returns a new DonorData object with genetic data sliced to a specific genomic region.
+
+        Args:
+            chrom: The chromosome to slice.
+            start: The start position of the region.
+            end: The end position of the region.
+            cis_window: Additional window size to include around the region. Defaults to 0.
+
+        Returns
+        -------
+            A new DonorData object with sliced genetic data.
+
+        Raises
+        ------
+            ValueError: If the required columns are not present in gdata.var.
+        """
+        required_columns = ["chrom", "pos"]
+        if not all(col in self.gdata.var.columns for col in required_columns):
+            raise ValueError(f"gdata.var must contain the following columns: {required_columns}")
+
+        # Slice the genetic data
+        mask = (
+            (self.gdata.var.chrom == chrom)
+            & (self.gdata.var.pos >= start - cis_window)
+            & (self.gdata.var.pos <= end + cis_window)
+        )
+        new_gdata = self.gdata[:, mask]
+
+        # Create a new DonorData object with the sliced genetic data
+        return DonorData(self.adata, new_gdata, self.donor_key_in_sc_adata)
