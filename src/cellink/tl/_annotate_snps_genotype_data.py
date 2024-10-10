@@ -20,31 +20,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-def setup_snpeff():
-    return 0
-
-
-def run_annotation_with_snpeff():
-    return 0
-
-
-def setup_ensemblvep():
-    return 0
-
-
-def run_annotation_with_ensemblvep():
-    return 0
-
-
-def setup_favor():
-    return 0
-
-
-def run_annotation_with_favor():
-    return 0
-
-
 def _write_variants_to_vcf(variants, out_file):
     # TODO add check for if file allready exists
     logger.info(f"Writing variants to {out_file}")
