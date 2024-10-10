@@ -1,7 +1,6 @@
-import numpy as np
 import anndata
-from typing import Literal, Iterable
-from scipy.stats import chisquare
+import numpy as np
+
 
 def variant_qc(
     adata: anndata.AnnData,
@@ -50,7 +49,7 @@ def variant_qc(
 
     maf_filter = maf >= maf_threshold
 
-    #Could introduce further fitlers here
+    # Could introduce further fitlers here
 
     combined_filter = maf_filter
 

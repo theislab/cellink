@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -53,9 +53,7 @@ class DonorData:
         if self.donor_key_in_sc_adata not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_sc_adata}' not found in adata.obs")
         if not self.adata.obs[self.donor_key_in_sc_adata].dtype.name == "category":
-            raise ValueError(
-                f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical"
-            )
+            raise ValueError(f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical")
 
     def get_donor_adata(self, donor: str) -> AnnData:
         """Retrieve single-cell data for a specific donor.
@@ -99,9 +97,7 @@ class DonorData:
         Args:
             valid_donors (np.ndarray): An array of valid donor names.
         """
-        self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_sc_adata].isin(valid_donors)
-        ]
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].isin(valid_donors)]
         self.gdata = self.gdata[self.gdata.obs_names.isin(valid_donors)]
 
     def slice_cells(self, cell_condition) -> DonorData:
@@ -130,9 +126,7 @@ class DonorData:
         -------
             DonorData: A new DonorData object with sliced data.
         """
-        valid_donors = np.intersect1d(
-            self.adata.obs[self.donor_key_in_sc_adata].unique(), donors
-        )
+        valid_donors = np.intersect1d(self.adata.obs[self.donor_key_in_sc_adata].unique(), donors)
         self._sync_data(valid_donors)
 
         return DonorData(self.adata, self.gdata, self.donor_key_in_sc_adata)
@@ -157,9 +151,7 @@ class DonorData:
         - Warnings are logged about the number of donors kept and dropped.
         """
         # Sort single-cell data by the specified column
-        self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_sc_adata].sort_values().index
-        ]
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].sort_values().index]
 
         # Get unique sample identifiers from both datasets
         sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_sc_adata].unique())
@@ -184,9 +176,7 @@ class DonorData:
 
         # Filter both datasets to keep only matched donors
         self.gdata = self.gdata[keep_donors]
-        self.adata = self.adata[
-            self.adata.obs[self.donor_key_in_sc_adata].isin(keep_donors)
-        ]
+        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].isin(keep_donors)]
 
     def __repr__(self) -> str:
         """String representation of DonorData showing side-by-side adata and gdata views."""
@@ -222,9 +212,7 @@ class DonorData:
                 # If the donor key is found in the line, highlight it
                 parts = line.split(highlighted_donor_key)
                 highlighted_line = (
-                    Text(parts[0])
-                    + Text(highlighted_donor_key, style="bold blue underline")
-                    + Text(parts[1])
+                    Text(parts[0]) + Text(highlighted_donor_key, style="bold blue underline") + Text(parts[1])
                 )
             else:
                 highlighted_line = Text(line)
@@ -243,7 +231,7 @@ class DonorData:
         filter_key: str = None,
         filter_value: str = None,
         agg_func: str | Callable = "mean",
-    ):
+    ) -> None:
         """Aggregate single-cell data to donor-level.
 
         Args:
