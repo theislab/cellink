@@ -1,16 +1,15 @@
-import anndata as ad
-import pandas as pd
-import numpy as np
-import pickle
-import sgkit as sg
-from pathlib import Path
 import logging
 import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
 from cellink.tl.utils import (
-    _explode_columns,
-    _get_vep_start_row,
     _add_dummy_cols,
+    _explode_columns,
     _flatten_single_value,
+    _get_vep_start_row,
 )
 
 logging.basicConfig(
@@ -137,16 +136,12 @@ def run_vep(
 
     logger.info(f"running VEP command {cmd}")
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, shell=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
         logger.info("VEP ran successfully!")
         logger.info("Output:\n", result.stdout)  # Standard output of the command
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running VEP: {e}")
-        logger.error(
-            f"Error output:\n{e.stderr}"
-        )  # Standard error message if command fails
+        logger.error(f"Error output:\n{e.stderr}")  # Standard error message if command fails
 
     if return_annos:
         annos = pd.read_csv(output, sep="\t", skiprows=58)
@@ -154,21 +149,16 @@ def run_vep(
 
 
 def _aggregate_dup_rows(annos, id_col="#Uploaded_variation"):
-
     annos_cond = annos.copy()
     annos_cond = annos_cond.set_index(id_col)
-    indices_to_agg = list(
-        annos_cond.index.to_frame()[annos_cond.index.value_counts() > 1].index.unique()
-    )
+    indices_to_agg = list(annos_cond.index.to_frame()[annos_cond.index.value_counts() > 1].index.unique())
 
     logger.info(f"Number of variant ids with >1 annotation {len(indices_to_agg)}")
 
     annos_cond_sub = annos_cond.loc[indices_to_agg].copy()
 
     annos_cond_sub = annos_cond_sub.groupby(id_col).agg(lambda x: list(x))
-    annos_cond_sub = annos_cond_sub.applymap(
-        lambda x: _flatten_single_value(x) if isinstance(x, list) else x
-    )
+    annos_cond_sub = annos_cond_sub.applymap(lambda x: _flatten_single_value(x) if isinstance(x, list) else x)
     # TODO fix  FutureWarning: DataFrame.applymap has been deprecated. Use DataFrame.map instead.
     indices_to_keep = list(set(annos_cond.index) - set(indices_to_agg))
     annos_cond = pd.concat([annos_cond.loc[indices_to_keep], annos_cond_sub])
@@ -177,14 +167,9 @@ def _aggregate_dup_rows(annos, id_col="#Uploaded_variation"):
     return annos_cond
 
 
-def read_vep_annos(
-    vep_anno_file, cols_to_explode=["Consequence"], cols_to_dummy=["Consequence"]
-):
-
+def read_vep_annos(vep_anno_file, cols_to_explode=["Consequence"], cols_to_dummy=["Consequence"]):
     # TODO: rename annotation columns
-    annos = pd.read_csv(
-        vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
-    )
+    annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))
     logger.info(f"{annos.columns}")
     annos.replace("-", np.nan, inplace=True)
     for col in cols_to_explode:
@@ -192,15 +177,12 @@ def read_vep_annos(
     for col in cols_to_dummy:
         annos = _add_dummy_cols(annos, col)
     # TODO: make function to collapse such that only one row per variant
-    logger.info(
-        "Aggregating annotations from multiple contexts to get one row per variant"
-    )
+    logger.info("Aggregating annotations from multiple contexts to get one row per variant")
     annos = _aggregate_dup_rows(annos, id_col="#Uploaded_variation")
     return annos
 
 
 def merge_annos_into_gdata(annos, gdata, id_col="#Uploaded_variation"):
-
     annos = annos.reset_index().rename(columns={id_col: "variant_id"})
 
     annos["variant_id"] = annos["variant_id"].str.replace("/", "_")

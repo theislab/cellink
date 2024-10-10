@@ -6,9 +6,10 @@ warnings.filterwarnings(
     message="pkg_resources is deprecated as an API",
     category=DeprecationWarning,
 )
-
 from . import io, pl, pp, tl  # noqa: E402
+from ._core.donordata import DonorData
 
-__all__ = ["pl", "pp", "tl", "io"]
+__all__ = ["DonorData", "pl", "pp", "tl", "io"]
+
 
 #__version__ = version("cellink")

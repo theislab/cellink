@@ -1,7 +1,6 @@
-import numpy as np
 import anndata
-from typing import Literal, Iterable
-from scipy.stats import chisquare
+import numpy as np
+
 
 def variant_qc(
     adata: anndata.AnnData,
