@@ -101,7 +101,7 @@ def _run_burden_testing_on_gene(ddata_ct, this_gene,
     G = ddata_ct.gdata.uns["gene_burdens"].query("Gene ==@this_gene")\
         .drop(columns = "Gene").loc[Y.index]
 
-    gwas = GWAS(np.array(Y).reshape(-1, 1))#, F)
+    gwas = GWAS(np.array(Y).reshape(-1, 1), F)
     gwas.process(G)
     beta = gwas.getBetaSNP().reshape(-1)
     pv = gwas.getPv().reshape(-1)
