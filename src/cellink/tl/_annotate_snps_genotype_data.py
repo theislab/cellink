@@ -185,7 +185,9 @@ def add_vep_annos_to_gdata(
     vep_anno_file,
     gdata,
     id_col="#Uploaded_variation",
-    cols_to_explode=["Consequence"]):
+    id_col_new="snp_id",
+    cols_to_explode=["Consequence"],
+    cols_to_dummy=["Consequence"]):
     """Add VEP annotations to gdata 
 
     Parameters
@@ -196,8 +198,11 @@ def add_vep_annos_to_gdata(
         gdata object the annotations should be written to
     id_col : str, optional
         Variant id column used in the vep_anno_file, by default "#Uploaded_variation"
+    id_col_new : str, optional
+        _description_, by default "snp_id"
     cols_to_explode : list, optional
         Columns which can have multiple comma-separated values per element which should be exploded, by default ["Consequence"]
+
 
     Returns
     -------
@@ -211,6 +216,14 @@ def add_vep_annos_to_gdata(
     annos = pd.read_csv(
         vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
     )
+    
+    logger.info(f"renaming id column {id_col} into {id_col_new}")
+    annos[id_col] = annos[id_col].str.replace("/", "_")
+    annos = annos.rename(columns={id_col: id_col_new})
+    id_col = id_col_new
+
+    logger.info("Subsetting annotations to variants that are in gdata")
+    annos.set_index(id_col).loc[gdata.var.index].reset_index()
     logger.info(f"{annos.columns}")
     annos.replace("-", np.nan, inplace=True)
     for col in cols_to_explode:
@@ -223,7 +236,7 @@ def add_vep_annos_to_gdata(
 
     logger.info("Expanding annotations from multiple contexts per variant")
     varm = _create_varm_expanded(
-        annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
+        annos, gdata, id_col, key_prefix="annotations_"
     )
 
     gdata.varm = varm
@@ -280,7 +293,7 @@ def _expand_annotations(
 
 
 def _create_varm_expanded(
-    annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
+    annos, gdata, id_col, key_prefix="annotations_"
 ):
     """Expand annotations with multiple contexts per variant into multiple annotation data frames
 
@@ -294,18 +307,14 @@ def _create_varm_expanded(
         Variant id col
     key_prefix : str, optional
         prefix of resulting annotation data frames, by default "annotations_"
-    id_col_new : str, optional
-        _description_, by default "snp_id"
+
 
     Returns
     -------
     dict
         varm dictionary of max_n_val annotation data frames  
     """    
-    logger.info(f"renaming id column {id_col} into {id_col_new}")
-    annos[id_col] = annos[id_col].str.replace("/", "_")
-    annos = annos.rename(columns={id_col: id_col_new})
-    id_col = id_col_new
+
     logger.info("getting unique counts")
     unique_counts = (
         annos.groupby(id_col).agg(lambda x: x.nunique(dropna=False)).max(axis=0)
