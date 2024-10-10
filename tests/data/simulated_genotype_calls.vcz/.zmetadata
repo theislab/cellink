@@ -1,0 +1,451 @@
+{
+    "metadata": {
+        ".zattrs": {
+            "source": "bio2zarr-0.1.1",
+            "vcf_header": "##fileformat=VCFv4.2\n##FILTER=<ID=PASS,Description=\"All filters passed\">\n##fileDate=20241010\n##source=PLINKv1.90\n##contig=<ID=0,length=2147483645>\n##INFO=<ID=PR,Number=0,Type=Flag,Description=\"Provisional reference allele, may not be based on real reference genome\">\n##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t0_S0\t0_S1\t0_S2\t0_S3\t0_S4\t0_S5\t0_S6\t0_S7\t0_S8\t0_S9\t0_S10\t0_S11\t0_S12\t0_S13\t0_S14\t0_S15\t0_S16\t0_S17\t0_S18\t0_S19\t0_S20\t0_S21\t0_S22\t0_S23\t0_S24\t0_S25\t0_S26\t0_S27\t0_S28\t0_S29\t0_S30\t0_S31\t0_S32\t0_S33\t0_S34\t0_S35\t0_S36\t0_S37\t0_S38\t0_S39\t0_S40\t0_S41\t0_S42\t0_S43\t0_S44\t0_S45\t0_S46\t0_S47\t0_S48\t0_S49\t0_S50\t0_S51\t0_S52\t0_S53\t0_S54\t0_S55\t0_S56\t0_S57\t0_S58\t0_S59\t0_S60\t0_S61\t0_S62\t0_S63\t0_S64\t0_S65\t0_S66\t0_S67\t0_S68\t0_S69\t0_S70\t0_S71\t0_S72\t0_S73\t0_S74\t0_S75\t0_S76\t0_S77\t0_S78\t0_S79\t0_S80\t0_S81\t0_S82\t0_S83\t0_S84\t0_S85\t0_S86\t0_S87\t0_S88\t0_S89\t0_S90\t0_S91\t0_S92\t0_S93\t0_S94\t0_S95\t0_S96\t0_S97\t0_S98\t0_S99\t0_S100\t0_S101\t0_S102\t0_S103\t0_S104\t0_S105\t0_S106\t0_S107\t0_S108\t0_S109\t0_S110\t0_S111\t0_S112\t0_S113\t0_S114\t0_S115\t0_S116\t0_S117\t0_S118\t0_S119\t0_S120\t0_S121\t0_S122\t0_S123\t0_S124\t0_S125\t0_S126\t0_S127\t0_S128\t0_S129\t0_S130\t0_S131\t0_S132\t0_S133\t0_S134\t0_S135\t0_S136\t0_S137\t0_S138\t0_S139\t0_S140\t0_S141\t0_S142\t0_S143\t0_S144\t0_S145\t0_S146\t0_S147\t0_S148\t0_S149\t0_S150\t0_S151\t0_S152\t0_S153\t0_S154\t0_S155\t0_S156\t0_S157\t0_S158\t0_S159\t0_S160\t0_S161\t0_S162\t0_S163\t0_S164\t0_S165\t0_S166\t0_S167\t0_S168\t0_S169\t0_S170\t0_S171\t0_S172\t0_S173\t0_S174\t0_S175\t0_S176\t0_S177\t0_S178\t0_S179\t0_S180\t0_S181\t0_S182\t0_S183\t0_S184\t0_S185\t0_S186\t0_S187\t0_S188\t0_S189\t0_S190\t0_S191\t0_S192\t0_S193\t0_S194\t0_S195\t0_S196\t0_S197\t0_S198\t0_S199\t0_S200\t0_S201\t0_S202\t0_S203\t0_S204\t0_S205\t0_S206\t0_S207\t0_S208\t0_S209\t0_S210\t0_S211\t0_S212\t0_S213\t0_S214\t0_S215\t0_S216\t0_S217\t0_S218\t0_S219\t0_S220\t0_S221\t0_S222\t0_S223\t0_S224\t0_S225\t0_S226\t0_S227\t0_S228\t0_S229\t0_S230\t0_S231\t0_S232\t0_S233\t0_S234\t0_S235\t0_S236\t0_S237\t0_S238\t0_S239\t0_S240\t0_S241\t0_S242\t0_S243\t0_S244\t0_S245\t0_S246\t0_S247\t0_S248\t0_S249\t0_S250\t0_S251\t0_S252\t0_S253\t0_S254\t0_S255\t0_S256\t0_S257\t0_S258\t0_S259\t0_S260\t0_S261\t0_S262\t0_S263\t0_S264\t0_S265\t0_S266\t0_S267\t0_S268\t0_S269\t0_S270\t0_S271\t0_S272\t0_S273\t0_S274\t0_S275\t0_S276\t0_S277\t0_S278\t0_S279\t0_S280\t0_S281\t0_S282\t0_S283\t0_S284\t0_S285\t0_S286\t0_S287\t0_S288\t0_S289\t0_S290\t0_S291\t0_S292\t0_S293\t0_S294\t0_S295\t0_S296\t0_S297\t0_S298\t0_S299\t0_S300\t0_S301\t0_S302\t0_S303\t0_S304\t0_S305\t0_S306\t0_S307\t0_S308\t0_S309\t0_S310\t0_S311\t0_S312\t0_S313\t0_S314\t0_S315\t0_S316\t0_S317\t0_S318\t0_S319\t0_S320\t0_S321\t0_S322\t0_S323\t0_S324\t0_S325\t0_S326\t0_S327\t0_S328\t0_S329\t0_S330\t0_S331\t0_S332\t0_S333\t0_S334\t0_S335\t0_S336\t0_S337\t0_S338\t0_S339\t0_S340\t0_S341\t0_S342\t0_S343\t0_S344\t0_S345\t0_S346\t0_S347\t0_S348\t0_S349\t0_S350\t0_S351\t0_S352\t0_S353\t0_S354\t0_S355\t0_S356\t0_S357\t0_S358\t0_S359\t0_S360\t0_S361\t0_S362\t0_S363\t0_S364\t0_S365\t0_S366\t0_S367\t0_S368\t0_S369\t0_S370\t0_S371\t0_S372\t0_S373\t0_S374\t0_S375\t0_S376\t0_S377\t0_S378\t0_S379\t0_S380\t0_S381\t0_S382\t0_S383\t0_S384\t0_S385\t0_S386\t0_S387\t0_S388\t0_S389\t0_S390\t0_S391\t0_S392\t0_S393\t0_S394\t0_S395\t0_S396\t0_S397\t0_S398\t0_S399\t0_S400\t0_S401\t0_S402\t0_S403\t0_S404\t0_S405\t0_S406\t0_S407\t0_S408\t0_S409\t0_S410\t0_S411\t0_S412\t0_S413\t0_S414\t0_S415\t0_S416\t0_S417\t0_S418\t0_S419\t0_S420\t0_S421\t0_S422\t0_S423\t0_S424\t0_S425\t0_S426\t0_S427\t0_S428\t0_S429\t0_S430\t0_S431\t0_S432\t0_S433\t0_S434\t0_S435\t0_S436\t0_S437\t0_S438\t0_S439\t0_S440\t0_S441\t0_S442\t0_S443\t0_S444\t0_S445\t0_S446\t0_S447\t0_S448\t0_S449\t0_S450\t0_S451\t0_S452\t0_S453\t0_S454\t0_S455\t0_S456\t0_S457\t0_S458\t0_S459\t0_S460\t0_S461\t0_S462\t0_S463\t0_S464\t0_S465\t0_S466\t0_S467\t0_S468\t0_S469\t0_S470\t0_S471\t0_S472\t0_S473\t0_S474\t0_S475\t0_S476\t0_S477\t0_S478\t0_S479\t0_S480\t0_S481\t0_S482\t0_S483\t0_S484\t0_S485\t0_S486\t0_S487\t0_S488\t0_S489\t0_S490\t0_S491\t0_S492\t0_S493\t0_S494\t0_S495\t0_S496\t0_S497\t0_S498\t0_S499\t0_S500\t0_S501\t0_S502\t0_S503\t0_S504\t0_S505\t0_S506\t0_S507\t0_S508\t0_S509\t0_S510\t0_S511\t0_S512\t0_S513\t0_S514\t0_S515\t0_S516\t0_S517\t0_S518\t0_S519\t0_S520\t0_S521\t0_S522\t0_S523\t0_S524\t0_S525\t0_S526\t0_S527\t0_S528\t0_S529\t0_S530\t0_S531\t0_S532\t0_S533\t0_S534\t0_S535\t0_S536\t0_S537\t0_S538\t0_S539\t0_S540\t0_S541\t0_S542\t0_S543\t0_S544\t0_S545\t0_S546\t0_S547\t0_S548\t0_S549\t0_S550\t0_S551\t0_S552\t0_S553\t0_S554\t0_S555\t0_S556\t0_S557\t0_S558\t0_S559\t0_S560\t0_S561\t0_S562\t0_S563\t0_S564\t0_S565\t0_S566\t0_S567\t0_S568\t0_S569\t0_S570\t0_S571\t0_S572\t0_S573\t0_S574\t0_S575\t0_S576\t0_S577\t0_S578\t0_S579\t0_S580\t0_S581\t0_S582\t0_S583\t0_S584\t0_S585\t0_S586\t0_S587\t0_S588\t0_S589\t0_S590\t0_S591\t0_S592\t0_S593\t0_S594\t0_S595\t0_S596\t0_S597\t0_S598\t0_S599\t0_S600\t0_S601\t0_S602\t0_S603\t0_S604\t0_S605\t0_S606\t0_S607\t0_S608\t0_S609\t0_S610\t0_S611\t0_S612\t0_S613\t0_S614\t0_S615\t0_S616\t0_S617\t0_S618\t0_S619\t0_S620\t0_S621\t0_S622\t0_S623\t0_S624\t0_S625\t0_S626\t0_S627\t0_S628\t0_S629\t0_S630\t0_S631\t0_S632\t0_S633\t0_S634\t0_S635\t0_S636\t0_S637\t0_S638\t0_S639\t0_S640\t0_S641\t0_S642\t0_S643\t0_S644\t0_S645\t0_S646\t0_S647\t0_S648\t0_S649\t0_S650\t0_S651\t0_S652\t0_S653\t0_S654\t0_S655\t0_S656\t0_S657\t0_S658\t0_S659\t0_S660\t0_S661\t0_S662\t0_S663\t0_S664\t0_S665\t0_S666\t0_S667\t0_S668\t0_S669\t0_S670\t0_S671\t0_S672\t0_S673\t0_S674\t0_S675\t0_S676\t0_S677\t0_S678\t0_S679\t0_S680\t0_S681\t0_S682\t0_S683\t0_S684\t0_S685\t0_S686\t0_S687\t0_S688\t0_S689\t0_S690\t0_S691\t0_S692\t0_S693\t0_S694\t0_S695\t0_S696\t0_S697\t0_S698\t0_S699\t0_S700\t0_S701\t0_S702\t0_S703\t0_S704\t0_S705\t0_S706\t0_S707\t0_S708\t0_S709\t0_S710\t0_S711\t0_S712\t0_S713\t0_S714\t0_S715\t0_S716\t0_S717\t0_S718\t0_S719\t0_S720\t0_S721\t0_S722\t0_S723\t0_S724\t0_S725\t0_S726\t0_S727\t0_S728\t0_S729\t0_S730\t0_S731\t0_S732\t0_S733\t0_S734\t0_S735\t0_S736\t0_S737\t0_S738\t0_S739\t0_S740\t0_S741\t0_S742\t0_S743\t0_S744\t0_S745\t0_S746\t0_S747\t0_S748\t0_S749\t0_S750\t0_S751\t0_S752\t0_S753\t0_S754\t0_S755\t0_S756\t0_S757\t0_S758\t0_S759\t0_S760\t0_S761\t0_S762\t0_S763\t0_S764\t0_S765\t0_S766\t0_S767\t0_S768\t0_S769\t0_S770\t0_S771\t0_S772\t0_S773\t0_S774\t0_S775\t0_S776\t0_S777\t0_S778\t0_S779\t0_S780\t0_S781\t0_S782\t0_S783\t0_S784\t0_S785\t0_S786\t0_S787\t0_S788\t0_S789\t0_S790\t0_S791\t0_S792\t0_S793\t0_S794\t0_S795\t0_S796\t0_S797\t0_S798\t0_S799\t0_S800\t0_S801\t0_S802\t0_S803\t0_S804\t0_S805\t0_S806\t0_S807\t0_S808\t0_S809\t0_S810\t0_S811\t0_S812\t0_S813\t0_S814\t0_S815\t0_S816\t0_S817\t0_S818\t0_S819\t0_S820\t0_S821\t0_S822\t0_S823\t0_S824\t0_S825\t0_S826\t0_S827\t0_S828\t0_S829\t0_S830\t0_S831\t0_S832\t0_S833\t0_S834\t0_S835\t0_S836\t0_S837\t0_S838\t0_S839\t0_S840\t0_S841\t0_S842\t0_S843\t0_S844\t0_S845\t0_S846\t0_S847\t0_S848\t0_S849\t0_S850\t0_S851\t0_S852\t0_S853\t0_S854\t0_S855\t0_S856\t0_S857\t0_S858\t0_S859\t0_S860\t0_S861\t0_S862\t0_S863\t0_S864\t0_S865\t0_S866\t0_S867\t0_S868\t0_S869\t0_S870\t0_S871\t0_S872\t0_S873\t0_S874\t0_S875\t0_S876\t0_S877\t0_S878\t0_S879\t0_S880\t0_S881\t0_S882\t0_S883\t0_S884\t0_S885\t0_S886\t0_S887\t0_S888\t0_S889\t0_S890\t0_S891\t0_S892\t0_S893\t0_S894\t0_S895\t0_S896\t0_S897\t0_S898\t0_S899\t0_S900\t0_S901\t0_S902\t0_S903\t0_S904\t0_S905\t0_S906\t0_S907\t0_S908\t0_S909\t0_S910\t0_S911\t0_S912\t0_S913\t0_S914\t0_S915\t0_S916\t0_S917\t0_S918\t0_S919\t0_S920\t0_S921\t0_S922\t0_S923\t0_S924\t0_S925\t0_S926\t0_S927\t0_S928\t0_S929\t0_S930\t0_S931\t0_S932\t0_S933\t0_S934\t0_S935\t0_S936\t0_S937\t0_S938\t0_S939\t0_S940\t0_S941\t0_S942\t0_S943\t0_S944\t0_S945\t0_S946\t0_S947\t0_S948\t0_S949\t0_S950\t0_S951\t0_S952\t0_S953\t0_S954\t0_S955\t0_S956\t0_S957\t0_S958\t0_S959\t0_S960\t0_S961\t0_S962\t0_S963\t0_S964\t0_S965\t0_S966\t0_S967\t0_S968\t0_S969\t0_S970\t0_S971\t0_S972\t0_S973\t0_S974\t0_S975\t0_S976\t0_S977\t0_S978\t0_S979\t0_S980\t0_S981\t0_S982\t0_S983\t0_S984\t0_S985\t0_S986\t0_S987\t0_S988\t0_S989\t0_S990\t0_S991\t0_S992\t0_S993\t0_S994\t0_S995\t0_S996\t0_S997\t0_S998\t0_S999\n",
+            "vcf_zarr_version": "0.2"
+        },
+        ".zgroup": {
+            "zarr_format": 2
+        },
+        "call_genotype/.zarray": {
+            "chunks": [
+                10000,
+                1000,
+                2
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|i1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999,
+                1000,
+                2
+            ],
+            "zarr_format": 2
+        },
+        "call_genotype/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants",
+                "samples",
+                "ploidy"
+            ],
+            "description": ""
+        },
+        "call_genotype_mask/.zarray": {
+            "chunks": [
+                10000,
+                1000,
+                2
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|b1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999,
+                1000,
+                2
+            ],
+            "zarr_format": 2
+        },
+        "call_genotype_mask/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants",
+                "samples",
+                "ploidy"
+            ],
+            "description": ""
+        },
+        "call_genotype_phased/.zarray": {
+            "chunks": [
+                10000,
+                1000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|b1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999,
+                1000
+            ],
+            "zarr_format": 2
+        },
+        "call_genotype_phased/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants",
+                "samples"
+            ],
+            "description": ""
+        },
+        "contig_id/.zarray": {
+            "chunks": [
+                1
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "|O",
+            "fill_value": 0,
+            "filters": [
+                {
+                    "id": "vlen-utf8"
+                }
+            ],
+            "order": "C",
+            "shape": [
+                1
+            ],
+            "zarr_format": 2
+        },
+        "contig_id/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "contigs"
+            ]
+        },
+        "contig_length/.zarray": {
+            "chunks": [
+                1
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "<i8",
+            "fill_value": 0,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1
+            ],
+            "zarr_format": 2
+        },
+        "contig_length/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "contigs"
+            ]
+        },
+        "filter_id/.zarray": {
+            "chunks": [
+                1
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "|O",
+            "fill_value": 0,
+            "filters": [
+                {
+                    "id": "vlen-utf8"
+                }
+            ],
+            "order": "C",
+            "shape": [
+                1
+            ],
+            "zarr_format": 2
+        },
+        "filter_id/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "filters"
+            ]
+        },
+        "sample_id/.zarray": {
+            "chunks": [
+                1000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 1
+            },
+            "dtype": "|O",
+            "fill_value": 0,
+            "filters": [
+                {
+                    "id": "vlen-utf8"
+                }
+            ],
+            "order": "C",
+            "shape": [
+                1000
+            ],
+            "zarr_format": 2
+        },
+        "sample_id/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "samples"
+            ]
+        },
+        "variant_PR/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|b1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_PR/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": "Provisional reference allele, may not be based on real reference genome"
+        },
+        "variant_allele/.zarray": {
+            "chunks": [
+                10000,
+                2
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 0
+            },
+            "dimension_separator": "/",
+            "dtype": "|O",
+            "fill_value": null,
+            "filters": [
+                {
+                    "id": "vlen-utf8"
+                }
+            ],
+            "order": "C",
+            "shape": [
+                1999,
+                2
+            ],
+            "zarr_format": 2
+        },
+        "variant_allele/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants",
+                "alleles"
+            ],
+            "description": ""
+        },
+        "variant_contig/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 0
+            },
+            "dimension_separator": "/",
+            "dtype": "|i1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_contig/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": ""
+        },
+        "variant_filter/.zarray": {
+            "chunks": [
+                10000,
+                1
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|b1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999,
+                1
+            ],
+            "zarr_format": 2
+        },
+        "variant_filter/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants",
+                "filters"
+            ],
+            "description": ""
+        },
+        "variant_id/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 0
+            },
+            "dimension_separator": "/",
+            "dtype": "|O",
+            "fill_value": null,
+            "filters": [
+                {
+                    "id": "vlen-utf8"
+                }
+            ],
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_id/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": ""
+        },
+        "variant_id_mask/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 2
+            },
+            "dimension_separator": "/",
+            "dtype": "|b1",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_id_mask/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": ""
+        },
+        "variant_position/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 0
+            },
+            "dimension_separator": "/",
+            "dtype": "<i2",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_position/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": ""
+        },
+        "variant_quality/.zarray": {
+            "chunks": [
+                10000
+            ],
+            "compressor": {
+                "blocksize": 0,
+                "clevel": 7,
+                "cname": "zstd",
+                "id": "blosc",
+                "shuffle": 0
+            },
+            "dimension_separator": "/",
+            "dtype": "<f4",
+            "fill_value": null,
+            "filters": null,
+            "order": "C",
+            "shape": [
+                1999
+            ],
+            "zarr_format": 2
+        },
+        "variant_quality/.zattrs": {
+            "_ARRAY_DIMENSIONS": [
+                "variants"
+            ],
+            "description": ""
+        }
+    },
+    "zarr_consolidated_format": 1
+}
