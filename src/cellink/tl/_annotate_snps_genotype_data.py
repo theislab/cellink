@@ -65,7 +65,7 @@ def run_vep(
     Parameters
     ----------
     config_file : _type_
-        config file specifying VEP paths
+        config file specifying VEP paths as in example/config.yaml
     input_vcf : str, optional
         VCF with variants to annotate. By default "variants.vcf"
     output : str, optional
