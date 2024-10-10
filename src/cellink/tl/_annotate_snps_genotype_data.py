@@ -228,6 +228,9 @@ def _expand_annotations(
     data, id_col, cols_to_exp, max_n_val, key_prefix="annotations_"
 ):
     data_exp = data.groupby(id_col).agg(lambda x: list(x)).reset_index()
+    obj_cols =list(data.dtypes[(data.dtypes == "category") | (data.dtypes == "object")].index)
+    obj_cols = list(set(obj_cols).intersection(set(cols_to_exp)))
+    fill_dict = {col: "-" if col in obj_cols else 0 for col in cols_to_exp}
 
     # Iterate over each row in agg_res to populate the new lists for DataFrames
     col_dict = {i: {col: [] for col in cols_to_exp} for i in range(max_n_val)}
@@ -236,7 +239,7 @@ def _expand_annotations(
         for col in cols_to_exp:
             values_flat = row[col]
             while len(values_flat) < max_n_val:
-                values_flat.append(0)  # Fill with zeros
+                values_flat.append(fill_dict[col])  # Fill with zeros
             for i in range(max_n_val):
                 col_dict[i][col].append(values_flat[i])
 
