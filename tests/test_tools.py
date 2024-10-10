@@ -6,18 +6,20 @@ import pytest
 from cellink.io import read_sgkit_zarr
 from cellink.tl import add_vep_annos_to_gdata
 
+#DATA = Path("tests/data_old")
 DATA = Path("tests/data")
 
 
 @pytest.fixture
 def sample_gdata():
-    zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
+    #zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
+    zarr_file_path = DATA / "simulated_genotype_calls.vcz"
     return read_sgkit_zarr(zarr_file_path)
 
 
 @pytest.fixture
 def sample_vep_annos():
-    vep_file = DATA / "variants_vep_annotated.txt"
+    vep_file = DATA / "variants_vep_annotated2.txt"
     return vep_file
 
 
