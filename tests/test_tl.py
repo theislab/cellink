@@ -8,9 +8,6 @@ import numpy as np
 
 DATA = Path("tests/data")
 
-def test_get_snp_df():
-    print("kskn")
-
 def test_simulate_genotype_data_msprime():
     adata = simulate_genotype_data_msprime(100, 100)
     assert adata.shape == (100, 100)
