@@ -1,9 +1,5 @@
 from ._annotate_snps_ensembl_rest import get_snp_df
-from ._annotate_snps_genotype_data import write_variants_to_vcf
-from ._annotate_snps_genotype_data import run_vep
-from ._annotate_snps_genotype_data import read_vep_annos
-from ._annotate_snps_genotype_data import merge_annos_into_gdata
-from ._encode_genotype_data import one_hot_encode_genotypes
-from ._encode_genotype_data import dosage_per_strand
-from ._simulate_genotype_data import simulate_genotype_data_msprime
-from ._simulate_genotype_data import simulate_genotype_data_numpy
+from ._annotate_snps_genotype_data import write_variants_to_vcf, run_vep, read_vep_annos, merge_annos_into_gdata
+from ._encode_genotype_data import one_hot_encode_genotypes, dosage_per_strand
+from ._simulate_genotype_data import simulate_genotype_data_msprime, simulate_genotype_data_numpy
+
