@@ -11,10 +11,10 @@ DATA = Path("tests/data")
 
 @pytest.mark.slow
 def test_donordata_init():
-    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
-    gdata.obs = gdata.obs.set_index("id")
+    gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
+    #gdata.obs = gdata.obs.set_index("id")
     adata = read_h5ad(
-        DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad"
+        DATA / "simulated_gene_expression.h5ad"
     )
     dd = DonorData(adata, gdata, "individual")
     print(dd)
@@ -22,10 +22,10 @@ def test_donordata_init():
 
 @pytest.mark.slow
 def test_donordata_aggregate():
-    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
-    gdata.obs = gdata.obs.set_index("id")
+    gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
+    #gdata.obs = gdata.obs.set_index("id")
     adata = read_h5ad(
-        DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad"
+        DATA / "simulated_gene_expression.h5ad"
     )
     dd = DonorData(adata, gdata, "individual")
     dd.aggregate("X", "Gex")
