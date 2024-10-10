@@ -1,6 +1,5 @@
 import numpy as np
 from anndata import AnnData
-from typing import Literal, Iterable
 
 
 def one_hot_encode_genotypes(
@@ -46,7 +45,6 @@ def one_hot_encode_genotypes(
             [0, 0, 1],
             [1, 0, 0]]])
     """
-
     genotypes = adata.X.astype(int)
     one_hot_encoded = np.zeros((genotypes.shape[0], genotypes.shape[1], 3), dtype=int)
 
@@ -105,7 +103,6 @@ def dosage_per_strand(
             [0.8, 0.2],
             [0. , 1. ]]])
     """
-
     dosages = adata.X.astype(float)
     per_strand_encoded = np.zeros((dosages.shape[0], dosages.shape[1], 2), dtype=float)
 
