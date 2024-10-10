@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -62,10 +63,12 @@ class DonorData:
 
     def _load_gene_annotation(self, gene_annotation_path: str):
         """Loads the gene annotation data from the specified file."""
+        if not os.path.exists(gene_annotation_path):
+            error_message = f"Gene annotation file not found at {gene_annotation_path}"
+            raise FileNotFoundError(error_message)
+
         self.gene_annotation = pd.read_csv(gene_annotation_path, index_col="ensembl_gene_id")
         logger.info(f"Gene annotation loaded from {gene_annotation_path}")
-        error_message = f"Gene annotation file not found at {gene_annotation_path}"
-        raise FileNotFoundError(error_message)
 
     def _validate_data(self):
         """Validates that the donor key exists in the single-cell data and is categorical.
