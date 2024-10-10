@@ -223,7 +223,7 @@ def add_vep_annos_to_gdata(
     id_col = id_col_new
 
     logger.info("Subsetting annotations to variants that are in gdata")
-    annos.set_index(id_col).loc[gdata.var.index].reset_index()
+    annos = annos.set_index(id_col).loc[gdata.var.index].reset_index()
     logger.info(f"{annos.columns}")
     annos.replace("-", np.nan, inplace=True)
     for col in cols_to_explode:
