@@ -6,16 +6,11 @@ import sgkit as sg
 from pathlib import Path
 import logging
 import sys
-from pathlib import Path
-
-import numpy as np
-import pandas as pd
-
 from cellink.tl.utils import (
-    _add_dummy_cols,
     _explode_columns,
-    _flatten_single_value,
     _get_vep_start_row,
+    _add_dummy_cols,
+    _flatten_single_value,
 )
 
 logging.basicConfig(
@@ -25,6 +20,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
 
 def setup_snpeff():
 
@@ -101,7 +97,6 @@ def run_annotation_with_favor():
 
     return 0
 
-
 ###############################################
 
 def _write_variants_to_vcf(variants, out_file):
@@ -120,11 +115,14 @@ def _write_variants_to_vcf(variants, out_file):
 
 
 def write_variants_to_vcf(gdata, out_file="variants.vcf"):
-    """Write unique variants to vcf file for annotation
+    """Write unique variants from gdata to vcf file for annotation
 
-    Args:
-        gdata (_type_): gdata object
-        out_file (str, optional): output file. Defaults to "variants.vcf".
+    Parameters
+    ----------
+    gdata : gdata
+        gdata object
+    out_file : str, optional
+        output file. By default "variants.vcf"
     """
     all_variants = list(gdata.var.index)
     logger.info(f"number of variants to annotate: {len(all_variants)}")
@@ -138,13 +136,23 @@ def run_vep(
     output="variant_vep_annotated.txt",
     return_annos=False,
 ):
-    """Run VEP
+    """
     Calls the VEP command line tool from within python
-    Requires VEP to be installed
-    Args:
-        config_file (_type_): _description_
-        input_vcf (str, optional): _description_. Defaults to "variants.vcf".
-        output (str, optional): _description_. Defaults to "variant_vep_annotated.txt".
+    Requires VEP to be installed (Tested with VEP v108)
+    Parameters
+    ----------
+    config_file : _type_
+        config file specifying VEP paths as in example/config.yaml
+    input_vcf : str, optional
+        VCF with variants to annotate. By default "variants.vcf"
+    output : str, optional
+       File where VEP writes the annotated variants by default "variant_vep_annotated.txt"
+    return_annos : bool, optional
+        Should the written annotations be loaded into memory.by default False
+
+    Returns
+    -------
+    None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
     # TODO: make VEP options more modular
     logger.info("using config {config_file}")
@@ -232,7 +240,7 @@ def run_vep(
         )  # Standard error message if command fails
 
     if return_annos:
-        annos = pd.read_csv(output, sep="\t", skiprows=58)
+        annos = pd.read_csv(output, sep="\t", skiprows=_get_vep_start_row(output))
         return annos
 
 
@@ -254,12 +262,45 @@ def add_vep_annos_to_gdata(
     vep_anno_file,
     gdata,
     id_col="#Uploaded_variation",
+    id_col_new="snp_id",
     cols_to_explode=["Consequence"],
-    cols_to_dummy=["Consequence"],
-):
+    cols_to_dummy=["Consequence"]):
+    """Add VEP annotations to gdata
+
+    Parameters
+    ----------
+    vep_anno_file : _type_
+        File with vep output (as written by run_vep)
+    gdata : gdata
+        gdata object the annotations should be written to
+    id_col : str, optional
+        Variant id column used in the vep_anno_file, by default "#Uploaded_variation"
+    id_col_new : str, optional
+        _description_, by default "snp_id"
+    cols_to_explode : list, optional
+        Columns which can have multiple comma-separated values per element which should be exploded, by default ["Consequence"]
+
+
+    Returns
+    -------
+    gdata
+        gdata object with VEP annotations as varm["annotation_0"]-varm["annotation_n"].
+        Multiple anotation dimensions (0-n) results from multiple contexts different variants can be in (e.g., different effects in overlapping transcripts/gene.)
+        N is the maximum number of contexts any variant has. Dimensions >annotation_0 so for simple downstream analyses it's advised to use varm["annotation_0"].
+    """
 
     # TODO: rename annotation columns
-    annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))
+    annos = pd.read_csv(
+        vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
+    )
+
+    logger.info(f"renaming id column {id_col} into {id_col_new}")
+    annos[id_col] = annos[id_col].str.replace("/", "_")
+    annos = annos.rename(columns={id_col: id_col_new})
+    id_col = id_col_new
+
+    logger.info("Subsetting annotations to variants that are in gdata")
+    annos = annos.set_index(id_col).loc[gdata.var.index].reset_index()
     logger.info(f"{annos.columns}")
     annos.replace("-", np.nan, inplace=True)
     for col in cols_to_explode:
@@ -272,7 +313,7 @@ def add_vep_annos_to_gdata(
 
     logger.info("Expanding annotations from multiple contexts per variant")
     varm = _create_varm_expanded(
-        annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
+        annos, gdata, id_col, key_prefix="annotations_"
     )
 
     gdata.varm = varm
@@ -283,6 +324,26 @@ def add_vep_annos_to_gdata(
 def _expand_annotations(
     data, id_col, cols_to_exp, max_n_val, key_prefix="annotations_"
 ):
+    """Expand annotations with multiple context per variant into mulitple data frames
+
+    Parameters
+    ----------
+    data : Pandas.DataFrame
+        annotation data frame
+    id_col : str
+        Variant id col
+    cols_to_exp : list
+        Columns to expand into multiple dimensions of the annotations_0 - n e.g., Gene id and the  corresponding effect column
+    max_n_val : _type_
+        Maximum number of context any variant has (i.e., n)
+    key_prefix : str, optional
+        prefix of resulting annotation data frames, by default "annotations_"
+
+    Returns
+    -------
+    dict
+        dictionary of annotation data frames
+    """
     data_exp = data.groupby(id_col).agg(lambda x: list(x)).reset_index()
     obj_cols =list(data.dtypes[(data.dtypes == "category") | (data.dtypes == "object")].index)
     obj_cols = list(set(obj_cols).intersection(set(cols_to_exp)))
@@ -309,13 +370,28 @@ def _expand_annotations(
 
 
 def _create_varm_expanded(
-    annos, gdata, id_col, key_prefix="annotations_", id_col_new="snp_id"
+    annos, gdata, id_col, key_prefix="annotations_"
 ):
+    """Expand annotations with multiple contexts per variant into multiple annotation data frames
 
-    logger.info(f"renaming id column {id_col} into {id_col_new}")
-    annos[id_col] = annos[id_col].str.replace("/", "_")
-    annos = annos.rename(columns={id_col: id_col_new})
-    id_col = id_col_new
+    Parameters
+    ----------
+    annos : Pd.DataFrame
+        Annotations
+    gdata : gdata
+        gdata
+    id_col : str
+        Variant id col
+    key_prefix : str, optional
+        prefix of resulting annotation data frames, by default "annotations_"
+
+
+    Returns
+    -------
+    dict
+        varm dictionary of max_n_val annotation data frames
+    """
+
     logger.info("getting unique counts")
     unique_counts = (
         annos.groupby(id_col).agg(lambda x: x.nunique(dropna=False)).max(axis=0)
