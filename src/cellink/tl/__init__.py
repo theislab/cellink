@@ -1,3 +1,3 @@
 from .basic import basic_tool
 from ._annotate_snps_genotype_data import write_variants_to_vcf
-from ._gwas import run_eqtl_on_single_gene
+from ._gwas import get_best_eqtl_on_single_gene, get_all_eqtls_on_single_gene

@@ -123,8 +123,8 @@ class GWAS:
         z = np.sign(beta) * np.sqrt(st.chi2(1).isf(pv))
         ste = beta / z
         return ste
-    
-def run_eqtl_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
+
+def _run_gwas(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
     ## retrieving the pseudo-bulked data
     Y = pbdata[:, [target_gene]].layers["mean"]
     Y = asarray(Y)
@@ -137,6 +137,11 @@ def run_eqtl_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, c
     G = subgadata.X.compute()
     gwas = GWAS(Y)
     gwas.process(G)
+    return gwas, G.shape[1]
+
+def get_best_eqtl_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
+    ## running gwas
+    gwas, no_tested_variants = _run_gwas(pbdata, gdata, target_gene, cis_window)
     ## retrieve p-values
     pv = gwas.getPv()
     pv[np.isnan(pv)] = 1
@@ -144,4 +149,17 @@ def run_eqtl_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, c
     ## retrieving the variants associated with the lowest p-value
     min_pv_idx = pv.argmin()
     min_pv_variant = gdata.var.index[min_pv_idx]
-    return {"terget_gene": target_gene, "no_tested_variants": G.shape[1], "min_pv": min_pv, "min_pv_variant": min_pv_variant}
+    return {"target_gene": target_gene, "no_tested_variants": no_tested_variants, "min_pv": min_pv, "min_pv_variant": min_pv_variant}
+
+def get_all_eqtls_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
+    ## running gwas
+    gwas, no_tested_variants = _run_gwas(pbdata, gdata, target_gene, cis_window)
+    ## retrieve p-values
+    pv = gwas.getPv()
+    pv[np.isnan(pv)] = 1
+    ## retrieving the full results
+    results = [
+        {"target_gene": target_gene, "no_tested_variants": no_tested_variants, "pv": pv[idx], "variant": gdata.var.index[idx]} 
+        for idx in range(no_tested_variants)
+    ]
+    return results
