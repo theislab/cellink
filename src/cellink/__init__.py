@@ -11,4 +11,4 @@ from . import io, pl, pp, tl  # noqa: E402
 
 __all__ = ["pl", "pp", "tl", "io"]
 
-__version__ = version("cellink")
+#__version__ = version("cellink")
