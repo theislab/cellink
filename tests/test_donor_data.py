@@ -5,25 +5,39 @@ from anndata import read_h5ad
 
 from cellink._core.donordata import DonorData
 from cellink.io import read_sgkit_zarr
+from cellink.pp import annotate_genes
 
 DATA = Path("tests/data")
 
 
-@pytest.mark.slow
-def test_donordata_init():
+@pytest.fixture
+def gdata():
     gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
     gdata.obs = gdata.obs.set_index("id")
+    return gdata
+
+
+@pytest.fixture
+def annotated_adata():
+    # Load the original AnnData object
     adata = read_h5ad(DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad")
-    dd = DonorData(adata, gdata, "individual")
+
+    # Path to the gene annotation file
+    gene_annotation_path = DATA / "gene_annotation.csv"
+
+    # Annotate genes
+    annotated_adata = annotate_genes(adata, str(gene_annotation_path))
+
+    return annotated_adata
+
+
+def test_donordata_init(annotated_adata, gdata):
+    dd = DonorData(annotated_adata, gdata, "individual")
     print(dd)
 
 
-@pytest.mark.slow
-def test_donordata_aggregate():
-    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
-    gdata.obs = gdata.obs.set_index("id")
-    adata = read_h5ad(DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad")
-    dd = DonorData(adata, gdata, "individual")
+def test_donordata_aggregate(annotated_adata, gdata):
+    dd = DonorData(annotated_adata, gdata, "individual")
     dd.aggregate("X", "Gex")
     assert "Gex" in dd.gdata.obsm
 
@@ -36,63 +50,66 @@ def test_donordata_aggregate():
     assert "age" in dd.gdata.obs
 
 
-@pytest.mark.slow
-def test_donordata_slice_genomic_region():
-    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
-    gdata.obs = gdata.obs.set_index("id")
-    adata = read_h5ad(DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad")
-    dd = DonorData(adata, gdata, "individual")
+@pytest.mark.parametrize(
+    "ensembl_id, window_size, tss",
+    [
+        ("ENSG00000100354", 1e5, True),
+        ("ENSG00000100354", 5e4, True),
+        ("ENSG00000100354", 1e5, False),
+        ("ENSG00000183486", 2e5, True),  # Add another gene ID for more diverse testing
+    ],
+)
+def test_donordata_slice_genomic_region_by_gene(annotated_adata, gdata, ensembl_id, window_size, tss):
+    dd = DonorData(annotated_adata, gdata, "individual")
+
+    sliced_dd = dd.slice_genomic_region(ensembl_id, window_size=window_size, tss=tss)
+
+    # Check that the sliced data contains only the specified region
+    assert all(sliced_dd.gdata.var.chrom == dd.adata.var.loc[ensembl_id, "chrom"])
+
+    gene_start = dd.adata.var.loc[ensembl_id, "start_position"]
+    gene_end = dd.adata.var.loc[ensembl_id, "end_position"]
+
+    if tss:
+        tss_pos = gene_start if dd.adata.var.loc[ensembl_id, "strand"] == 1 else gene_end
+        assert all(sliced_dd.gdata.var.pos >= tss_pos - window_size)
+        assert all(sliced_dd.gdata.var.pos <= tss_pos + window_size)
+    else:
+        assert all(sliced_dd.gdata.var.pos >= gene_start - window_size)
+        assert all(sliced_dd.gdata.var.pos <= gene_end + window_size)
+
+    # Check that the single-cell data remains unchanged
+    assert sliced_dd.adata.shape == dd.adata.shape
+
+    # Check that the number of variants has been reduced
+    assert sliced_dd.gdata.shape[1] < dd.gdata.shape[1]
+
+
+@pytest.mark.parametrize(
+    "chrom, start, end, window_size, expected_n_vars",
+    [
+        ("22", 20000000, 21000000, 10000, 2445),
+        ("22", 30000000, 31000000, 5000, 4157),
+    ],
+)
+def test_donordata_slice_genomic_region(annotated_adata, gdata, chrom, start, end, window_size, expected_n_vars):
+    dd = DonorData(annotated_adata, gdata, "individual")
 
     # Slice the genomic region
-    sliced_dd = dd._slice_genomic_region(chrom="22", start=20000000, end=21000000, window_size=10000)
+    sliced_dd = dd._slice_genomic_region(chrom=chrom, start=start, end=end, window_size=window_size)
 
     # Check that the sliced data contains only the specified region
-    assert sliced_dd.gdata.n_vars == 2445
-    assert all(sliced_dd.gdata.var.chrom == "22")
-    assert all(sliced_dd.gdata.var.pos >= 19990000)  # start - window_size
-    assert all(sliced_dd.gdata.var.pos <= 21010000)  # end + window_size
+    assert sliced_dd.gdata.n_vars == expected_n_vars
+    assert all(sliced_dd.gdata.var.chrom == chrom)
+    assert all(sliced_dd.gdata.var.pos >= start - window_size)
+    assert all(sliced_dd.gdata.var.pos <= end + window_size)
 
     # Check that the single-cell data remains unchanged
     assert sliced_dd.adata.shape == dd.adata.shape
 
     # Check that the number of variants has been reduced
     assert sliced_dd.gdata.shape[1] < dd.gdata.shape[1]
-
-
-@pytest.mark.slow
-def test_donordata_slice_genomic_region_by_gene():
-    gdata = read_sgkit_zarr(DATA / "chr22.dose.filtered.R2_0.8.vcz")
-    gdata.obs = gdata.obs.set_index("id")
-    adata = read_h5ad(DATA / "debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad")
-    dd = DonorData(adata, gdata, "individual")
-
-    # Slice the genomic region by gene (replace with an actual Ensembl ID from your data)
-    ensembl_id = "ENSG00000100354"  # Example Ensembl ID, replace with a real one from your data
-    sliced_dd = dd.slice_genomic_region(ensembl_id, window_size=1e5, tss=True)
-
-    # Check that the sliced data contains only the specified region
-    assert all(sliced_dd.gdata.var.chrom == dd.gene_annotation.loc[ensembl_id, "chromosome_name"])
-
-    gene_start = dd.gene_annotation.loc[ensembl_id, "start_position"]
-    gene_end = dd.gene_annotation.loc[ensembl_id, "end_position"]
-    tss = gene_start if dd.gene_annotation.loc[ensembl_id, "strand"] == 1 else gene_end
-
-    assert all(sliced_dd.gdata.var.pos >= tss - 1e5)
-    assert all(sliced_dd.gdata.var.pos <= tss + 1e5)
-
-    # Check that the single-cell data remains unchanged
-    assert sliced_dd.adata.shape == dd.adata.shape
-
-    # Check that the number of variants has been reduced
-    assert sliced_dd.gdata.shape[1] < dd.gdata.shape[1]
-
-    # Test with tss=False
-    sliced_dd_gene_body = dd.slice_genomic_region(ensembl_id, window_size=1e5, tss=False)
-    assert all(sliced_dd_gene_body.gdata.var.pos >= gene_start - 1e5)
-    assert all(sliced_dd_gene_body.gdata.var.pos <= gene_end + 1e5)
 
 
 if __name__ == "__main__":
-    test_donordata_aggregate()
-    test_donordata_slice_genomic_region()
-    test_donordata_slice_genomic_region_by_gene()
+    pytest.main([__file__])

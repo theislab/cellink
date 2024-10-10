@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import pandas as pd
 from anndata import AnnData
@@ -25,12 +24,14 @@ class DonorData:
     as well as gene annotation information.
     The donor key in adata.obs must be a categorical column.
 
+    This class assumes that the adata object has been processed with annotate_genes,
+    so all genes in adata have gene annotations.
+
     Attributes
     ----------
-        adata (AnnData): Single-cell data
+        adata (AnnData): Single-cell data with gene annotations
         gdata (AnnData): Genetic data
         donor_key_in_sc_adata (str): Key for donor information in adata.obs
-        gene_annotation (pd.DataFrame): Gene annotation information
 
     Raises
     ------
@@ -45,43 +46,36 @@ class DonorData:
     adata: AnnData
     gdata: AnnData
     donor_key_in_sc_adata: str
-    gene_annotation: pd.DataFrame = field(init=False)
 
     def __init__(
         self,
         adata: AnnData,
         gdata: AnnData,
         donor_key_in_sc_adata: str,
-        gene_annotation_path: str = "data/Yazar_OneK1K/gene_annotation.csv",
     ):
         self.adata = adata
         self.gdata = gdata
         self.donor_key_in_sc_adata = donor_key_in_sc_adata
-        self._load_gene_annotation(gene_annotation_path)
         self._validate_data()
         self._match_donors()
 
-    def _load_gene_annotation(self, gene_annotation_path: str):
-        """Loads the gene annotation data from the specified file."""
-        if not os.path.exists(gene_annotation_path):
-            error_message = f"Gene annotation file not found at {gene_annotation_path}"
-            raise FileNotFoundError(error_message)
-
-        self.gene_annotation = pd.read_csv(gene_annotation_path, index_col="ensembl_gene_id")
-        logger.info(f"Gene annotation loaded from {gene_annotation_path}")
-
     def _validate_data(self):
-        """Validates that the donor key exists in the single-cell data and is categorical.
+        """Validates that the donor key exists in the single-cell data and is categorical, and that gene annotations are present in adata.var.
 
         Raises
         ------
             ValueError: If the donor_key_in_adata is not found
             ValueError: If adata.obs[self.donor_key_in_adata] is not categorical
+            ValueError: If gene annotations are not present in adata.var
         """
         if self.donor_key_in_sc_adata not in self.adata.obs.columns:
             raise ValueError(f"'{self.donor_key_in_sc_adata}' not found in adata.obs")
         if not self.adata.obs[self.donor_key_in_sc_adata].dtype.name == "category":
             raise ValueError(f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical")
+
+        required_annotations = ["chrom", "start_position", "end_position", "strand"]
+        if not all(col in self.adata.var.columns for col in required_annotations):
+            raise ValueError("Gene annotations not found in adata.var. Please run annotate_genes first.")
 
     def get_donor_adata(self, donor: str) -> AnnData:
         """Retrieve single-cell data for a specific donor.
@@ -341,13 +335,13 @@ class DonorData:
 
         Raises
         ------
-            ValueError: If the Ensembl ID is not found in the gene annotation.
+            ValueError: If the Ensembl ID is not found in the adata.var.
         """
-        if ensembl_id not in self.gene_annotation.index:
-            raise ValueError(f"Ensembl ID '{ensembl_id}' not found in gene annotation.")
+        if ensembl_id not in self.adata.var.index:
+            raise ValueError(f"Ensembl ID '{ensembl_id}' not found in adata.var.")
 
-        gene_info = self.gene_annotation.loc[ensembl_id]
-        chrom = gene_info["chromosome_name"]
+        gene_info = self.adata.var.loc[ensembl_id]
+        chrom = gene_info["chrom"]
         strand = gene_info["strand"]
 
         if tss:
