@@ -6,7 +6,7 @@ warnings.filterwarnings(
     message="pkg_resources is deprecated as an API",
     category=DeprecationWarning,
 )
-from . import pl, pp, tl  # noqa: E402
+from . import io, pl, pp, tl  # noqa: E402
 from ._core.donordata import DonorData
 
 __all__ = ["DonorData", "pl", "pp", "tl", "io"]
