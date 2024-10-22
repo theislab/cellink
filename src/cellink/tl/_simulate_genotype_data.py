@@ -55,7 +55,7 @@ def simulate_genotype_data_msprime(
         genotype_matrix = np.pad(genotype_matrix, ((0, 0), (0, n_variants - genotype_matrix.shape[1])), mode="constant")
 
     adata = anndata.AnnData(genotype_matrix)
-    adata.obs["individuals"] = np.arange(n_individuals)
+    adata.obs["individual"] = np.arange(n_individuals)
 
     return adata
 
@@ -88,6 +88,6 @@ def simulate_genotype_data_numpy(
     genotype_matrix = np.random.randint(0, 3, size=(n_individuals, n_variants))
 
     adata = ad.AnnData(genotype_matrix)
-    adata.obs["individuals"] = np.arange(n_individuals)
+    adata.obs["individual"] = np.arange(n_individuals)
 
     return adata

@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
   "anndata",
+  "msprime",
   # for debug logging (referenced from the issue template)
   "session-info",
 ]
