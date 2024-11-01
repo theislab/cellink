@@ -1,8 +1,8 @@
+import anndata
+import anndata as ad
 import msprime
 import numpy as np
-import anndata
-from typing import Literal, Iterable
-import anndata as ad
+
 
 def simulate_genotype_data_msprime(
     n_individuals: int,
@@ -36,10 +36,11 @@ def simulate_genotype_data_msprime(
     >>> adata = anndata.AnnData(np.array([[0, 1], [1, 0], [0, 0]]))
     >>> simulate_genotype_data_msprime(adata, n_individuals=10, n_variants=5)
     """
-
     demography = msprime.Demography.isolated_model([n_individuals])
 
-    ts = msprime.sim_ancestry(n_individuals, demography=demography, recombination_rate=recombination_rate, sequence_length=n_variants)
+    ts = msprime.sim_ancestry(
+        n_individuals, demography=demography, recombination_rate=recombination_rate, sequence_length=n_variants
+    )
 
     mts = msprime.sim_mutations(ts, rate=mutation_rate)
 
@@ -48,13 +49,13 @@ def simulate_genotype_data_msprime(
     else:
         genotype_matrix = np.array([variant.genotypes for variant in mts.variants()]).T
 
-    #np.clip(genotype_matrix, 0, 2)
+    # np.clip(genotype_matrix, 0, 2)
 
     if genotype_matrix.shape[1] < n_variants:
-        genotype_matrix = np.pad(genotype_matrix, ((0, 0), (0, n_variants - genotype_matrix.shape[1])), mode='constant')
+        genotype_matrix = np.pad(genotype_matrix, ((0, 0), (0, n_variants - genotype_matrix.shape[1])), mode="constant")
 
     adata = anndata.AnnData(genotype_matrix)
-    adata.obs['individuals'] = np.arange(n_individuals)
+    adata.obs["individual"] = np.arange(n_individuals)
 
     return adata
 
@@ -84,10 +85,9 @@ def simulate_genotype_data_numpy(
     >>> adata = anndata.AnnData(np.array([[0, 1], [1, 0], [0, 0]]))
     >>> simulate_genotype_data_numpy(adata, n_individuals=10, n_variants=5)
     """
-
     genotype_matrix = np.random.randint(0, 3, size=(n_individuals, n_variants))
 
     adata = ad.AnnData(genotype_matrix)
-    adata.obs['individuals'] = np.arange(n_individuals)
+    adata.obs["individual"] = np.arange(n_individuals)
 
     return adata

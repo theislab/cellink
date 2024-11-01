@@ -1,0 +1,7 @@
+input_fasta: /s/genomes/Gencode/Gencode_human/release_40/GRCh37_mapping/GRCh37.primary_assembly.genome.fa
+vep_dir: /s/raw/vep/108
+# vep_plugin_dir:
+vep_nfork: 5
+genome_assembly: GRCh37
+cadd_dir: /s/raw/cadd/v1.6
+vep_version: 108
