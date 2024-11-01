@@ -1,7 +1,9 @@
 import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
+import pandas as pd
 
+from sklearn.preprocessing import quantile_transform
 from time import time
 from anndata import AnnData
 from anndata.utils import asarray
@@ -124,10 +126,52 @@ class GWAS:
         ste = beta / z
         return ste
 
+def _my_quantile_transform(x, seed=1):
+    """
+    Gaussian quantile transform for values in a pandas Series.    :param x: Input pandas Series.
+    :type x: pd.Series
+    :param seed: Random seed.
+    :type seed: int
+    :return: Transformed Series.
+    :rtype: pd.Series    .. note::
+        “nan” values are kept
+    """
+    np.random.seed(seed)
+    x_transform = x.copy()
+    if isinstance(x_transform, pd.Series):
+        x_transform = x_transform.to_numpy()    
+    is_nan = np.isnan(x_transform)
+    n_quantiles = np.sum(~is_nan)    
+    x_transform[~is_nan] = quantile_transform(
+        x_transform[~is_nan].reshape([-1, 1]),
+        n_quantiles=n_quantiles,
+        subsample=n_quantiles,
+        output_distribution="normal",
+        copy=True,
+    )[:, 0]    
+    #x_transform = pd.Series(x_transform, index = x.index)
+    return x_transform
+
+
+def _store_fixed_effects(n_comps, pb_adata):
+    logger.warning("Storing fixed effects")
+    # compute expression PCs
+    sc.pp.highly_variable_genes(pb_adata, n_top_genes=5000)
+    sc.tl.pca(pb_adata, use_highly_variable=True, n_comps=n_comps)
+    sc.tl.pca(pb_adata, n_comps=n_comps)
+    pb_adata.obsm["E_dpc"] = column_normalize(pb_adata.obsm["X_pca"])
+    # load patient covariates
+    sex_one_hot = np.eye(2)[(pb_adata.obs.sex.values - 1)]
+    age_standardized = StandardScaler().fit_transform(pb_adata.obs.age.values.reshape(-1, 1))
+    pb_adata.obs["age_std"] = age_standardized
+    pb_adata.obs[["sex1", "sex2"]] = sex_one_hot
+    return pb_adata
+
 def _run_gwas(pbdata: AnnData, gdata: AnnData, target_gene: str, cis_window: int):
     ## retrieving the pseudo-bulked data
     Y = pbdata[:, [target_gene]].layers["mean"]
     Y = asarray(Y)
+    Y = _my_quantile_transform(Y)
     ## retrieving start and end position for each gene
     start = pbdata.var.loc[target_gene].start
     end = pbdata.var.loc[target_gene].end
@@ -157,9 +201,22 @@ def get_all_eqtls_on_single_gene(pbdata: AnnData, gdata: AnnData, target_gene: s
     ## retrieve p-values
     pv = gwas.getPv()
     pv[np.isnan(pv)] = 1
+    ## retrieving beta and its std
+    betasnp = gwas.getBetaSNP()
+    betasnp_ste = gwas.getBetaSNPste()
+    ## retrieving lrt 
+    lrt = gwas.getLRT()
     ## retrieving the full results
     results = [
-        {"target_gene": target_gene, "no_tested_variants": no_tested_variants, "pv": pv[idx], "variant": gdata.var.index[idx]} 
+        {
+            "target_gene": target_gene, 
+            "no_tested_variants": no_tested_variants, 
+            "pv": pv[idx], 
+            "variant": gdata.var.index[idx],
+            "betasnp": betasnp[idx],
+            "betasnp_ste": betasnp_ste[idx],
+            "lrt": lrt[idx]
+        } 
         for idx in range(no_tested_variants)
     ]
     return results
