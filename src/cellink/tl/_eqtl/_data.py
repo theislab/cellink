@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-
+from typing import Sequence
 import anndata as ad
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ class EQTLData:
             A `DonorData` instance holding the data to run the experiments on.
         `n_sc_comps: int`
             The number of principal components for the single cell data (defaults to 500).
-        `_donor_key_in_scdata: str`
+        `donor_key_in_scdata: str`
             The column name in `self.donor_data.obs` containing the information about the donor (defaults to `"individual"`).
         `sex_key_in_scdata: str`
             The column name in `self.donor_data.obs` containing the information about the donor's sex (defaults to `"sex"`).
@@ -38,16 +38,14 @@ class EQTLData:
 
     """
 
-    _donor_data: DonorData
-    # _data_root: str
-    # _gen_pc_path: str
-    _n_sc_comps: int = 500
-    # _n_genetic_pcs: int = 500
-    _donor_key_in_scdata: str = "individual"
-    _sex_key_in_scdata: str = "sex"
-    _age_key_in_scdata: str = "age"
-    _pseudobulk_aggregation_type: str = "mean"
-    _n_top_genes: int = 5000
+    donor_data: DonorData
+    n_sc_comps: int = 500
+    n_genetic_pcs: int = 500
+    donor_key_in_scdata: str = "individual"
+    sex_key_in_scdata: str = "sex"
+    age_key_in_scdata: str = "age"
+    pseudobulk_aggregation_type: str = "mean"
+    n_top_genes: int = 5000
     _min_individuals_threshold: int = 10
 
     @staticmethod
@@ -108,9 +106,9 @@ class EQTLData:
             `ad.AnnData` containing with the updated `obs` containing the required column
         """
         ## mapping over the individuals
-        individuals = pbdata.obs[self._donor_key_in_scdata]
-        reference_data = self.scdata.obs[[self._donor_key_in_scdata, column]]
-        reference_data = reference_data.groupby(self._donor_key_in_scdata).agg(["unique"])
+        individuals = pbdata.obs[self.donor_key_in_scdata]
+        reference_data = self.scdata.obs[[self.donor_key_in_scdata, column]]
+        reference_data = reference_data.groupby(self.donor_key_in_scdata).agg(["unique"])
 
         ## function for making sure the values are unique
         def retrieve_unique_value_safe(row):
@@ -120,7 +118,7 @@ class EQTLData:
         ## retrieving the unique values for each donor
         reference_data[column] = reference_data[column].map(retrieve_unique_value_safe)
         ## merging the data and updating column names
-        pbdata.obs = pd.merge(pbdata.obs, reference_data[column], left_on=self._donor_key_in_scdata, right_index=True)
+        pbdata.obs = pd.merge(pbdata.obs, reference_data[column], left_on=self.donor_key_in_scdata, right_index=True)
         pbdata.obs[column] = pbdata.obs["unique"]
         pbdata.obs = pbdata.obs.drop(columns=["unique"], axis=1)
         return pbdata
@@ -140,13 +138,13 @@ class EQTLData:
         ## aggregating the data
         pbdata = sc.get.aggregate(
             scdata_cell,
-            self._donor_key_in_scdata,
-            self._pseudobulk_aggregation_type,
+            self.donor_key_in_scdata,
+            self.pseudobulk_aggregation_type,
         )
         ## storing data lost in the aggregation
         pbdata.X = pbdata.layers["mean"]
-        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self._sex_key_in_scdata)
-        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self._age_key_in_scdata)
+        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self.sex_key_in_scdata)
+        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self.age_key_in_scdata)
         return pbdata
 
     def _register_fixed_effects(self, pbdata: ad.AnnData) -> ad.AnnData:
@@ -162,23 +160,19 @@ class EQTLData:
             `ad.AnnData` containing with the updated `obsm` with the fixed effects
         """
         ## compute expression PCs
-        sc.pp.highly_variable_genes(pbdata, n_top_genes=self._n_top_genes)
-        sc.tl.pca(pbdata, use_highly_variable=True, n_comps=self._n_sc_comps)
+        sc.pp.highly_variable_genes(pbdata, n_top_genes=self.n_top_genes)
+        sc.tl.pca(pbdata, use_highly_variable=True, n_comps=self.n_sc_comps)
         pbdata.obsm["E_dpc"] = self._column_normalize(pbdata.obsm["X_pca"])
         ## load genetic PCs
-        # gen_pcs = pd.read_csv(self._data_root / self._gen_pc_path, sep=" ", header=None, index_col=1).drop(columns=[0])
-        # gen_pcs = gen_pcs.loc[self._donor_data.adata.obs.index, :].iloc[:, :self._n_genetic_pcs].values
+        gen_pcs = sc.tl.pca(self.gdata.X, n_comps=self.n_genetic_pcs)
         ## load patient covariates
-        sex_one_hot = np.eye(2)[(pbdata.obs[self._sex_key_in_scdata].values - 1)]
-        age_standardized = StandardScaler().fit_transform(pbdata.obs[self._age_key_in_scdata].values.reshape(-1, 1))
+        sex_one_hot = np.eye(2)[(pbdata.obs[self.sex_key_in_scdata].values - 1)]
+        age_standardized = StandardScaler().fit_transform(pbdata.obs[self.age_key_in_scdata].values.reshape(-1, 1))
         covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
         ## store fixed effects in pb_adata
         pbdata.obsm["F"] = np.concatenate(
-            (covariates, pbdata.obsm["E_dpc"]),
-            axis=1,
-            # (covariates, gen_pcs, pbdata.obsm["E_pb"][:, :n_expr_pcs]), axis=1
+            (covariates, gen_pcs, pbdata.obsm["E_pb"][:, :n_expr_pcs]), axis=1
         )
-        pbdata.obsm["F"][:, 2:] = self._column_normalize(pbdata.obsm["F"][:, 2:])
         return pbdata
 
     def _get_pb_data(self, cell_type: str, target_chromosome: str) -> ad.AnnData:
@@ -219,7 +213,7 @@ class EQTLData:
             `DonorData` object with the the pseudo-bulked single cell data and the corresponding genetics data
         """
         pbdata = self._get_pb_data(cell_type, target_chromosome)
-        return DonorData(adata=pbdata, gdata=self.gdata, donor_key_in_sc_adata=self._donor_key_in_scdata)
+        return DonorData(adata=pbdata, gdata=self.gdata, donor_key_in_sc_adata=self.donor_key_in_scdata)
 
     @property
     def cell_types(self) -> Sequence[str]:
@@ -259,7 +253,7 @@ class EQTLData:
         -------
             `ad.AnnData` containing the underlying single cell data
         """
-        return self._donor_data.adata
+        return self.donor_data.adata
 
     @property
     def gdata(self) -> ad.AnnData:
@@ -269,14 +263,4 @@ class EQTLData:
         -------
             `ad.AnnData` containing the underlying genetics data
         """
-        return self._donor_data.gdata
-
-    @property
-    def donor_data(self) -> DonorData:
-        """Gets the underlying donor data
-
-        Returns
-        -------
-            `DonorData` containing the underlying data
-        """
-        return self._donor_data
+        return self.donor_data.gdata

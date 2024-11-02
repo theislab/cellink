@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
@@ -30,12 +31,6 @@ class EQTLPipeline:
             Data Manager for the EQTL studies
         `cis_window: int`
             Window used to considering the variants as neighboring to a gene
-        `target_chroms: Sequence[str] | None`
-            The target chromosomes to run the EQTL pipeline on (Optional, defaults to all the chromosomes in `self.data`).
-        `target_genes: Sequence[str] | None`
-            The target genes to run the EQTL pipeline on (Optional, defaults to all the genes in `self.data`).
-        `target_cell_types: Sequence[str] | None`
-            The target cell_types to run the EQTL pipeline on (Optional, defaults to all the cell_types in `self.data`).
         `transforms: Sequence[Callable] | None`
             The transformations applied to the pseudo-bulked single cell data before estimating the linear model (Optional, defaults to `cellink.tl._eqtl._utils.quantile_trasform`).
         `pv_transforms: Sequence[Callable] | None`
@@ -46,18 +41,18 @@ class EQTLPipeline:
             Whether to dump results to an output CSV file (defaults to `False`).
         `dump_dir: str | None`
             The directory where to optionally dump the files (defaults to the current working directory if not provided).
+        `file_prefix: str`
+            The prefix to the file name used to save the results to disk (defaults to `"eqtl"`).
     """
 
-    _data: EQTLData
-    _cis_window: int = 1_000_000
-    _target_chroms: Sequence[str] | None = None
-    _target_genes: Sequence[str] | None = None
-    _target_cell_types: Sequence[str] | None = None
-    _transforms: Sequence[Callable] | None = (quantile_transform,)
-    _pv_transforms: dict[str, Callable] | None = None
-    _mode: Literal["best", "all"] = "all"
-    _dump_results: bool = False
-    _dump_dir: str | None = None
+    data: EQTLData
+    cis_window: int = 1_000_000
+    transforms: Sequence[Callable] | None = (quantile_transform,)
+    pv_transforms: dict[str, Callable] | None = None
+    mode: Literal["best", "all"] = "all"
+    dump_results: bool = False
+    dump_dir: str | None = None
+    file_prefix: str = "eqtl"
 
     @staticmethod
     def _prepare_gwas_data(
@@ -268,8 +263,8 @@ class EQTLPipeline:
                 Array with the transformed pseudo-bulked single cell data
         """
         Y_transformed = Y.copy()
-        if self._transforms is not None:
-            for transform in self._transforms:
+        if self.transforms is not None:
+            for transform in self.transforms:
                 Y_transformed = transform(Y_transformed)
         return Y_transformed
 
@@ -287,8 +282,8 @@ class EQTLPipeline:
                 Dictionary mapping names (under the form of strings) to Arrays with the transformed p-value
         """
         pv_transformed_results = {}
-        if self._pv_transforms is not None:
-            for pv_tranform_id, pv_transform_fn in self._pv_transforms.items():
+        if self.pv_transforms is not None:
+            for pv_tranform_id, pv_transform_fn in self.pv_transforms.items():
                 pv_transformed = pv.copy()
                 pv_transformed_results[pv_transformed_id] = pv_transform_fn(pv_transformed)
         return pv_transformed_results
@@ -353,12 +348,12 @@ class EQTLPipeline:
             `Sequence[dict[str, float]]`
                 The output data with the parsed statistics to be stored
         """
-        if self._mode == "best":
+        if self.mode == "best":
             return self._best_eqtl(pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants)
-        elif self._mode == "all":
+        elif self.mode == "all":
             return self._all_eqtls(pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants)
         else:
-            raise ValueError(f"{self._mode=} not supported, try either 'best' or 'all'")
+            raise ValueError(f"{self.mode=} not supported, try either 'best' or 'all'")
 
     def _run_pipeline(self, target_cell_type: str, target_chrom: str, cis_window: int) -> Sequence[dict[str, float]]:
         """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes
@@ -380,15 +375,14 @@ class EQTLPipeline:
         ## output results
         output = []
         ## retrieving tmp data for current cell_type and chromosome
-        pb_data = self._data.get_pb_data(target_cell_type, target_chrom)
+        pb_data = self.data.get_pb_data(target_cell_type, target_chrom)
         ## retrieving current genes
         current_genes = pb_data.adata.var_names
+        ## defining iterator
+        iterator = tqdm(range(len(current_genes)))
         ## iterating over the genes to test
-        for target_gene in self.target_genes:
-            ## running the gwas on gene or skipping if not present
-            if target_gene not in current_genes:
-                # logger.warning(f"{target_gene=} not present for for {target_cell_type=} and {target_chrom=}. Skipping iteration")
-                continue
+        for target_gene in current_genes:
+            ## running the gwas on gene
             (gwas, no_tested_variants) = self._run_gwas(pb_data, target_gene, target_chrom, cis_window)
             ## postprocessing the results
             results_dict = self._postprocess_gwas_results(
@@ -396,6 +390,8 @@ class EQTLPipeline:
             )
             ## storing the results for the current gene
             output += results_dict
+            ## updating the iterator
+            iterator.update()
         return output
 
     def run(self, target_cell_type: str, target_chrom: str, cis_window: int):
@@ -420,38 +416,8 @@ class EQTLPipeline:
         results = self._run_pipeline(target_cell_type, target_chrom, cis_window)
         results_df = pd.DataFrame(results)
         ## optionally saving the results to disk
-        if self._dump_results:
-            dump_dir = "./" if self._dump_dir is None else self._dump_dir
-            dump_path = Path(dump_dir) / f"{target_cell_type}_{target_chrom}_{cis_window}.csv"
+        if self.dump_results:
+            dump_dir = "./" if self.dump_dir is None else self.dump_dir
+            dump_path = Path(dump_dir) / f"{self.file_prefix}_{target_cell_type}_{target_chrom}_{cis_window}.csv"
             results_df.to_csv(dump_path, index=False)
         return results_df
-
-    @property
-    def target_cell_types(self):
-        """Gets the unique cell types in the underlying single cell data which to run EQTL on
-
-        Returns
-        -------
-            `Sequence[str]` of cell type identifiers
-        """
-        return self._data.cell_types if self._target_cell_types is None else self._target_cell_types
-
-    @property
-    def target_genes(self):
-        """Gets the unique genes in the underlying single cell data which to run EQTL on
-
-        Returns
-        -------
-            `Sequence[str]` of genes identifiers
-        """
-        return self._data.genes if self._target_genes is None else self._target_genes
-
-    @property
-    def target_chroms(self):
-        """Gets the unique chromosomes in the underlying single cell data
-
-        Returns
-        -------
-            `Sequence[str]` of chromosomes identifiers
-        """
-        return self._data.chroms if self._target_chroms is None else self._target_chroms
