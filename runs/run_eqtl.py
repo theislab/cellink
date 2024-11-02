@@ -5,10 +5,11 @@ import warnings
 import anndata as ad
 import numpy as np
 import pandas as pd
+import hydra
 from pathlib import Path
 from typing import Sequence, Callable
+from omegaconf import DictConfig
 
-from .paths import SCDATA, DUMP, ANNOTATION
 from cellink.io import read_plink
 from cellink import DonorData
 from cellink.tl import EQTLData, EQTLPipeline
@@ -46,7 +47,7 @@ def get_pv_transforms(pv_transforms: dict[str, Callable]):
     ...
 
 @hydra.main(config_path="config", config_name="eqtl")
-def main(config):
+def main(config: DictConfig):
     ## loading sc data 
     sc_data = load_scdata(config.paths.scdata_path, config.paths.annotation_path)
     ## loading genetics data for current chromosome
@@ -84,7 +85,7 @@ def main(config):
 
 if __name__=="__main__":
     try:
-        run()
+        main()
     except Exception as e:
         print(f"An error occurred: {e}", file=sys.stderr)
         traceback.print_exc()
