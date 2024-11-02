@@ -1,6 +1,6 @@
 import anndata
-import numpy as np
 import dask.array as da
+
 
 def variant_qc(
     adata: anndata.AnnData,
@@ -48,6 +48,7 @@ def variant_qc(
 
     print("kjdsgköag")
     from collections import Counter
+
     print(Counter(combined_filter))
 
     adata = adata[:, combined_filter]

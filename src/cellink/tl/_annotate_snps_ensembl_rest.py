@@ -1,6 +1,7 @@
-import requests
 import pandas as pd
+import requests
 from tqdm.auto import tqdm
+
 
 def _split_snp_id(snp_str):
     chrom = snp_str.split(":")[0]
@@ -54,7 +55,6 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
     GENE1  protein_coding  5500000  5600000  ...          1
     GENE2  protein_coding  11780000  11800000 ...         -1
     """
-
     results = []
     genes_list = []
     for snp in tqdm(variant_codes, desc="SNPs"):
@@ -66,10 +66,7 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
             r.raise_for_status()
 
         decoded = r.json()
-        is_in_gene = any(
-            entry["feature_type"] == "gene" and entry["biotype"] == "protein_coding"
-            for entry in decoded
-        )
+        is_in_gene = any(entry["feature_type"] == "gene" and entry["biotype"] == "protein_coding" for entry in decoded)
         genes = ",".join([entry["id"] for entry in decoded if entry["feature_type"] == "gene"])
         for entry in decoded:
             if entry["feature_type"] == "gene":
@@ -81,9 +78,7 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
                 and (a0 in entry["alleles"] and a1 in entry["alleles"])
             ):
                 entry["rs_id"] = entry.pop("id")
-                entry["ref"], entry["alt"] = [
-                    allele for allele in entry["alleles"] if allele in [a0, a1]
-                ]
+                entry["ref"], entry["alt"] = (allele for allele in entry["alleles"] if allele in [a0, a1])
                 entry["alleles"] = "".join(entry["alleles"])
                 entry["clinical_significance"] = ",".join(entry.get("clinical_significance", []))
                 results.append(

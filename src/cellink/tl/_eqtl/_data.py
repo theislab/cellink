@@ -1,30 +1,22 @@
-
-
-import logging
-import warnings
+from dataclasses import dataclass
 
 import anndata as ad
-import scanpy as sc
 import numpy as np
-import anndata as an
 import pandas as pd
-
-from tqdm.notebook import tqdm
-from anndata.utils import asarray
-from pathlib import Path
-from statsmodels.stats.multitest import fdrcorrection
+import scanpy as sc
+from sklearn.preprocessing import StandardScaler
 
 from cellink._core import DonorData
 
-from sklearn.preprocessing import StandardScaler
-from dataclasses import dataclass
+__all__ = [
+    "EQTLData",
+]
 
-__all__ = ["EQTLData", ]
 
 @dataclass
 class EQTLData:
     """Data Manager for EQTL pipeline.
-    
+
     Parameters
     ----------
         `donor_data: DonorData`
@@ -45,6 +37,7 @@ class EQTLData:
             The threshold of the number of individuals for filtering out genes (defaults to 10).
 
     """
+
     _donor_data: DonorData
     # _data_root: str
     # _gen_pc_path: str
@@ -53,69 +46,77 @@ class EQTLData:
     _donor_key_in_scdata: str = "individual"
     _sex_key_in_scdata: str = "sex"
     _age_key_in_scdata: str = "age"
-    _pseudobulk_aggregation_type: str = "mean" 
-    _n_top_genes: int = 5000    
+    _pseudobulk_aggregation_type: str = "mean"
+    _n_top_genes: int = 5000
     _min_individuals_threshold: int = 10
 
     @staticmethod
     def _column_normalize(X: np.ndarray) -> np.ndarray:
         """"""
-        assert X.ndim == 2  # noqa: PLR2004
+        assert X.ndim == 2
         return (X - X.mean(0)) / (X.std(0) * np.sqrt(X.shape[1]))
-    
+
     @staticmethod
     def _filter_cells_by_type(scdata: ad.AnnData, cell_type: str) -> ad.AnnData:
         """Filters cells by cell type
+
         Parameters
         ----------
             `scdata: ad.AnnData`
                 The `ad.AnnData` object holding the single cell data
             `cell_type: str`
                 The cell type to retrieve for the current iteration
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing only the cells of the given type type
         """
         scdata_cell = scdata[scdata.obs.cell_label == cell_type]
         return scdata_cell
-    
+
     @staticmethod
     def _filter_genes_by_chromosome(scdata: ad.AnnData, target_chromosome: str) -> ad.AnnData:
         """Filters genes by chromosome
+
         Parameters
         ----------
             `scdata: ad.AnnData`
                 The `ad.AnnData` object holding the single cell data
             `target_chromosome: str`
                 The target chromosome to retrieve for the current iteration
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing only the genes associated to the current chromosome
         """
         scdata = scdata[:, scdata.var["chrom"] == target_chromosome]
         return scdata
-    
+
     def _map_col_scdata_obs_to_pbdata(self, pbdata: ad.AnnData, column: str) -> ad.AnnData:
         """Maps the selected column, assumed to have only one unique value for each patient (i.e.: age, sex, etc.)
         from the base single cell data to the pseudo-bulked one, as not all the columns are returned after aggregation
+
         Parameters
         ----------
             `pbdata: ad.AnnData`
                 The `ad.AnnData` object holding the pseudo-bulked single cell data
             `column: str`
                 Column in `self.scdata.obs` of patient covariates that we want to map back
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing with the updated `obs` containing the required column
         """
         ## mapping over the individuals
         individuals = pbdata.obs[self._donor_key_in_scdata]
         reference_data = self.scdata.obs[[self._donor_key_in_scdata, column]]
         reference_data = reference_data.groupby(self._donor_key_in_scdata).agg(["unique"])
+
         ## function for making sure the values are unique
         def retrieve_unique_value_safe(row):
             assert len(row) == 1
             return row[0]
+
         ## retrieving the unique values for each donor
         reference_data[column] = reference_data[column].map(retrieve_unique_value_safe)
         ## merging the data and updating column names
@@ -126,40 +127,38 @@ class EQTLData:
 
     def _pseudobulk_scdata(self, scdata_cell: ad.AnnData) -> ad.AnnData:
         """Pseudobulks the single cell data
+
         Parameters
         ----------
             `scdata_cell: ad.AnnData`
                 The `ad.AnnData` object holding the cells with the given type
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing with the single cell data aggregated by patient
         """
         ## aggregating the data
         pbdata = sc.get.aggregate(
-            scdata_cell, 
-            self._donor_key_in_scdata, 
+            scdata_cell,
+            self._donor_key_in_scdata,
             self._pseudobulk_aggregation_type,
         )
         ## storing data lost in the aggregation
         pbdata.X = pbdata.layers["mean"]
-        pbdata = self._map_col_scdata_obs_to_pbdata(
-            pbdata,
-            self._sex_key_in_scdata
-        )
-        pbdata = self._map_col_scdata_obs_to_pbdata(
-            pbdata,
-            self._age_key_in_scdata
-        )
+        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self._sex_key_in_scdata)
+        pbdata = self._map_col_scdata_obs_to_pbdata(pbdata, self._age_key_in_scdata)
         return pbdata
 
     def _register_fixed_effects(self, pbdata: ad.AnnData) -> ad.AnnData:
         """Registers the fixed effect matrix for the given pseudo-bulked data
+
         Parameters
         ----------
             `pbdata: ad.AnnData`
                 The `ad.AnnData` object holding the pseudo-bulked single cell data
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing with the updated `obsm` with the fixed effects
         """
         ## compute expression PCs
@@ -175,7 +174,8 @@ class EQTLData:
         covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
         ## store fixed effects in pb_adata
         pbdata.obsm["F"] = np.concatenate(
-            (covariates, pbdata.obsm["E_dpc"]), axis=1
+            (covariates, pbdata.obsm["E_dpc"]),
+            axis=1,
             # (covariates, gen_pcs, pbdata.obsm["E_pb"][:, :n_expr_pcs]), axis=1
         )
         pbdata.obsm["F"][:, 2:] = self._column_normalize(pbdata.obsm["F"][:, 2:])
@@ -183,12 +183,14 @@ class EQTLData:
 
     def _get_pb_data(self, cell_type: str, target_chromosome: str) -> ad.AnnData:
         """Registers the fixed effect matrix for the given pseudo-bulked data
+
         Parameters
         ----------
             `pbdata: ad.AnnData`
                 The `ad.AnnData` object holding the pseudo-bulked single cell data
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing with the updated `obsm` with the fixed effects
         """
         ## filtering cells and genes
@@ -196,22 +198,24 @@ class EQTLData:
         scdata_cell = self._filter_genes_by_chromosome(scdata_cell, target_chromosome)
         ## pseudobulk aggregation
         pbdata = self._pseudobulk_scdata(scdata_cell)
-        ## filter out genes least expressed genes 
-        sc.pp.filter_genes(pbdata, min_cells = self._min_individuals_threshold)
+        ## filter out genes least expressed genes
+        sc.pp.filter_genes(pbdata, min_cells=self._min_individuals_threshold)
         ## registering fixed effects
         pbdata = self._register_fixed_effects(pbdata)
         return pbdata
-    
+
     def get_pb_data(self, cell_type: str, target_chromosome: str) -> DonorData:
         """Gets the pseudo bulked data for the given target cell type and chromosome
+
         Parameters
         ----------
             `cell_type: str`
                 The cell type to retrieve for the current study
             `target_chromosome: str`
                 The chromosome to retrieve for the current study
+
         Returns
-        ----------
+        -------
             `DonorData` object with the the pseudo-bulked single cell data and the corresponding genetics data
         """
         pbdata = self._get_pb_data(cell_type, target_chromosome)
@@ -220,26 +224,29 @@ class EQTLData:
     @property
     def cell_types(self) -> Sequence[str]:
         """Gets the unique cell types in the underlying single cell data
+
         Returns
-        ----------
+        -------
             `Sequence[str]` of cell type identifiers
         """
         return self.scdata.obs.cell_label.unique()
-    
+
     @property
     def chroms(self) -> Sequence[str]:
         """Gets the unique chromosomes in the underlying single cell data
+
         Returns
-        ----------
+        -------
             `Sequence[str]` of chromosomes identifiers
         """
         return self.scdata.var.chrom.unique()
-    
+
     @property
     def genes(self) -> Sequence[str]:
         """Gets the unique genes in the underlying single cell data
+
         Returns
-        ----------
+        -------
             `Sequence[str]` of gene identifiers
         """
         return self.scdata.var_names
@@ -247,26 +254,29 @@ class EQTLData:
     @property
     def scdata(self) -> ad.AnnData:
         """Gets the underlying single cell data
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing the underlying single cell data
         """
         return self._donor_data.adata
-    
+
     @property
     def gdata(self) -> ad.AnnData:
         """Gets the underlying genetics data
+
         Returns
-        ----------
+        -------
             `ad.AnnData` containing the underlying genetics data
         """
         return self._donor_data.gdata
 
     @property
     def donor_data(self) -> DonorData:
-        """Gets the underlying donor data 
+        """Gets the underlying donor data
+
         Returns
-        ----------
+        -------
             `DonorData` containing the underlying data
         """
         return self._donor_data

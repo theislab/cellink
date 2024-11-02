@@ -1,12 +1,9 @@
+from time import time
+
 import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
-import pandas as pd
 
-from sklearn.preprocessing import quantile_transform
-from time import time
-from anndata import AnnData
-from anndata.utils import asarray
 
 class GWAS:
     r"""
@@ -61,10 +58,7 @@ class GWAS:
         A0iFG = np.dot(self.A0i, FG)
         n = 1.0 / (GG - np.einsum("ij,ij->j", FG, A0iFG))
         M = -n * A0iFG
-        self.beta_F = (
-            self.beta_F0[:, None, :]
-            + np.einsum("ks,sp->ksp", M, np.dot(M.T, self.FY)) / n[None, :, None]
-        )
+        self.beta_F = self.beta_F0[:, None, :] + np.einsum("ks,sp->ksp", M, np.dot(M.T, self.FY)) / n[None, :, None]
         self.beta_F += np.einsum("ks,sp->ksp", M, GY)
         self.beta_g = np.einsum("ks,kp->sp", M, self.FY)
         self.beta_g += n[:, None] * GY
