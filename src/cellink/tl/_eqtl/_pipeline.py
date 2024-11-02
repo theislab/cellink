@@ -1,0 +1,431 @@
+import logging
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Sequence, Literal, Callable
+from anndata.utils import asarray
+from tqdm import tqdm
+import numpy as np
+import pandas as pd
+
+from cellink._core import DonorData
+from cellink.tl._eqtl._data import EQTLData
+from cellink.tl._eqtl._gwas import GWAS
+from cellink.tl._eqtl._utils import quantile_transform
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["EQTLPipeline", ]
+
+@dataclass
+class EQTLPipeline:
+    """Class handling the EQTL Pipeline
+    
+    Parameters
+    ----------
+        `data: EQTLData`
+            Data Manager for the EQTL studies
+        `cis_window: int`
+            Window used to considering the variants as neighboring to a gene
+        `target_chroms: Sequence[str] | None`
+            The target chromosomes to run the EQTL pipeline on (Optional, defaults to all the chromosomes in `self.data`).
+        `target_genes: Sequence[str] | None`
+            The target genes to run the EQTL pipeline on (Optional, defaults to all the genes in `self.data`).
+        `target_cell_types: Sequence[str] | None`
+            The target cell_types to run the EQTL pipeline on (Optional, defaults to all the cell_types in `self.data`).
+        `transforms: Sequence[Callable] | None`
+            The transformations applied to the pseudo-bulked single cell data before estimating the linear model (Optional, defaults to `cellink.tl._eqtl._utils.quantile_trasform`).
+        `pv_transforms: Sequence[Callable] | None`
+            The transformations applied to the computed pvalues before creating the tables (Optional, defaults to `None`).
+        `mode: Literal["best", "all"]`
+            The mode in which to run the eqtl pipeline ("best": report only best variants in terms of p-value, "all": report all variants, defaults to `"all"`)
+        `dump_results: bool`
+            Whether to dump results to an output CSV file (defaults to `False`).
+        `dump_dir: str | None`
+            The directory where to optionally dump the files (defaults to the current working directory if not provided).
+    """
+    _data: EQTLData
+    _cis_window: int = 1_000_000 
+    _target_chroms: Sequence[str] | None = None
+    _target_genes: Sequence[str] | None = None
+    _target_cell_types: Sequence[str] | None = None
+    _transforms: Sequence[Callable] | None = (quantile_transform, )
+    _pv_transforms: dict[str, Callable] | None = None
+    _mode: Literal["best", "all"] = "all"
+    _dump_results: bool = False
+    _dump_dir: str | None = None
+
+    @staticmethod
+    def _prepare_gwas_data(
+            pb_data: DonorData, 
+            target_gene: str, 
+            target_chrom: str, 
+            cis_window: int, 
+            transforms: Callable | None = None
+        ) -> Sequence[np.ndarray]:
+        """Prepares the data used to run GWAS on
+        Parameters
+        ----------
+            `pb_data: DonorData`
+                Donor Data containing the pseudo bulked data for the current cell type and chromosome
+            `target_gene: str`
+                Target gene which to run GWAS on
+            `target_chrom: str`
+                Target chromosome which to run GWAS on
+            `cis_window: int`
+                The window for retrieving the neighboring variants
+            `transforms: Callable | None`
+                The transformation to be applied to the input data before estimating the linear model
+        Returns
+        ----------
+            `Y: np.ndarray`
+                Array containing the input data to be fed to the linear model
+            `F: np.ndarray`
+                Array containing the data for the fixed effects
+            `G: np.ndarray`
+                Array containing the genetics data for the variants falling within the window
+        """
+        ## retrieving the pseudo-bulked data
+        Y = pb_data.adata[:, [target_gene]].layers["mean"]
+        Y = asarray(Y)
+        if transforms is not None:
+            Y = transforms(Y)
+        ## retrieving start and end position for each gene
+        start = pb_data.adata.var.loc[target_gene].start
+        end = pb_data.adata.var.loc[target_gene].end
+        chrom = pb_data.adata.var.loc[target_gene].chrom
+        ## retrieving the variants within the cis window
+        subgadata = pb_data.gdata[:, (pb_data.gdata.var.chrom == target_chrom) & (pb_data.gdata.var.pos >= start - cis_window) & (pb_data.gdata.var.pos <= end + cis_window)]
+        G = subgadata.X.compute()
+        F = pb_data.adata.obsm["F"]
+        return Y, F, G
+
+    @staticmethod
+    def _parse_gwas_results(gwas: GWAS) -> Sequence[np.ndarray]:
+        """Parses the results of a ran GWAS and cleanes it from potential nan or infinity values
+        Parameters
+        ----------
+            `gwas: GWAS`
+                The ran gwas experiment which to retrieve the results from
+        Returns
+        ----------
+            `pv: np.ndarray`
+                The array containing the p-values for each variant
+            `betasnp: np.ndarray`
+                The array containing the coefficient of the LM for each variant
+            `betasnp_ste: np.ndarray`
+                The array containing the standard error of coefficient of the LM for each variant
+            `lrt: np.ndarray`
+                The array containing the results of the likelihood ration test for each variant    
+        """
+        ## retrieving gwas results
+        pv = np.squeeze(gwas.getPv())
+        betasnp = np.squeeze(gwas.getBetaSNP())
+        betasnp_ste = np.squeeze(gwas.getBetaSNPste())
+        lrt = np.squeeze(gwas.getLRT())
+        ## removing nan
+        pv[np.isnan(pv)] = 1
+        betasnp[np.isnan(betasnp)] = 0
+        betasnp_ste[np.isnan(betasnp_ste)] = 0
+        lrt[np.isnan(lrt)] = 0
+        ## removing infinity
+        pv[np.isinf(pv)] = 1
+        betasnp[np.isinf(betasnp)] = 0
+        betasnp_ste[np.isinf(betasnp_ste)] = 0
+        lrt[np.isinf(lrt)] = 0
+        return pv, betasnp, betasnp_ste, lrt
+
+    def _best_eqtl(
+            self, 
+            pb_data: DonorData, 
+            target_cell_type: str, 
+            target_chrom: str, 
+            target_gene: str, 
+            gwas: GWAS, 
+            no_tested_variants: int
+        ) -> Sequence[dict[str, float]]:
+        """Postprocesses the GWAS results to report only the best variants in terms of p-value
+        Parameters
+        ----------
+            `pb_data: DonorData`
+                Donor Data containing the pseudo bulked data for the current cell type and chromosome
+            `target_cell_type: str`
+                Target cell type which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `target_gene: str`
+                Target gene which GWAS experiment was ran on
+            `gwas: GWAS`
+                The ran gwas experiment which to retrieve the results from
+            `no_tested_variants: int`
+                The number of tested variants for the current combination of (`target_cell_type`, `target_chrom`, `target_gene`)
+        Returns
+        ----------
+            `Sequence[dict[str, float]]`
+                The output data with the parsed statistics to be stored (only for best variant in terms of p-value)
+        """
+        ## retrieving gwas results
+        pv, betasnp, betasnp_ste, lrt = self._parse_gwas_results(gwas)
+        ## transforming the pvalues
+        pv_transformed = self._apply_pv_transforms(pv)
+        ## retrieving the results for the variant with the lowest p-value
+        min_pv = pv.min()
+        min_pv_idx = pv.argmin()
+        min_pv_variant = pb_data.gdata.var.index[min_pv_idx]
+        min_pv_variant_beta = betasnp[min_pv_idx]
+        min_pv_variant_beta_ste = betasnp_ste[min_pv_idx]
+        min_pv_variant_lrt = lrt[min_pv_idx]
+        ## constructing output dictionary
+        out_dict = {
+            "cell_type": target_cell_type, 
+            "chrom": target_chrom,
+            "gene": target_gene, 
+            "no_tested_variants": no_tested_variants, 
+            "min_pv": min_pv, 
+            "min_pv_variant": min_pv_variant,
+            "min_pv_variant_beta": min_pv_variant_beta,
+            "min_pv_variant_beta_ste": min_pv_variant_beta_ste,
+            "min_pv_variant_lrt": min_pv_variant_lrt,
+            **pv_transformed
+        }
+        return [out_dict]
+    
+    def _all_eqtls(
+            self,
+            pb_data: DonorData, 
+            target_cell_type: str, 
+            target_chrom: str, 
+            target_gene: str, 
+            gwas: GWAS, 
+            no_tested_variants: int
+        ) -> Sequence[dict[str, float]]:
+        """Postprocesses the GWAS results to report all variants
+        Parameters
+        ----------
+            `pb_data: DonorData`
+                Donor Data containing the pseudo bulked data for the current cell type and chromosome
+            `target_cell_type: str`
+                Target cell type which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `target_gene: str`
+                Target gene which GWAS experiment was ran on
+            `gwas: GWAS`
+                The ran gwas experiment which to retrieve the results from
+            `no_tested_variants: int`
+                The number of tested variants for the current combination of (`target_cell_type`, `target_chrom`, `target_gene`)
+        Returns
+        ----------
+            `Sequence[dict[str, float]]`
+                The output data with the parsed statistics to be stored
+        """
+        ## retrieving gwas results
+        pv, betasnp, betasnp_ste, lrt = self._parse_gwas_results(gwas)
+        ## transforming the pvalues
+        pv_transformed = self._apply_pv_transforms(pv)
+        ## defining the output object
+        results = [
+            {
+                "cell_type": target_cell_type, 
+                "chrom": target_chrom,
+                "gene": target_gene, 
+                "no_tested_variants": no_tested_variants, 
+                "pv": pv[idx], 
+                "variant": pb_data.gdata.var.index[idx],
+                "betasnp": betasnp[idx],
+                "betasnp_ste": betasnp_ste[idx],
+                "lrt": lrt[idx],
+                **{transform_id: transformed_pv[idx] for transform_id, transformed_pv in pv_transformed.items()}
+            } 
+            for idx in range(no_tested_variants)
+        ]
+        return results
+    
+    def _apply_transforms(self, Y: np.ndarray) -> np.ndarray:
+        """Applies in order the transformations defined in `self.transforms` to the pseudo-bulked single cell data
+        Parameters
+        ----------
+            `Y: np.ndarray`
+                Array containing the pseudo-bulked single cell data
+        Returns
+        ----------
+            `np.ndarray` 
+                Array with the transformed pseudo-bulked single cell data
+        """
+        Y_transformed = Y.copy()
+        if self._transforms is not None:
+            for transform in self._transforms:
+                Y_transformed = transform(Y_transformed)
+        return Y_transformed
+    
+    def _apply_pv_transforms(self, pv: np.ndarray) -> dict[str, np.ndarray]:
+        """Applies the transformations on the computed p-values and stores them in a dictionary
+        Parameters
+        ----------
+            `pc: np.ndarray`
+                Array containing the computed p-values for each variant
+        Returns
+        ----------
+            `dict[str, np.ndarray]` 
+                Dictionary mapping names (under the form of strings) to Arrays with the transformed p-value
+        """
+        pv_transformed_results = {}
+        if self._pv_transforms is not None:
+            for pv_tranform_id, pv_transform_fn in self._pv_transforms.items():
+                pv_transformed = pv.copy()
+                pv_transformed_results[pv_transformed_id] = pv_transform_fn(pv_transformed)
+        return pv_transformed_results
+
+    def _run_gwas(self, pb_data: DonorData, target_gene: str, target_chrom: str, cis_window: int) -> Sequence[GWAS, int]:
+        """Runs the GWAS experiment on the given gene and chromosomes for the passed window
+        Parameters
+        ----------
+            `pb_data: DonorData`
+                Donor Data containing the pseudo bulked data for the current cell type and chromosome
+            `target_gene: str`
+                Target gene which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `cis_window: int`
+                The window used for running the GWAS experiment
+        Returns
+        ----------
+            `GWAS`
+                A `GWAS` object with the ran experiment
+            `int`
+                The number of tested variant for the current iteration
+        """
+        ## preparing gwas data
+        Y, F, G = self._prepare_gwas_data(pb_data, target_gene, target_chrom, cis_window, self._apply_transforms)
+        gwas = GWAS(Y, F=F)
+        gwas.process(G)
+        return gwas, G.shape[1]
+    
+    def _postprocess_gwas_results(
+            self, 
+            pb_data: DonorData, 
+            target_cell_type: str, 
+            target_chrom: str, 
+            target_gene: str, 
+            gwas: GWAS, 
+            no_tested_variants: int
+        ) -> Sequence[dict[str, float]]:
+        """Postprocesses the GWAS results to report either all variants or only the best ones in terms of p-value
+        Parameters
+        ----------
+            `pb_data: DonorData`
+                Donor Data containing the pseudo bulked data for the current cell type and chromosome
+            `target_cell_type: str`
+                Target cell type which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `target_gene: str`
+                Target gene which GWAS experiment was ran on
+            `gwas: GWAS`
+                The ran gwas experiment which to retrieve the results from
+            `no_tested_variants: int`
+                The number of tested variants for the current combination of (`target_cell_type`, `target_chrom`, `target_gene`)
+        Returns
+        ----------
+            `Sequence[dict[str, float]]`
+                The output data with the parsed statistics to be stored
+        """
+        if self._mode == "best":
+            return self._best_eqtl(pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants)
+        elif self._mode == "all":
+            return self._all_eqtls(pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants)
+        else:
+            raise ValueError(f"{self._mode=} not supported, try either 'best' or 'all'")
+
+    def _run_pipeline(self, target_cell_type: str, target_chrom: str, cis_window: int) -> Sequence[dict[str, float]]:
+        """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes
+        Parameters
+        ----------
+            `target_cell_type: str`
+                Target chromosome which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `cis_window: int`
+                The window used for running the GWAS experiment
+        Returns
+        ----------
+            `Sequence[dict[str, float]]`
+                The output data with the parsed statistics to be stored for all genes
+        """
+        ## output results
+        output = []
+        ## retrieving tmp data for current cell_type and chromosome 
+        pb_data = self._data.get_pb_data(target_cell_type, target_chrom)
+        ## retrieving current genes
+        current_genes = pb_data.adata.var_names
+        ## iterating over the genes to test
+        for target_gene in self.target_genes:
+            ## running the gwas on gene or skipping if not present
+            if target_gene not in current_genes:
+                # logger.warning(f"{target_gene=} not present for for {target_cell_type=} and {target_chrom=}. Skipping iteration")
+                continue
+            (gwas, no_tested_variants) = self._run_gwas(pb_data, target_gene, target_chrom, cis_window)
+            ## postprocessing the results
+            results_dict = self._postprocess_gwas_results(
+                pb_data,
+                target_cell_type,
+                target_chrom,
+                target_gene,
+                gwas, 
+                no_tested_variants
+            )
+            ## storing the results for the current gene
+            output += results_dict
+        return output
+    
+    def run(self, target_cell_type: str, target_chrom: str, cis_window: int):
+        """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes and 
+        stores the results to a `pd.DataFrame` object and optionally to disk 
+        Parameters
+        ----------
+            `target_cell_type: str`
+                Target chromosome which GWAS experiment was ran on
+            `target_chrom: str`
+                Target chromosome which GWAS experiment was ran on
+            `cis_window: int`
+                The window used for running the GWAS experiment
+        Returns
+        ----------
+            `pd.DataFrame`
+                The output data in a `pd.DataFrame` object
+        """
+        ## running the pipeline and constructing results DataFrame
+        results = self._run_pipeline(target_cell_type, target_chrom, cis_window)
+        results_df = pd.DataFrame(results)
+        ## optionally saving the results to disk
+        if self._dump_results:
+            dump_dir = "./" if self._dump_dir is None else self._dump_dir 
+            dump_path = Path(dump_dir) / f"{target_cell_type}_{target_chrom}_{cis_window}.csv"
+            results_df.to_csv(dump_path, index=False)            
+        return results_df
+
+    @property
+    def target_cell_types(self):
+        """Gets the unique cell types in the underlying single cell data which to run EQTL on
+        Returns
+        ----------
+            `Sequence[str]` of cell type identifiers
+        """
+        return self._data.cell_types if self._target_cell_types is None else self._target_cell_types
+
+    @property
+    def target_genes(self):
+        """Gets the unique genes in the underlying single cell data which to run EQTL on
+        Returns
+        ----------
+            `Sequence[str]` of genes identifiers
+        """
+        return self._data.genes if self._target_genes is None else self._target_genes
+    
+    @property
+    def target_chroms(self):
+        """Gets the unique chromosomes in the underlying single cell data
+        Returns
+        ----------
+            `Sequence[str]` of chromosomes identifiers
+        """
+        return self._data.chroms if self._target_chroms is None else self._target_chroms
