@@ -354,7 +354,9 @@ class EQTLPipeline:
         else:
             raise ValueError(f"{self.mode=} not supported, try either 'best' or 'all'")
 
-    def _gwas(self, pb_data: DonorData, target_cell_type: str, target_chrom: str, target_gene: str) -> Sequence[dict[str, float | str]]:
+    def _gwas(
+        self, pb_data: DonorData, target_cell_type: str, target_chrom: str, target_gene: str
+    ) -> Sequence[dict[str, float | str]]:
         """"""
         ## fitting the gwas on gene
         gwas_out = self._fit_gwas(pb_data, target_gene, target_chrom)
@@ -364,9 +366,7 @@ class EQTLPipeline:
         ## parsing the output results
         (gwas, no_tested_variants) = gwas_out
         ## retrieving the results the results
-        results = self._run_gwas(
-            pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants
-        )
+        results = self._run_gwas(pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants)
         return results
 
     def _run_pipeline(self, target_cell_type: str, target_chrom: str) -> Sequence[dict[str, float]]:
@@ -397,9 +397,7 @@ class EQTLPipeline:
         ## iterating over the genes to test
         for idx, target_gene in enumerate(current_genes):
             ## running the gwas on gene
-            results = self._gwas(
-                pb_data, target_cell_type, target_chrom, target_gene
-            )
+            results = self._gwas(pb_data, target_cell_type, target_chrom, target_gene)
             ## storing the results for the current gene
             output += results
             ## updating the iterator
@@ -441,7 +439,10 @@ class EQTLPipeline:
             ## saving post processed results df to disk
             if postprocessed_dfs is not None:
                 for post_processing_id, post_processed_df in postprocessed_dfs.items():
-                    dump_path = Path(dump_dir) / f"{self.file_prefix}_{post_processing_id}_{target_cell_type}_{target_chrom}_{self.cis_window}.csv"
+                    dump_path = (
+                        Path(dump_dir)
+                        / f"{self.file_prefix}_{post_processing_id}_{target_cell_type}_{target_chrom}_{self.cis_window}.csv"
+                    )
                     post_processed_df.to_csv(dump_path, index=False)
         ## constructing out dictionary
         return results_df, postprocessed_dfs
