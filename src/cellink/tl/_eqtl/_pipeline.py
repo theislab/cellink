@@ -287,7 +287,7 @@ class EQTLPipeline:
                     pv_transformed_results[pv_transform_id] = pv_transform_fn(pv_transformed, no_tested_variants)
         return pv_transformed_results
 
-    def _run_gwas(self, pb_data: DonorData, target_gene: str, target_chrom: str) -> Sequence[GWAS, int]:
+    def _fit_gwas(self, pb_data: DonorData, target_gene: str, target_chrom: str) -> Sequence[GWAS, int] | None:
         """Runs the GWAS experiment on the given gene and chromosomes for the passed window
 
         Parameters
@@ -308,11 +308,15 @@ class EQTLPipeline:
         """
         ## preparing gwas data
         Y, F, G = self._prepare_gwas_data(pb_data, target_gene, target_chrom, self.cis_window, self._apply_transforms)
+        ## early return if no cis snips found
+        if G.shape[1] == 0:
+            return None
         gwas = GWAS(Y, F=F)
+        ## processing the found snips
         gwas.process(G)
         return gwas, G.shape[1]
 
-    def _postprocess_gwas_results(
+    def _run_gwas(
         self,
         pb_data: DonorData,
         target_cell_type: str,
@@ -320,7 +324,7 @@ class EQTLPipeline:
         target_gene: str,
         gwas: GWAS,
         no_tested_variants: int,
-    ) -> Sequence[dict[str, float]]:
+    ) -> Sequence[dict[str, float | str]]:
         """Postprocesses the GWAS results to report either all variants or only the best ones in terms of p-value
 
         Parameters
@@ -350,6 +354,21 @@ class EQTLPipeline:
         else:
             raise ValueError(f"{self.mode=} not supported, try either 'best' or 'all'")
 
+    def _gwas(self, pb_data: DonorData, target_cell_type: str, target_chrom: str, target_gene: str) -> Sequence[dict[str, float | str]]:
+        """"""
+        ## fitting the gwas on gene
+        gwas_out = self._fit_gwas(pb_data, target_gene, target_chrom)
+        ## early return if no cis snip is found
+        if gwas_out is None:
+            return []
+        ## parsing the output results
+        (gwas, no_tested_variants) = gwas_out
+        ## retrieving the results the results
+        results = self._run_gwas(
+            pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants
+        )
+        return results
+
     def _run_pipeline(self, target_cell_type: str, target_chrom: str) -> Sequence[dict[str, float]]:
         """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes
 
@@ -376,20 +395,22 @@ class EQTLPipeline:
         ## defining iterator
         iterator = tqdm(range(len(current_genes)))
         ## iterating over the genes to test
-        for target_gene in current_genes:
+        for idx, target_gene in enumerate(current_genes):
             ## running the gwas on gene
-            (gwas, no_tested_variants) = self._run_gwas(pb_data, target_gene, target_chrom)
-            ## postprocessing the results
-            results_dict = self._postprocess_gwas_results(
-                pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants
+            results = self._gwas(
+                pb_data, target_cell_type, target_chrom, target_gene
             )
             ## storing the results for the current gene
-            output += results_dict
+            output += results
             ## updating the iterator
             iterator.update()
         return output
 
-    def run(self, target_cell_type: str, target_chrom: str):
+    def _postprocess_results(self, results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
+        """"""
+        return None
+
+    def run(self, target_cell_type: str, target_chrom: str, postprocess_results: bool = False):
         """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes and
         stores the results to a `pd.DataFrame` object and optionally to disk
 
@@ -410,9 +431,17 @@ class EQTLPipeline:
         ## running the pipeline and constructing results DataFrame
         results = self._run_pipeline(target_cell_type, target_chrom)
         results_df = pd.DataFrame(results)
+        ## postprocessing the results
+        postprocessed_dfs = self._postprocess_results(results_df)
         ## optionally saving the results to disk
         if self.dump_results:
             dump_dir = "./" if self.dump_dir is None else self.dump_dir
             dump_path = Path(dump_dir) / f"{self.file_prefix}_{target_cell_type}_{target_chrom}_{self.cis_window}.csv"
             results_df.to_csv(dump_path, index=False)
-        return results_df
+            ## saving post processed results df to disk
+            if postprocessed_dfs is not None:
+                for post_processing_id, post_processed_df in postprocessed_dfs.items():
+                    dump_path = Path(dump_dir) / f"{self.file_prefix}_{post_processing_id}_{target_cell_type}_{target_chrom}_{self.cis_window}.csv"
+                    post_processed_df.to_csv(dump_path, index=False)
+        ## constructing out dictionary
+        return results_df, postprocessed_dfs
