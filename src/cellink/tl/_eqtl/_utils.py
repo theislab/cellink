@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import quantile_transform as sk_quantile_transform
+from statsmodels.stats.multitest import fdrcorrection
 
+__all__ = ["quantile_transform", "bonferroni_adjustment", "q_value"]
 
 def quantile_transform(x, seed=1):
     """
@@ -27,3 +29,10 @@ def quantile_transform(x, seed=1):
         copy=True,
     )[:, 0]
     return x_transform
+
+def bonferroni_adjustment(pv, no_tested_variants):
+    return np.clip(pv*no_tested_variants, 0, 1)
+
+def q_value(pv, no_tested_variants):
+    bf_pv = bonferroni_adjustment(pv, no_tested_variants)
+    return fdrcorrection(bf_pv)[1]

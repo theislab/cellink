@@ -8,10 +8,7 @@ from sklearn.preprocessing import StandardScaler
 
 from cellink._core import DonorData
 
-__all__ = [
-    "EQTLData",
-]
-
+__all__ = ["EQTLData"]
 
 @dataclass
 class EQTLData:
@@ -46,7 +43,7 @@ class EQTLData:
     age_key_in_scdata: str = "age"
     pseudobulk_aggregation_type: str = "mean"
     n_top_genes: int = 5000
-    _min_individuals_threshold: int = 10
+    min_individuals_threshold: int = 10
 
     @staticmethod
     def _column_normalize(X: np.ndarray) -> np.ndarray:
@@ -171,7 +168,7 @@ class EQTLData:
         covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
         ## store fixed effects in pb_adata
         pbdata.obsm["F"] = np.concatenate(
-            (covariates, gen_pcs, pbdata.obsm["E_pb"][:, :n_expr_pcs]), axis=1
+            (covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1
         )
         return pbdata
 
@@ -193,7 +190,7 @@ class EQTLData:
         ## pseudobulk aggregation
         pbdata = self._pseudobulk_scdata(scdata_cell)
         ## filter out genes least expressed genes
-        sc.pp.filter_genes(pbdata, min_cells=self._min_individuals_threshold)
+        sc.pp.filter_genes(pbdata, min_cells=self.min_individuals_threshold)
         ## registering fixed effects
         pbdata = self._register_fixed_effects(pbdata)
         return pbdata
@@ -213,7 +210,8 @@ class EQTLData:
             `DonorData` object with the the pseudo-bulked single cell data and the corresponding genetics data
         """
         pbdata = self._get_pb_data(cell_type, target_chromosome)
-        return DonorData(adata=pbdata, gdata=self.gdata, donor_key_in_sc_adata=self.donor_key_in_scdata)
+        data = DonorData(adata=pbdata, gdata=self.gdata, donor_key_in_sc_adata=self.donor_key_in_scdata)
+        return data
 
     @property
     def cell_types(self) -> Sequence[str]:

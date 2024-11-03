@@ -1,7 +1,6 @@
-transforms:
-pv_transforms:
+transforms: [quantile_transform, ]
+pv_transforms: [bonferroni_adjustment, q_value, ]
 cis_window: 1_000_000
 mode: all
 dump_results: True
 file_prefix: eqtl_default
-dump_dir: 

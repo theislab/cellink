@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,8 +12,6 @@ from cellink._core import DonorData
 from cellink.tl._eqtl._data import EQTLData
 from cellink.tl._eqtl._gwas import GWAS
 from cellink.tl._eqtl._utils import quantile_transform
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "EQTLPipeline",
@@ -173,7 +170,7 @@ class EQTLPipeline:
         ## retrieving gwas results
         pv, betasnp, betasnp_ste, lrt = self._parse_gwas_results(gwas)
         ## transforming the pvalues
-        pv_transformed = self._apply_pv_transforms(pv)
+        pv_transformed = self._apply_pv_transforms(pv, no_tested_variants)
         ## retrieving the results for the variant with the lowest p-value
         min_pv = pv.min()
         min_pv_idx = pv.argmin()
@@ -230,7 +227,7 @@ class EQTLPipeline:
         ## retrieving gwas results
         pv, betasnp, betasnp_ste, lrt = self._parse_gwas_results(gwas)
         ## transforming the pvalues
-        pv_transformed = self._apply_pv_transforms(pv)
+        pv_transformed = self._apply_pv_transforms(pv, no_tested_variants)
         ## defining the output object
         results = [
             {
@@ -265,10 +262,11 @@ class EQTLPipeline:
         Y_transformed = Y.copy()
         if self.transforms is not None:
             for transform in self.transforms:
-                Y_transformed = transform(Y_transformed)
+                if transform is not None:
+                    Y_transformed = transform(Y_transformed)
         return Y_transformed
 
-    def _apply_pv_transforms(self, pv: np.ndarray) -> dict[str, np.ndarray]:
+    def _apply_pv_transforms(self, pv: np.ndarray, no_tested_variants: int) -> dict[str, np.ndarray]:
         """Applies the transformations on the computed p-values and stores them in a dictionary
 
         Parameters
@@ -283,13 +281,14 @@ class EQTLPipeline:
         """
         pv_transformed_results = {}
         if self.pv_transforms is not None:
-            for pv_tranform_id, pv_transform_fn in self.pv_transforms.items():
+            for pv_transform_id, pv_transform_fn in self.pv_transforms.items():
                 pv_transformed = pv.copy()
-                pv_transformed_results[pv_transformed_id] = pv_transform_fn(pv_transformed)
+                if pv_transform_fn is not None:
+                    pv_transformed_results[pv_transform_id] = pv_transform_fn(pv_transformed, no_tested_variants)
         return pv_transformed_results
 
     def _run_gwas(
-        self, pb_data: DonorData, target_gene: str, target_chrom: str, cis_window: int
+        self, pb_data: DonorData, target_gene: str, target_chrom: str
     ) -> Sequence[GWAS, int]:
         """Runs the GWAS experiment on the given gene and chromosomes for the passed window
 
@@ -301,9 +300,6 @@ class EQTLPipeline:
                 Target gene which GWAS experiment was ran on
             `target_chrom: str`
                 Target chromosome which GWAS experiment was ran on
-            `cis_window: int`
-                The window used for running the GWAS experiment
-
         Returns
         -------
             `GWAS`
@@ -312,7 +308,7 @@ class EQTLPipeline:
                 The number of tested variant for the current iteration
         """
         ## preparing gwas data
-        Y, F, G = self._prepare_gwas_data(pb_data, target_gene, target_chrom, cis_window, self._apply_transforms)
+        Y, F, G = self._prepare_gwas_data(pb_data, target_gene, target_chrom, self.cis_window, self._apply_transforms)
         gwas = GWAS(Y, F=F)
         gwas.process(G)
         return gwas, G.shape[1]
@@ -355,7 +351,7 @@ class EQTLPipeline:
         else:
             raise ValueError(f"{self.mode=} not supported, try either 'best' or 'all'")
 
-    def _run_pipeline(self, target_cell_type: str, target_chrom: str, cis_window: int) -> Sequence[dict[str, float]]:
+    def _run_pipeline(self, target_cell_type: str, target_chrom: str) -> Sequence[dict[str, float]]:
         """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes
 
         Parameters
@@ -383,7 +379,7 @@ class EQTLPipeline:
         ## iterating over the genes to test
         for target_gene in current_genes:
             ## running the gwas on gene
-            (gwas, no_tested_variants) = self._run_gwas(pb_data, target_gene, target_chrom, cis_window)
+            (gwas, no_tested_variants) = self._run_gwas(pb_data, target_gene, target_chrom)
             ## postprocessing the results
             results_dict = self._postprocess_gwas_results(
                 pb_data, target_cell_type, target_chrom, target_gene, gwas, no_tested_variants
@@ -394,7 +390,7 @@ class EQTLPipeline:
             iterator.update()
         return output
 
-    def run(self, target_cell_type: str, target_chrom: str, cis_window: int):
+    def run(self, target_cell_type: str, target_chrom: str):
         """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chrom`) over all genes and
         stores the results to a `pd.DataFrame` object and optionally to disk
 
@@ -413,11 +409,11 @@ class EQTLPipeline:
                 The output data in a `pd.DataFrame` object
         """
         ## running the pipeline and constructing results DataFrame
-        results = self._run_pipeline(target_cell_type, target_chrom, cis_window)
+        results = self._run_pipeline(target_cell_type, target_chrom)
         results_df = pd.DataFrame(results)
         ## optionally saving the results to disk
         if self.dump_results:
             dump_dir = "./" if self.dump_dir is None else self.dump_dir
-            dump_path = Path(dump_dir) / f"{self.file_prefix}_{target_cell_type}_{target_chrom}_{cis_window}.csv"
+            dump_path = Path(dump_dir) / f"{self.file_prefix}_{target_cell_type}_{target_chrom}_{self.cis_window}.csv"
             results_df.to_csv(dump_path, index=False)
         return results_df

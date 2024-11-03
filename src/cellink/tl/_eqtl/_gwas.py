@@ -4,6 +4,7 @@ import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
 
+__all__ = ["GWAS"]
 
 class GWAS:
     r"""

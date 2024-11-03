@@ -1,7 +1,7 @@
-n_sc_comps: 500
-n_genetics_pcs: 500
+n_sc_comps: 15
+n_genetic_pcs: 15
 donor_key_in_scdata: individual
-sec_key_in_scdata: sex
+sex_key_in_scdata: sex
 age_key_in_scdata: age
 pseudobulk_aggregation_type: mean
 n_top_genes: 5_000
