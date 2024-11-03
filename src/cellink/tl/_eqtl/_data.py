@@ -1,5 +1,6 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
+
 import anndata as ad
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from cellink._core import DonorData
 
 __all__ = ["EQTLData"]
+
 
 @dataclass
 class EQTLData:
@@ -167,9 +169,7 @@ class EQTLData:
         age_standardized = StandardScaler().fit_transform(pbdata.obs[self.age_key_in_scdata].values.reshape(-1, 1))
         covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
         ## store fixed effects in pb_adata
-        pbdata.obsm["F"] = np.concatenate(
-            (covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1
-        )
+        pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1)
         return pbdata
 
     def _get_pb_data(self, cell_type: str, target_chromosome: str) -> ad.AnnData:

@@ -4,6 +4,6 @@
 defaults:
   - _self_
   - data: default
-  - eqtl: default 
+  - eqtl: default
   - paths: default_local
   - run: default

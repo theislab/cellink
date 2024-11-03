@@ -2,11 +2,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
-from tqdm import tqdm
 
 import numpy as np
 import pandas as pd
 from anndata.utils import asarray
+from tqdm import tqdm
 
 from cellink._core import DonorData
 from cellink.tl._eqtl._data import EQTLData
@@ -287,9 +287,7 @@ class EQTLPipeline:
                     pv_transformed_results[pv_transform_id] = pv_transform_fn(pv_transformed, no_tested_variants)
         return pv_transformed_results
 
-    def _run_gwas(
-        self, pb_data: DonorData, target_gene: str, target_chrom: str
-    ) -> Sequence[GWAS, int]:
+    def _run_gwas(self, pb_data: DonorData, target_gene: str, target_chrom: str) -> Sequence[GWAS, int]:
         """Runs the GWAS experiment on the given gene and chromosomes for the passed window
 
         Parameters
@@ -300,6 +298,7 @@ class EQTLPipeline:
                 Target gene which GWAS experiment was ran on
             `target_chrom: str`
                 Target chromosome which GWAS experiment was ran on
+
         Returns
         -------
             `GWAS`

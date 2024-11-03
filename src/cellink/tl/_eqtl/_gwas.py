@@ -6,6 +6,7 @@ import scipy.stats as st
 
 __all__ = ["GWAS"]
 
+
 class GWAS:
     r"""
     Linear model for univariate association testing

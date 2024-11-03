@@ -5,6 +5,7 @@ from statsmodels.stats.multitest import fdrcorrection
 
 __all__ = ["quantile_transform", "bonferroni_adjustment", "q_value"]
 
+
 def quantile_transform(x, seed=1):
     """
     Gaussian quantile transform for values in a pandas Series.    :param x: Input pandas Series.
@@ -30,8 +31,10 @@ def quantile_transform(x, seed=1):
     )[:, 0]
     return x_transform
 
+
 def bonferroni_adjustment(pv, no_tested_variants):
-    return np.clip(pv*no_tested_variants, 0, 1)
+    return np.clip(pv * no_tested_variants, 0, 1)
+
 
 def q_value(pv, no_tested_variants):
     bf_pv = bonferroni_adjustment(pv, no_tested_variants)

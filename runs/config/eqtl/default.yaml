@@ -1,5 +1,5 @@
-transforms: [quantile_transform, ]
-pv_transforms: [bonferroni_adjustment, q_value, ]
+transforms: [quantile_transform]
+pv_transforms: [bonferroni_adjustment, q_value]
 cis_window: 1_000_000
 mode: all
 dump_results: True

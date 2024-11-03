@@ -1,23 +1,24 @@
-import traceback
-import sys
-import os
 import logging
+import os
+import sys
+import traceback
 import warnings
-import anndata as ad
-import numpy as np
-import pandas as pd
-import hydra
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Sequence, Callable
+
+import anndata as ad
+import hydra
+import pandas as pd
 from omegaconf import DictConfig
 
-from cellink.io import read_plink
 from cellink import DonorData
+from cellink.io import read_plink
 from cellink.tl import EQTLData, EQTLPipeline, pbdata_transforms_dict, pv_transforms_dict
 
 warnings.filterwarnings("ignore")
 
 logger = logging.getLogger(__name__)
+
 
 def load_scdata(sc_data_path: str, annotation_path: str):
     ## reading single cell data
@@ -30,19 +31,27 @@ def load_scdata(sc_data_path: str, annotation_path: str):
     ## merging the scdata.var df with the annotations
     merged_df = pd.merge(scdata.var, annotation_df, left_index=True, right_on="ensembl_gene_id")
     merged_df = merged_df.rename(
-        columns={"ensembl_gene_id": "Geneid", "start_position": "start", "end_position": "end", "chromosome_name": "chrom"}
+        columns={
+            "ensembl_gene_id": "Geneid",
+            "start_position": "start",
+            "end_position": "end",
+            "chromosome_name": "chrom",
+        }
     )
     merged_df.index = merged_df["Geneid"]
     scdata.var = merged_df
     return scdata
+
 
 def load_chrom_gdata(chrom: str, data_root: Path):
     plink_file = os.path.join(data_root, f"chr{chrom}.dose.filtered.R2_0.8")
     gdata = read_plink(plink_file)
     return gdata
 
+
 def get_pbdata_transforms(transforms: Sequence[str], transforms_map: dict[str, Callable]) -> Sequence[Callable]:
     return [transforms_map[tr] for tr in transforms]
+
 
 @hydra.main(config_path="./config", config_name="eqtl")
 def main(config: DictConfig):
@@ -86,8 +95,8 @@ def main(config: DictConfig):
         transforms=transforms,
         pv_transforms=pv_transforms_dict,
         mode=config.eqtl.mode,
-        dump_results=config.eqtl.dump_results, 
-        file_prefix=config.eqtl.file_prefix, 
+        dump_results=config.eqtl.dump_results,
+        file_prefix=config.eqtl.file_prefix,
         dump_dir=config.paths.dump_path,
     )
     if config.run.verbose:
@@ -97,7 +106,8 @@ def main(config: DictConfig):
         logger.info("Run Finished!")
     return 0
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     try:
         main()
     except Exception as e:
