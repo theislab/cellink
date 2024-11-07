@@ -13,7 +13,7 @@ from omegaconf import DictConfig
 
 from cellink import DonorData
 from cellink.io import read_plink
-from cellink.tl import EQTLData, EQTLPipeline, pbdata_transforms_dict, pv_transforms_dict
+from cellink.tl import EQTLDataManager, EQTLPipeline, pbdata_transforms_dict, pv_transforms_dict
 
 warnings.filterwarnings("ignore")
 
@@ -70,7 +70,7 @@ def main(config: DictConfig):
     ## initializing eqtl data
     if config.run.verbose:
         logger.info(f"Donor Data loaded. {data} Preparing data for EQTL Pipeline...")
-    eqtl_data = EQTLData(
+    eqtl_data = EQTLDataManager(
         data,
         n_sc_comps=config.data.n_sc_comps,
         n_genetic_pcs=config.data.n_genetic_pcs,

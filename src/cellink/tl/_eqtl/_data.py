@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -9,11 +10,13 @@ from sklearn.preprocessing import StandardScaler
 
 from cellink._core import DonorData
 
-__all__ = ["EQTLData"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["EQTLDataManager"]
 
 
 @dataclass
-class EQTLData:
+class EQTLDataManager:
     """Data Manager for EQTL pipeline.
 
     Parameters
@@ -172,7 +175,7 @@ class EQTLData:
         pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1)
         return pbdata
 
-    def _get_pb_data(self, cell_type: str, target_chromosome: str) -> ad.AnnData:
+    def _get_pb_data(self, cell_type: str, target_chromosome: str) -> ad.AnnData | None:
         """Registers the fixed effect matrix for the given pseudo-bulked data
 
         Parameters
@@ -184,18 +187,30 @@ class EQTLData:
         -------
             `ad.AnnData` containing with the updated `obsm` with the fixed effects
         """
-        ## filtering cells and genes
+        ## filtering cells
         scdata_cell = self._filter_cells_by_type(self.scdata, cell_type)
+        ## early return if no cells left
+        if scdata_cell.shape[0] == 0:
+            logger.info(f"No cells found for the given cell type {cell_type} ({scdata_cell.shape=})")
+            return None
+        ## filtering chromosomes
         scdata_cell = self._filter_genes_by_chromosome(scdata_cell, target_chromosome)
+        if scdata_cell.shape[1] == 0:
+            logger.info(f"No genes found for the given chromosome {target_chromosome} ({scdata_cell.shape=})")
+            return None
         ## pseudobulk aggregation
         pbdata = self._pseudobulk_scdata(scdata_cell)
         ## filter out genes least expressed genes
         sc.pp.filter_genes(pbdata, min_cells=self.min_individuals_threshold)
+        ## early return if no genes left
+        if scdata_cell.shape[1] == 0:
+            logger.info(f"No genes found in more than {self.min_individuals_threshold} individuals ({scdata_cell.shape=})")
+            return None
         ## registering fixed effects
         pbdata = self._register_fixed_effects(pbdata)
         return pbdata
 
-    def get_pb_data(self, cell_type: str, target_chromosome: str) -> DonorData:
+    def get_pb_data(self, cell_type: str, target_chromosome: str) -> DonorData | None:
         """Gets the pseudo bulked data for the given target cell type and chromosome
 
         Parameters
@@ -210,6 +225,9 @@ class EQTLData:
             `DonorData` object with the the pseudo-bulked single cell data and the corresponding genetics data
         """
         pbdata = self._get_pb_data(cell_type, target_chromosome)
+        ## early return if pseudo bulked data is None
+        if pbdata is None:
+            return None
         data = DonorData(adata=pbdata, gdata=self.gdata, donor_key_in_sc_adata=self.donor_key_in_scdata)
         return data
 

@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,9 +10,11 @@ from anndata.utils import asarray
 from tqdm import tqdm
 
 from cellink._core import DonorData
-from cellink.tl._eqtl._data import EQTLData
+from cellink.tl._eqtl._data import EQTLDataManager
 from cellink.tl._eqtl._gwas import GWAS
 from cellink.tl._eqtl._utils import quantile_transform
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "EQTLPipeline",
@@ -24,7 +27,7 @@ class EQTLPipeline:
 
     Parameters
     ----------
-        `data: EQTLData`
+        `data: EQTLDataManager`
             Data Manager for the EQTL studies
         `cis_window: int`
             Window used to considering the variants as neighboring to a gene
@@ -42,7 +45,7 @@ class EQTLPipeline:
             The prefix to the file name used to save the results to disk (defaults to `"eqtl"`).
     """
 
-    data: EQTLData
+    data: EQTLDataManager
     cis_window: int = 1_000_000
     transforms: Sequence[Callable] | None = (quantile_transform,)
     pv_transforms: dict[str, Callable] | None = None
@@ -50,6 +53,7 @@ class EQTLPipeline:
     dump_results: bool = False
     dump_dir: str | None = None
     file_prefix: str = "eqtl"
+    prog_bar: bool = True
 
     @staticmethod
     def _prepare_gwas_data(
@@ -390,10 +394,13 @@ class EQTLPipeline:
         output = []
         ## retrieving tmp data for current cell_type and chromosome
         pb_data = self.data.get_pb_data(target_cell_type, target_chrom)
+        ## early return if pseudo bulked data is None
+        if pb_data is None:
+            return output
         ## retrieving current genes
         current_genes = pb_data.adata.var_names
-        ## defining iterator
-        iterator = tqdm(range(len(current_genes)))
+        ## defining optional iterator
+        iterator = tqdm(range(len(current_genes))) if self.prog_bar else None
         ## iterating over the genes to test
         for idx, target_gene in enumerate(current_genes):
             ## running the gwas on gene
@@ -401,7 +408,8 @@ class EQTLPipeline:
             ## storing the results for the current gene
             output += results
             ## updating the iterator
-            iterator.update()
+            if iterator is not None:
+                iterator.update()
         return output
 
     def _postprocess_results(self, results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -426,6 +434,8 @@ class EQTLPipeline:
             `pd.DataFrame`
                 The output data in a `pd.DataFrame` object
         """
+        if isinstance(target_chrom, int):
+            target_chrom = str(target_chrom)
         ## running the pipeline and constructing results DataFrame
         results = self._run_pipeline(target_cell_type, target_chrom)
         results_df = pd.DataFrame(results)
