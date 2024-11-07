@@ -434,6 +434,8 @@ class EQTLPipeline:
             `pd.DataFrame`
                 The output data in a `pd.DataFrame` object
         """
+        ## ensuring the type of target chromose is a string
+        ## TODO: Understand why we need to do this when loading confs with hydra
         if isinstance(target_chrom, int):
             target_chrom = str(target_chrom)
         ## running the pipeline and constructing results DataFrame

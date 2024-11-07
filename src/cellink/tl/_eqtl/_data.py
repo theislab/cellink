@@ -166,6 +166,7 @@ class EQTLDataManager:
         sc.tl.pca(pbdata, use_highly_variable=True, n_comps=self.n_sc_comps)
         pbdata.obsm["E_dpc"] = self._column_normalize(pbdata.obsm["X_pca"])
         ## load genetic PCs
+        ## TODO: Probably this is wrong
         gen_pcs = sc.tl.pca(self.gdata.X, n_comps=self.n_genetic_pcs)
         ## load patient covariates
         sex_one_hot = np.eye(2)[(pbdata.obs[self.sex_key_in_scdata].values - 1)]
@@ -204,7 +205,9 @@ class EQTLDataManager:
         sc.pp.filter_genes(pbdata, min_cells=self.min_individuals_threshold)
         ## early return if no genes left
         if scdata_cell.shape[1] == 0:
-            logger.info(f"No genes found in more than {self.min_individuals_threshold} individuals ({scdata_cell.shape=})")
+            logger.info(
+                f"No genes found in more than {self.min_individuals_threshold} individuals ({scdata_cell.shape=})"
+            )
             return None
         ## registering fixed effects
         pbdata = self._register_fixed_effects(pbdata)
