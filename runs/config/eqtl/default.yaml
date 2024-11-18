@@ -1,6 +1,12 @@
+target_cell_type: "CD4 ET"
+target_chromosome: "1"
+target_genes: null,
+verbose: True
 transforms: [quantile_transform]
 pv_transforms: [bonferroni_adjustment, q_value]
 cis_window: 1_000_000
 mode: all
+prog_bar: True
+all_genes: True
 dump_results: True
 file_prefix: eqtl_default

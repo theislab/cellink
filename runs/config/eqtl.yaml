@@ -6,4 +6,3 @@ defaults:
   - data: default
   - eqtl: default
   - paths: default_local
-  - run: default
