@@ -12,15 +12,15 @@
 ## Exporting environmental variables
 export HYDRA_FULL_ERROR=1;
 export CHROMOSOMES="1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22";
-export CELL_TYPES="CD4 ET","NK","CD4 NC","CD8 S100B","CD8 ET","B IN","CD8 NC","B Mem","Erythrocytes","NK R","Mono NC","Mono C","Platelets","DC","Plasma","CD4 SOX4";
+export CELL_TYPES="CD4\ ET","NK","CD4\ NC","CD8\ S100B","CD8\ ET","B\ IN","CD8\ NC","B\ Mem","Erythrocytes","NK\ R","Mono\ NC","Mono\ C","Platelets","DC","Plasma","CD4\ SOX4";
 export WORKING_DIR="/home/icb/lorenzo.consoli";
 
 ## setting current working directory
 cd "$WROKING_DIR";
 
 ## activating conda environment
-conda init;
+source $WORKING_DIR/miniconda3/bin/activate;
 conda activate sc-genetics;
 
 ## launching jobs using hydra
-python runs/run_eqtl.py -m paths=default_hpc run.target_chrom="$CHROMOSOMES" run.target_cell_type="$CELL_TYPES";
+python runs/run_eqtl.py -m paths=default_hpc eqtl.target_chrom="$CHROMOSOMES" eqtl.target_cell_type="$CELL_TYPES";
