@@ -15,11 +15,12 @@ export CHROMOSOMES="1","2","3","4","5","6","7","8","9","10","11","12","13","14",
 export CELL_TYPES="CD4 NC", "CD8 ET", "NK", "CD8 NC", "B IN", "CD4 ET";
 export WORKING_DIR="/home/icb/lorenzo.consoli";
 
-## activating conda environment
-conda activate sc-genetics;
-
 ## setting current working directory
 cd "$WROKING_DIR";
+
+## activating conda environment
+conda init;
+conda activate sc-genetics;
 
 ## launching jobs using hydra
 python runs/run_eqtl.py -m paths=default_hpc run.target_chrom="$CHROMOSOMES" run.target_cell_type="$CELL_TYPES";
