@@ -19,7 +19,7 @@ export WORKING_DIR="/home/icb/lorenzo.consoli";
 cd "$WROKING_DIR";
 
 ## activating conda environment
-conda init;
+source $WORKING_DIR/miniconda3/bin/activate;
 conda activate sc-genetics;
 
 ## launching jobs using hydra
