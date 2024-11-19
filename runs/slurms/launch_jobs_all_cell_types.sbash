@@ -12,8 +12,11 @@
 ## Exporting environmental variables
 export HYDRA_FULL_ERROR=1;
 export CHROMOSOMES="1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22";
-export CELL_TYPES="CD4\ ET","NK","CD4\ NC","CD8\ S100B","CD8\ ET","B\ IN","CD8\ NC","B\ Mem","Erythrocytes","NK\ R","Mono\ NC","Mono\ C","Platelets","DC","Plasma","CD4\ SOX4";
+export CELL_TYPES="CD4\\ NC, CD8\\ ET, NK, CD8\\ NC, B\\ IN, CD4\\ ET"
 export WORKING_DIR="/home/icb/lorenzo.consoli";
+
+## Convert the string into an array
+IFS=', ' read -r -a cell_array <<< "$CELL_TYPES"
 
 ## setting current working directory
 cd "$WROKING_DIR";
