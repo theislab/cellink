@@ -5,4 +5,4 @@ defaults:
   - _self_
   - data: default
   - eqtl: default
-  - paths: default_local
+  - paths: default_hcp
