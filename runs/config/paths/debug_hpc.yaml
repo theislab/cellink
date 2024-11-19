@@ -1,4 +1,0 @@
-scdata_path: <data_dir_in_lustre>/Yazar_OneK1K/debug_OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad
-annotation_path: <data_dir_in_lustre>/Yazar_OneK1K/gene_annotation.csv
-gdata_path: <data_dir_in_lustre>/Yazar_OneK1K/OneK1K_imputation_post_qc_r2_08/plink/
-dump_path: <data_dir_in_lustre>/out/dumps
