@@ -321,7 +321,7 @@ def _prepare_gwas_data(
     target_chromosome: str, 
     cis_window: int, 
     transforms: Callable | None = None
-) -> Sequence[np.ndarray]:
+) -> Sequence[np.ndarray] | None:
     """Prepares the data used to run GWAS on
 
     Parameters
@@ -362,6 +362,10 @@ def _prepare_gwas_data(
         & (pb_data.gdata.var.pos >= start - cis_window)
         & (pb_data.gdata.var.pos <= end + cis_window),
     ]
+    ## early return if no cis_snip_found
+    if subgadata.shape[1] == 0:
+        logger.info(f"No cis snips found for {target_chromosome=}, {target_gene=} for cis window of {cis_window}")
+        return None
     G = subgadata.X.compute()
     F = pb_data.adata.obsm["F"]
     return Y, F, G
@@ -577,13 +581,13 @@ def _gwas(
     ## defining transform function
     transform_fn = partial(_apply_transforms_seq, transforms_seq=transforms_seq)
     ## preparing gwas data
-    Y, F, G = _prepare_gwas_data(pb_data, target_gene, target_chromosome, cis_window, transform_fn)
-    ## retrieving the no of cis snips
-    no_cis_snips = G.shape[1]
-    ## early return if no cis snips found
-    if no_cis_snips:
+    gwas_data = _prepare_gwas_data(pb_data, target_gene, target_chromosome, cis_window, transform_fn)
+    if gwas_data is None:
         logger.info(f"No cis snips found for {target_cell_type=}, {target_chromosome=}, {target_gene=} for cis window of {cis_window}")
         return []
+    Y, F, G = gwas_data
+    ## retrieving the no of cis snips
+    no_cis_snips = G.shape[1]
     ## processing the found snips
     gwas = GWAS(Y, F=F)
     gwas.process(G)
