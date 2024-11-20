@@ -26,4 +26,4 @@ source $WORKING_DIR/miniconda3/bin/activate;
 conda activate sc-genetics;
 
 ## launching jobs using hydra
-python runs/run_eqtl.py -m paths=default_hpc eqtl.target_chrom="$CHROMOSOMES" eqtl.target_cell_type="$CELL_TYPES";
+python runs/run_eqtl.py -m paths=default_hpc eqtl.target_chromosome="$CHROMOSOMES" eqtl.target_cell_type="$CELL_TYPES";
