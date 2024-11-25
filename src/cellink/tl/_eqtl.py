@@ -364,7 +364,6 @@ def _prepare_gwas_data(
     ]
     ## early return if no cis_snip_found
     if subgadata.shape[1] == 0:
-        logger.info(f"No cis snips found for {target_chromosome=}, {target_gene=} for cis window of {cis_window}")
         return None
     G = subgadata.X.compute()
     F = pb_data.adata.obsm["F"]
