@@ -287,7 +287,7 @@ def _get_pb_data(
         logger.info(f"No genes found for the given chromosome {target_chromosome} ({scdata_cell.shape=})")
         return None
     ## retrieving the wanted number of sc PCs
-    scata_cell.obsm["X_pca"] = _column_normalize(scata_cell.obsm["X_pca"][:,:n_cellstate_comps])
+    scdata_cell.obsm["X_pca"] = _column_normalize(scdata_cell.obsm["X_pca"][:,:n_cellstate_comps])
     ## pseudobulk aggregation
     pbdata = _pseudobulk_scdata(
         scdata_cell,
