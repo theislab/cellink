@@ -99,6 +99,7 @@ def main(config: DictConfig):
         n_top_genes=config.data.n_top_genes, 
         n_sc_comps=config.data.n_sc_comps,
         n_genetic_pcs=config.data.n_genetic_pcs,
+        n_cellstate_comps=config.data.n_cellstate_comps,
         cis_window=config.eqtl.cis_window, 
         transforms_seq=transforms ,
         pv_transforms=pv_transforms,

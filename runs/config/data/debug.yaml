@@ -1,5 +1,6 @@
 n_sc_comps: 15
-n_genetic_pcs: 15
+n_genetic_pcs: 20
+n_cellstate_comps: 50
 donor_key_in_scdata: individual
 sex_key_in_scdata: sex
 age_key_in_scdata: age

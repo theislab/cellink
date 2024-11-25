@@ -262,6 +262,7 @@ def _get_pb_data(
     n_top_genes: int, 
     n_sc_comps: int,
     n_genetic_pcs: int,
+    n_cellstate_comps: int,
 ) -> ad.AnnData | None:
     """Registers the fixed effect matrix for the given pseudo-bulked data
 
@@ -285,6 +286,8 @@ def _get_pb_data(
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found for the given chromosome {target_chromosome} ({scdata_cell.shape=})")
         return None
+    ## retrieving the wanted number of sc PCs
+    scata_cell.obsm["X_pca"] = _column_normalize(scata_cell.obsm["X_pca"][:,:n_cellstate_comps])
     ## pseudobulk aggregation
     pbdata = _pseudobulk_scdata(
         scdata_cell,
@@ -612,6 +615,7 @@ def _run_eqtl(
     n_top_genes: int, 
     n_sc_comps: int,
     n_genetic_pcs: int,
+    n_cellstate_comps: int,
     cis_window: int, 
     transforms_seq: Sequence[Callable],
     pv_transforms: Mapping[str, Callable],
@@ -650,6 +654,7 @@ def _run_eqtl(
         n_top_genes, 
         n_sc_comps,
         n_genetic_pcs,
+        n_cellstate_comps,
     )
     ## retrieving current genes
     current_genes = pb_data.adata.var_names
@@ -751,8 +756,9 @@ def eqtl(
     pseudobulk_aggregation_type: str = "mean",
     min_individuals_threshold: int = 10,
     n_top_genes: int = 5_000, 
-    n_sc_comps: int = 300,
-    n_genetic_pcs: int = 300,
+    n_sc_comps: int = 15,
+    n_genetic_pcs: int = 20,
+    n_cellstate_comps: int = 50,
     cis_window: int = 1_000_000, 
     transforms_seq: Sequence[Callable] | None = (quantile_transform,) ,
     pv_transforms: Mapping[str, Callable] | None = None,
@@ -798,6 +804,7 @@ def eqtl(
         n_top_genes, 
         n_sc_comps,
         n_genetic_pcs,
+        n_cellstate_comps,
         cis_window, 
         transforms_seq,
         pv_transforms,
