@@ -352,10 +352,7 @@ def _prepare_gwas_data(
             Array containing the genetics data for the variants falling within the window
     """
     ## retrieving the pseudo-bulked data
-    Y = pb_data.adata[:, [target_gene]].layers["mean"]
-    Y = asarray(Y)
-    if transforms is not None:
-        Y = transforms(Y)
+    Y = pb_data.adata[:, [target_gene]].layers["transformed_mean"]
     ## retrieving start and end position for each gene
     start = pb_data.adata.var.loc[target_gene].start
     end = pb_data.adata.var.loc[target_gene].end
@@ -658,6 +655,15 @@ def _run_eqtl(
         n_genetic_pcs,
         n_cellstate_comps,
     )
+    ## retrieving the pseudo-bulked data
+    Y = pb_data.adata.layers["mean"]
+    ## defining transform function
+    transform_fn = partial(_apply_transforms_seq, transforms_seq=transforms_seq)
+    ## applying transformation
+    Y = asarray(Y)
+    if transform_fn is not None:
+        Y = transform_fn(Y)
+    pb_data.adata.layers["transformed_mean"] = Y
     ## retrieving current genes
     current_genes = pb_data.adata.var_names
     ## optionally setting all genes by default
