@@ -320,7 +320,7 @@ def _get_pb_data(
 
 
 def _prepare_gwas_data(
-    pb_data: DonorData, target_gene: str, target_chromosome: str, cis_window: int, transforms: Callable | None = None
+    pb_data: DonorData, target_gene: str, target_chromosome: str, cis_window: int
 ) -> Sequence[np.ndarray] | None:
     """Prepares the data used to run GWAS on
 
@@ -581,20 +581,24 @@ def _gwas(
     target_chromosome: str,
     target_gene: str,
     cis_window: int,
-    transforms_seq: Sequence[Callable],
     pv_transforms: Mapping[str, Callable],
     mode: str,
 ) -> Sequence[dict[str, float | str]]:
     """"""
-    # defining transform function
-    transform_fn = partial(_apply_transforms_seq, transforms_seq=transforms_seq)
     # preparing gwas data
-    gwas_data = _prepare_gwas_data(pb_data, target_gene, target_chromosome, cis_window, transform_fn)
+    gwas_data = _prepare_gwas_data(pb_data, target_gene, target_chromosome, cis_window)
     if gwas_data is None:
         logger.info(
             f"No cis snips found for {target_cell_type=}, {target_chromosome=}, {target_gene=} for cis window of {cis_window}"
         )
-        return []
+        return [
+            {
+                "cell_type": target_cell_type,
+                "chrom": target_chromosome,
+                "gene": target_gene,
+                "no_tested_variants": 0,
+            }
+        ]
     Y, F, G = gwas_data
     # retrieving the no of cis snips
     no_cis_snips = G.shape[1]
@@ -712,7 +716,6 @@ def _run_eqtl(
             target_chromosome,
             target_gene,
             cis_window,
-            transforms_seq,
             pv_transforms,
             mode,
         )
