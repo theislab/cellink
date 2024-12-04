@@ -10,6 +10,7 @@ import pandas as pd
 import scanpy as sc
 import scipy.linalg as la
 import scipy.stats as st
+from dask.array import Array
 from anndata.utils import asarray
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import quantile_transform as sk_quantile_transform
@@ -385,11 +386,25 @@ def _parse_gwas_results(gwas: GWAS) -> Sequence[np.ndarray]:
         `lrt: np.ndarray`
             The array containing the results of the likelihood ration test for each variant
     """
+    # retrieving the results
+    pv = gwas.getPv()
+    betasnp = gwas.getBetaSNP()
+    betasnp_ste = gwas.getBetaSNPste()
+    lrt = gwas.getLRT()
+    # converting to numpy array if not already
+    if isinstance(pv, Array):
+        pv = pv.compute()
+    if isinstance(betasnp, Array):
+        betasnp = betasnp.compute()
+    if isinstance(betasnp_ste, Array):
+        betasnp_ste = betasnp_ste.compute()
+    if isinstance(lrt, Array):
+        lrt = lrt.compute()
     # retrieving gwas results
-    pv = np.squeeze(gwas.getPv())
-    betasnp = np.squeeze(gwas.getBetaSNP())
-    betasnp_ste = np.squeeze(gwas.getBetaSNPste())
-    lrt = np.squeeze(gwas.getLRT())
+    pv = np.squeeze(pv)
+    betasnp = np.squeeze(betasnp)
+    betasnp_ste = np.squeeze(betasnp_ste)
+    lrt = np.squeeze(lrt)
     # removing nan
     pv[np.isnan(pv)] = 1
     betasnp[np.isnan(betasnp)] = 0
@@ -619,6 +634,9 @@ def _run_eqtl(
     pv_transforms: Mapping[str, Callable],
     mode: str,
     prog_bar: bool,
+    dump_intermediate_results: bool,
+    file_prefix: str | None,
+    dump_dir: str | None,
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes
 
@@ -688,7 +706,7 @@ def _run_eqtl(
             logger.info(msg)
             continue
         # running the gwas on gene
-        output += _gwas(
+        gwas_out = _gwas(
             pb_data,
             target_cell_type,
             target_chromosome,
@@ -698,6 +716,22 @@ def _run_eqtl(
             pv_transforms,
             mode,
         )
+        output = [*output, *gwas_out]
+
+        if dump_intermediate_results:
+            gwas_results_df = pd.DataFrame(gwas_out)
+            gwas_postprocessed_dfs = _postprocess_results(gwas_results_df)
+            _dump_results(
+                gwas_results_df,
+                gwas_postprocessed_dfs,
+                cis_window,
+                target_cell_type,
+                target_chromosome,
+                target_gene,
+                file_prefix,
+                dump_dir,
+            )
+
         # updating the iterator
         if iterator is not None:
             iterator.update()
@@ -752,6 +786,40 @@ def q_value(pv: np.ndarray, no_tested_variants: int) -> np.ndarray:
     return fdrcorrection(bf_pv)[1]
 
 
+def _dump_results(
+    results_df: pd.DataFrame,
+    postprocessed_dfs: dict[str, pd.DataFrame] | None,
+    cis_window: int,
+    target_cell_type: str,
+    target_chromosome: str,
+    target_gene: str | None,
+    file_prefix: str | None,
+    dump_dir: str | None,
+) -> None:
+    """"""
+    # setting default file prefix and dump path if not defined
+    if file_prefix is None:
+        file_prefix = "EQTL"
+    if dump_dir is None:
+        dump_dir = "./"
+    # defining the path and saving the model
+    dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
+    dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
+    if target_gene is not None:
+        dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}_Gene{target_gene}.csv"
+    results_df.to_csv(dump_path, index=False)
+    # saving post processed results df to disk
+    if postprocessed_dfs is not None:
+        for post_processing_id, post_processed_df in postprocessed_dfs.items():
+            dump_file = f"{file_prefix}_PP{post_processing_id}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
+            if target_gene is not None:
+                dump_file = f"{file_prefix}_PP{post_processing_id}_CellType{target_cell_type}_Chrom{target_chromosome}_Gene{target_gene}.csv"
+            dump_path = (
+                Path(dump_dir) / dump_file
+            )
+            post_processed_df.to_csv(dump_path, index=False)
+
+
 def eqtl(
     donor_data: DonorData,
     target_cell_type: str,
@@ -775,6 +843,8 @@ def eqtl(
     dump_results: bool = True,
     dump_dir: str | None = None,
     file_prefix: str | None = None,
+    use_cell_type_chrom_specific_dir: bool = True,
+    dump_intermediate_results: bool = False,
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes and
     stores the results to a `pd.DataFrame` object and optionally to disk
@@ -797,6 +867,14 @@ def eqtl(
     # TODO: Understand why we need to do this when loading confs with hydra
     if isinstance(target_chromosome, int):
         target_chromosome = str(target_chromosome)
+    # optionally creating a directory to store the results for
+    # the current `target_cell_type`, `target_chromosome` combination
+    dump_dir_cell = None
+    if use_cell_type_chrom_specific_dir:
+        dump_dir_base = "./" if dump_dir is None else dump_dir
+        dump_dir_cell = Path(dump_dir) / f"Cell{target_cell_type}_Chrom{target_chromosome}"
+        dump_dir_cell.mkdir(exist_ok=True)
+        dump_dir_cell = str(dump_dir_cell)
     # running the pipeline and constructing results DataFrame
     results = _run_eqtl(
         donor_data,
@@ -817,25 +895,25 @@ def eqtl(
         pv_transforms,
         mode,
         prog_bar,
+        dump_intermediate_results,
+        file_prefix,
+        dump_dir_cell,
     )
     results_df = pd.DataFrame(results)
     # postprocessing the results
     postprocessed_dfs = _postprocess_results(results_df)
     # optionally saving the results to disk
     if dump_results:
-        # setting default file prefix and dump path if not defined
-        file_prefix = "EQTL" if file_prefix is None else file_prefix
-        dump_dir = "./" if dump_dir is None else dump_dir
-        # defining the path and saving the model
-        dump_path = Path(dump_dir) / f"{file_prefix}_{target_cell_type}_{target_chromosome}_{cis_window}.csv"
-        results_df.to_csv(dump_path, index=False)
-        # saving post processed results df to disk
-        if postprocessed_dfs is not None:
-            for post_processing_id, post_processed_df in postprocessed_dfs.items():
-                dump_path = (
-                    Path(dump_dir)
-                    / f"{file_prefix}_{post_processing_id}_{target_cell_type}_{target_chromosome}_{cis_window}.csv"
-                )
-                post_processed_df.to_csv(dump_path, index=False)
+        logger.warning(f"{dump_dir=} {file_prefix=}")
+        _dump_results(
+            results_df,
+            post_processed_results_dfs,
+            cis_window,
+            target_cell_type,
+            target_chromosome,
+            None,
+            file_prefix,
+            dump_dir,
+        )
     # constructing out dictionary
     return results_df, postprocessed_dfs
