@@ -5,8 +5,7 @@ from anndata import AnnData
 def one_hot_encode_genotypes(
     adata: AnnData,
 ) -> AnnData | np.ndarray | None:
-    """\
-    Convert genotypes to one-hot encoding.
+    """Convert genotypes to one-hot encoding.
 
     This function takes the genotype data in `adata` and converts it into a one-hot encoded format.
     Each genotype (e.g., homozygous reference, heterozygous, homozygous alternate) is transformed
@@ -26,11 +25,15 @@ def one_hot_encode_genotypes(
     --------
     >>> import numpy as np
     >>> from anndata import AnnData
-    >>> adata = AnnData(np.array([
-    ...     [0, 1, 2],
-    ...     [1, 0, 1],
-    ...     [2, 2, 0],
-    ... ]))
+    >>> adata = AnnData(
+    ...     np.array(
+    ...         [
+    ...             [0, 1, 2],
+    ...             [1, 0, 1],
+    ...             [2, 2, 0],
+    ...         ]
+    ...     )
+    ... )
     >>> one_hot_encoded = one_hot_encode_genotypes(adata, key_added="one_hot", inplace=False)
     >>> one_hot_encoded
     array([[[1, 0, 0],
@@ -63,8 +66,7 @@ def one_hot_encode_genotypes(
 def dosage_per_strand(
     adata: AnnData,
 ) -> AnnData | np.ndarray | None:
-    """\
-    Convert dosage to per-strand encoding.
+    """Convert dosage to per-strand encoding.
 
     This function takes the dosage data in `adata` and converts it into a per-strand encoding format.
     If the dosage is 0, 1, or 2, it returns standard one-hot encoding. For other dosages, it returns
@@ -84,11 +86,15 @@ def dosage_per_strand(
     --------
     >>> import numpy as np
     >>> from anndata import AnnData
-    >>> adata = AnnData(np.array([
-    ...     [0, 1, 2],
-    ...     [1, 1, 2],
-    ...     [3, 4, 0],
-    ... ]))
+    >>> adata = AnnData(
+    ...     np.array(
+    ...         [
+    ...             [0, 1, 2],
+    ...             [1, 1, 2],
+    ...             [3, 4, 0],
+    ...         ]
+    ...     )
+    ... )
     >>> per_strand_encoded = dosage_per_strand(adata, key_added="dosage", inplace=False)
     >>> per_strand_encoded
     array([[[1. , 0. ],
