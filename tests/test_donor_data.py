@@ -12,10 +12,8 @@ DATA = Path("tests/data")
 @pytest.mark.slow
 def test_donordata_init():
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
-    #gdata.obs = gdata.obs.set_index("id")
-    adata = read_h5ad(
-        DATA / "simulated_gene_expression.h5ad"
-    )
+    # gdata.obs = gdata.obs.set_index("id")
+    adata = read_h5ad(DATA / "simulated_gene_expression.h5ad")
     dd = DonorData(adata, gdata, "individual")
     print(dd)
 
@@ -23,10 +21,8 @@ def test_donordata_init():
 @pytest.mark.slow
 def test_donordata_aggregate():
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
-    #gdata.obs = gdata.obs.set_index("id")
-    adata = read_h5ad(
-        DATA / "simulated_gene_expression.h5ad"
-    )
+    # gdata.obs = gdata.obs.set_index("id")
+    adata = read_h5ad(DATA / "simulated_gene_expression.h5ad")
     dd = DonorData(adata, gdata, "individual")
     dd.aggregate("X", "Gex")
     assert "Gex" in dd.gdata.obsm

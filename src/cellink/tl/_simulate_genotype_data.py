@@ -10,8 +10,8 @@ def simulate_genotype_data_msprime(
     mutation_rate: float = 1e-8,
     recombination_rate: float = 1e-8,
 ) -> anndata.AnnData | None:
-    """\
-    Simulate genotype data using msprime.
+    """Simulate genotype data using msprime.
+
     See https://tskit.dev/msprime/docs/stable/quickstart.html
 
     This function simulates genotype data for a given number of individuals and variants.
@@ -39,7 +39,10 @@ def simulate_genotype_data_msprime(
     demography = msprime.Demography.isolated_model([n_individuals])
 
     ts = msprime.sim_ancestry(
-        n_individuals, demography=demography, recombination_rate=recombination_rate, sequence_length=n_variants
+        n_individuals,
+        demography=demography,
+        recombination_rate=recombination_rate,
+        sequence_length=n_variants,
     )
 
     mts = msprime.sim_mutations(ts, rate=mutation_rate)
@@ -52,7 +55,11 @@ def simulate_genotype_data_msprime(
     # np.clip(genotype_matrix, 0, 2)
 
     if genotype_matrix.shape[1] < n_variants:
-        genotype_matrix = np.pad(genotype_matrix, ((0, 0), (0, n_variants - genotype_matrix.shape[1])), mode="constant")
+        genotype_matrix = np.pad(
+            genotype_matrix,
+            ((0, 0), (0, n_variants - genotype_matrix.shape[1])),
+            mode="constant",
+        )
 
     adata = anndata.AnnData(genotype_matrix)
     adata.obs["individual"] = np.arange(n_individuals)
@@ -64,8 +71,7 @@ def simulate_genotype_data_numpy(
     n_individuals: int,
     n_variants: int,
 ) -> anndata.AnnData | None:
-    """\
-    Simulate random genotype data using numpy.
+    """Simulate random genotype data using numpy.
 
     This function generates a random genotype matrix with specified individuals and variants.
 
