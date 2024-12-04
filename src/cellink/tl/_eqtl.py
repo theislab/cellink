@@ -907,7 +907,7 @@ def eqtl(
         logger.warning(f"{dump_dir=} {file_prefix=}")
         _dump_results(
             results_df,
-            post_processed_results_dfs,
+            postprocessed_dfs,
             cis_window,
             target_cell_type,
             target_chromosome,
