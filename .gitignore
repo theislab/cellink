@@ -189,3 +189,6 @@ __pycache__/
 software
 *.sqlite
 
+# hydra
+multirun/
+outputs/

@@ -1,0 +1,29 @@
+#!/bin/bash
+#SBATCH --job-name=eqtl_pipeline
+#SBATCH --output=/home/icb/lorenzo.consoli/output_sc_genetics/std/%x_%j.out
+#SBATCH --error=/home/icb/lorenzo.consoli/output_sc_genetics/std/%x_%j.err
+#SBATCH --partition=cpu_p
+#SBATCH --qos=cpu_normal
+#SBATCH --mem=128G
+#SBATCH --cpus-per-task=20
+#SBATCH --nice=10000
+#SBATCH --time=1-00:00:00
+
+## Exporting environmental variables
+export HYDRA_FULL_ERROR=1;
+export CHROMOSOMES="1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22";
+export CELL_TYPES="CD4\\ NC, CD8\\ ET, NK, CD8\\ NC, B\\ IN, CD4\\ ET"
+export WORKING_DIR="/home/icb/lorenzo.consoli";
+
+## Convert the string into an array
+IFS=', ' read -r -a cell_array <<< "$CELL_TYPES"
+
+## setting current working directory
+cd "$WROKING_DIR";
+
+## activating conda environment
+source $WORKING_DIR/miniconda3/bin/activate;
+conda activate sc-genetics;
+
+## launching jobs using hydra
+python runs/run_eqtl.py -m paths=default_hpc eqtl.target_chromosome="$CHROMOSOMES" eqtl.target_cell_type="$CELL_TYPES";

@@ -1,0 +1,24 @@
+#!/bin/bash
+#SBATCH --job-name=eqtl_pipeline
+#SBATCH --output=/home/icb/lorenzo.consoli/output_sc_genetics/std/%x_%j.out
+#SBATCH --error=/home/icb/lorenzo.consoli/output_sc_genetics/std/%x_%j.err
+#SBATCH --partition=cpu_p
+#SBATCH --qos=cpu_normal
+#SBATCH --mem=128G
+#SBATCH --cpus-per-task=20
+#SBATCH --nice=10000
+#SBATCH --time=1-00:00:00
+
+## Exporting environmental variables
+export HYDRA_FULL_ERROR=1;
+export WORKING_DIR="/home/icb/lorenzo.consoli";
+
+## setting current working directory
+cd "$WROKING_DIR";
+
+## activating conda environment
+source $WORKING_DIR/miniconda3/bin/activate;
+conda activate sc-genetics;
+
+## launching jobs using hydra
+python runs/run_eqtl.py -m paths=default_hpc;
