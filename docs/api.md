@@ -35,7 +35,19 @@
 .. autosummary::
     :toctree: generated
 
-    pp.basic_preproc
+    pp.variant_qc
+```
+
+## DonorData
+
+```{eval-rst}
+.. module:: cellink._core
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    _core.DonorData
 ```
 
 ## Tools
@@ -47,7 +59,13 @@
 .. autosummary::
     :toctree: generated
 
-    tl.basic_tool
+    tl.get_snp_df
+    tl.write_variants_to_vcf
+    tl.run_vep
+    tl.one_hot_encode_genotypes
+    tl.dosage_per_strand
+    tl.simulate_genotype_data_msprime
+    tl.simulate_genotype_data_numpy
 ```
 
 ## Plotting

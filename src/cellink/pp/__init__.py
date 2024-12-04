@@ -1,1 +1,1 @@
-from .basic import basic_preproc
+from ._variant_qc import variant_qc

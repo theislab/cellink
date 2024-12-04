@@ -1,6 +1,6 @@
 import anndata
 import numpy as np
-
+import dask.array as da
 
 def variant_qc(
     adata: anndata.AnnData,
@@ -31,27 +31,24 @@ def variant_qc(
     Returns
     -------
     Returns the AnnData object with filtered variants or updates the input `adata` if inplace is True.
-
-    Example
-    --------
-    >>> adata = anndata.AnnData(np.array([[0, 1], [1, 0], [0, 0]]))
-    >>> variant_qc(adata, maf_threshold=0.01, hwe_pval_threshold=1e-6)
     """
-    if copy:
-        if not inplace:
-            raise ValueError("`copy=True` cannot be used with `inplace=False`.")
-        adata = adata.copy()
-
     X = adata.X
 
-    allele_freq = np.sum(X, axis=0) / (2 * X.shape[0])
-    maf = np.minimum(allele_freq, 1 - allele_freq)
+    print("dsgjkgadsö")
+
+    if not isinstance(X, da.Array):
+        raise ValueError("adata.X must be a Dask array.")
+
+    allele_freq = da.sum(X, axis=0) / (2 * X.shape[0])
+    maf = da.minimum(allele_freq, 1 - allele_freq)
 
     maf_filter = maf >= maf_threshold
 
-    # Could introduce further fitlers here
+    combined_filter = maf_filter.compute()
 
-    combined_filter = maf_filter
+    print("kjdsgköag")
+    from collections import Counter
+    print(Counter(combined_filter))
 
     adata = adata[:, combined_filter]
 

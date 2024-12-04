@@ -22,6 +22,83 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def setup_snpeff():
+
+    os.makedirs("deps", exist_ok=True)
+    subprocess.run(["wget", "http://sourceforge.net/projects/snpeff/files/snpEff_latest_core.zip", "-O", "deps/snpEff_latest_core.zip"], check=True)
+    os.chdir("deps")
+    subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
+    os.chdir("../")
+
+def load_snpeff():
+    return 0
+
+def run_annotation_with_snpeff():
+
+    snpeff_path = "./deps/snpEff/snpEff.jar"
+
+    chromosome = "1"
+    vcf_input = f"/sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr{chromosome}.dose.filtered.R2_0.8.vcf"
+    vcf_output = f"/sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr{chromosome}.dose.filtered.R2_0.8.ann.vcf"
+
+    subprocess.run(["java", "-Xmx8g", "-jar", snpeff_path, "GRCh37.75", vcf_input], stdout=open(vcf_output, 'w'), check=True)
+
+    return 0
+
+def setup_favor():
+
+    subprocess.run(["wget", "https://dvn-cloud.s3.amazonaws.com/10.7910/DVN/1VGTJI/17fe155b1d0-76967428f313?response-content-disposition=attachment%3B%20filename%2A%3DUTF-8%27%27chr22.tar.gz&response-content-type=application%2Fx-gzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20241008T072613Z&X-Amz-SignedHeaders=host&X-Amz-Expires=7200&X-Amz-Credential=AKIAIEJ3NV7UYCSRJC7A%2F20241008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=2d9e2bb3962a7c0d14534edc0758015f355683a52bc3303679df5241b2e76f87", "-O", "favor_chr22.zip"], check=True)
+
+def run_annotation_with_favor():
+
+    df = pl.DataFrame(
+        data = {
+            "rsid": ["rs0", "rs1", "rs2"],
+            "annotation": [1241, 1242, 1251]
+        }
+    )
+
+    annotation = pl.read_csv("/sc-projects/sc-proj-dh-ukb-intergenics/analysis/development/arnoldtl/code/theis/favor/n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB/chr22_1.csv")
+
+    import polars as pl
+
+    import datetime as dt
+
+    df = pl.DataFrame(
+        {
+            "name": ["Alice Archer", "Ben Brown", "Chloe Cooper", "Daniel Donovan"],
+            "birthdate": [
+                dt.date(1997, 1, 10),
+                dt.date(1985, 2, 15),
+                dt.date(1983, 3, 22),
+                dt.date(1981, 4, 30),
+            ],
+            "weight": [57.9, 72.5, 53.6, 83.1],  # (kg)
+            "height": [1.56, 1.77, 1.65, 1.75],  # (m)
+        }
+    )
+
+    df2 = pl.DataFrame(
+        {
+            "name": ["Ben Brown", "Daniel Donovan", "Alice Archer", "Chloe Cooper"],
+            "parent": [True, False, False, False],
+            "siblings": [1, 2, 3, 4],
+        }
+    )
+
+    print(df.join(df2, on="name", how="left"))
+
+    "Rscript convertVCFtoGDS.r chrnumber"
+    "Rscript FAVORannotatorv2aGDS.r chrnumber"
+
+    "Rscript /sc-projects/sc-proj-dh-ukb-intergenics/analysis/development/arnoldtl/code/theis/favor/FAVORannotator/Scripts/CSV/convertVCFtoGDS.r /sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr22.dose.filtered.R2_0.8.vcf.gz"
+
+    #https://dvn-cloud.s3.amazonaws.com/10.7910/DVN/1VGTJI/17fdc14a662-18dc7770dec1?response-content-disposition=attachment%3B%20filename%2A%3DUTF-8%27%27Annotator22.sql.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20241008T130642Z&X-Amz-SignedHeaders=host&X-Amz-Expires=7199&X-Amz-Credential=AKIAIEJ3NV7UYCSRJC7A%2F20241008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=e3b427d85584e310f8445097fe34cc18ee85c4ba46e46a8f8c6d9a53127aa20e
+
+    return 0
+
+###############################################
+
 def _write_variants_to_vcf(variants, out_file):
     # TODO add check for if file allready exists
     logger.info(f"Writing variants to {out_file}")
@@ -42,7 +119,7 @@ def write_variants_to_vcf(gdata, out_file="variants.vcf"):
 
     Parameters
     ----------
-    gdata : gdata 
+    gdata : gdata
         gdata object
     out_file : str, optional
         output file. By default "variants.vcf"
@@ -75,8 +152,8 @@ def run_vep(
 
     Returns
     -------
-    None if return_annos=False else the written annotations loaded into a Pandas Data Frame 
-    """    
+    None if return_annos=False else the written annotations loaded into a Pandas Data Frame
+    """
     # TODO: make VEP options more modular
     logger.info("using config {config_file}")
     with open(config_file) as f:
@@ -188,7 +265,7 @@ def add_vep_annos_to_gdata(
     id_col_new="snp_id",
     cols_to_explode=["Consequence"],
     cols_to_dummy=["Consequence"]):
-    """Add VEP annotations to gdata 
+    """Add VEP annotations to gdata
 
     Parameters
     ----------
@@ -207,16 +284,16 @@ def add_vep_annos_to_gdata(
     Returns
     -------
     gdata
-        gdata object with VEP annotations as varm["annotation_0"]-varm["annotation_n"]. 
+        gdata object with VEP annotations as varm["annotation_0"]-varm["annotation_n"].
         Multiple anotation dimensions (0-n) results from multiple contexts different variants can be in (e.g., different effects in overlapping transcripts/gene.)
         N is the maximum number of contexts any variant has. Dimensions >annotation_0 so for simple downstream analyses it's advised to use varm["annotation_0"].
-    """    
+    """
 
     # TODO: rename annotation columns
     annos = pd.read_csv(
         vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
     )
-    
+
     logger.info(f"renaming id column {id_col} into {id_col_new}")
     annos[id_col] = annos[id_col].str.replace("/", "_")
     annos = annos.rename(columns={id_col: id_col_new})
@@ -265,8 +342,8 @@ def _expand_annotations(
     Returns
     -------
     dict
-        dictionary of annotation data frames 
-    """    
+        dictionary of annotation data frames
+    """
     data_exp = data.groupby(id_col).agg(lambda x: list(x)).reset_index()
     obj_cols =list(data.dtypes[(data.dtypes == "category") | (data.dtypes == "object")].index)
     obj_cols = list(set(obj_cols).intersection(set(cols_to_exp)))
@@ -302,7 +379,7 @@ def _create_varm_expanded(
     annos : Pd.DataFrame
         Annotations
     gdata : gdata
-        gdata 
+        gdata
     id_col : str
         Variant id col
     key_prefix : str, optional
@@ -312,8 +389,8 @@ def _create_varm_expanded(
     Returns
     -------
     dict
-        varm dictionary of max_n_val annotation data frames  
-    """    
+        varm dictionary of max_n_val annotation data frames
+    """
 
     logger.info("getting unique counts")
     unique_counts = (
