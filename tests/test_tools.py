@@ -6,13 +6,13 @@ import pytest
 from cellink.io import read_sgkit_zarr
 from cellink.tl import add_vep_annos_to_gdata
 
-#DATA = Path("tests/data_old")
+# DATA = Path("tests/data_old")
 DATA = Path("tests/data")
 
 
 @pytest.fixture
 def sample_gdata():
-    #zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
+    # zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
     zarr_file_path = DATA / "simulated_genotype_calls.vcz"
     return read_sgkit_zarr(zarr_file_path)
 
@@ -93,7 +93,7 @@ def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos, tmp_path):
     # Check IMPACT values
     impact_values = annotated_gdata.varm["annotations_0"]["IMPACT"].unique()
     assert set(impact_values).issubset({"MODIFIER", "LOW", "MODERATE", "HIGH"})
-    assert isinstance(annotated_gdata.varm['annotations_0'], pd.DataFrame)
+    assert isinstance(annotated_gdata.varm["annotations_0"], pd.DataFrame)
     # Save annotated gdata
     output_file = tmp_path / "annotated_gdata.h5ad"
     annotated_gdata.write_h5ad(output_file)
