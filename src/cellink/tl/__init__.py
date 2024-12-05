@@ -1,10 +1,8 @@
 from ._annotate_snps_ensembl_rest import get_snp_df
 from ._annotate_snps_genotype_data import (
     add_vep_annos_to_gdata,
-    run_annotation_with_favor,
     run_annotation_with_snpeff,
     run_vep,
-    setup_favor,
     setup_snpeff,
     write_variants_to_vcf,
 )
