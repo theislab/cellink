@@ -1,8 +1,0 @@
-# @package _global_
-
-# Default configurations
-defaults:
-  - _self_
-  - data: default
-  - eqtl: default
-  - paths: default_hcp
