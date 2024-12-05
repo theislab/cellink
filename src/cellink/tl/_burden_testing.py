@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def _get_burden(gd_gene, weight_col):
     this_weights = np.array(gd_gene.varm['annotations_0'][weight_col])
     g_weigthed = gd_gene.X * this_weights
-    this_burdens = np.nansum(g_weigthed, axis = 1)
+    this_burdens = np.nansum(g_weigthed, axis = 1) #TODO implement alternative weighting functions
     return this_burdens
 
 def _postprocess_results(results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -41,7 +41,7 @@ def _compute_burdens_for_gene(this_gd,
     all_burdens_this_gene = np.stack(all_burdens_this_gene, axis = 1)
     all_burdens_this_gene = pd.DataFrame(all_burdens_this_gene, index = gd_gene.obs.index,
             columns = weight_cols)
-    all_burdens_this_gene["Gene"] = this_gene
+    all_burdens_this_gene["Geneid"] = this_gene
     return all_burdens_this_gene
 
 def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"]):
@@ -133,7 +133,7 @@ def _burden_test(
 
     Returns
     -------
-        `Sequence[dict[str, float]]`
+        `pd.DataFrame`
             The output data with the parsed statistics to be stored for all genes
     """
     # output results
