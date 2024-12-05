@@ -1,6 +1,7 @@
 import anndata
 import dask.array as da
-
+import numpy as np
+from collections import Counter
 
 def variant_qc(
     adata: anndata.AnnData,
@@ -32,8 +33,6 @@ def variant_qc(
     Returns the AnnData object with filtered variants or updates the input `adata` if inplace is True.
     """
     X = adata.X
-
-    print("dsgjkgadsö")
 
     if not isinstance(X, da.Array):
         raise ValueError("adata.X must be a Dask array.")
