@@ -26,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 
 def setup_snpeff():
+    """
+    Downloads and sets up the SnpEff tool in the 'deps' directory.
+
+    This function creates a directory called 'deps', downloads the latest version
+    of SnpEff from SourceForge, and extracts the contents. It ensures that the
+    required tool is available for genome annotation tasks.
+    """
+
     os.makedirs("deps", exist_ok=True)
     subprocess.run(
         [
@@ -40,82 +48,27 @@ def setup_snpeff():
     subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
     os.chdir("../")
 
+def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
+    """
+    Runs genome annotation using the SnpEff tool.
 
-def load_snpeff():
-    return 0
+    This function uses the SnpEff tool to annotate a given VCF file with the specified
+    genome database. The annotated output is saved to the specified output file.
 
+    Args:
+        vcf_input (str): Path to the input VCF file to be annotated.
+        vcf_output (str): Path to the output file where the annotated VCF will be saved.
+        genome (str): Genome version to be used for annotation (default: "GRCh37.75").
+                      Ensure this genome is supported by SnpEff.
+    """
 
-def run_annotation_with_snpeff():
     snpeff_path = "./deps/snpEff/snpEff.jar"
 
-    chromosome = "1"
-    vcf_input = f"/sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr{chromosome}.dose.filtered.R2_0.8.vcf"
-    vcf_output = f"/sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr{chromosome}.dose.filtered.R2_0.8.ann.vcf"
-
     subprocess.run(
-        ["java", "-Xmx8g", "-jar", snpeff_path, "GRCh37.75", vcf_input],
+        ["java", "-Xmx8g", "-jar", snpeff_path, genome, vcf_input],
         stdout=open(vcf_output, "w"),
         check=True,
     )
-
-    return 0
-
-
-def setup_favor():
-    subprocess.run(
-        [
-            "wget",
-            "https://dvn-cloud.s3.amazonaws.com/10.7910/DVN/1VGTJI/17fe155b1d0-76967428f313?response-content-disposition=attachment%3B%20filename%2A%3DUTF-8%27%27chr22.tar.gz&response-content-type=application%2Fx-gzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20241008T072613Z&X-Amz-SignedHeaders=host&X-Amz-Expires=7200&X-Amz-Credential=AKIAIEJ3NV7UYCSRJC7A%2F20241008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=2d9e2bb3962a7c0d14534edc0758015f355683a52bc3303679df5241b2e76f87",
-            "-O",
-            "favor_chr22.zip",
-        ],
-        check=True,
-    )
-
-
-def run_annotation_with_favor():
-    df = pl.DataFrame(data={"rsid": ["rs0", "rs1", "rs2"], "annotation": [1241, 1242, 1251]})
-
-    annotation = pl.read_csv(
-        "/sc-projects/sc-proj-dh-ukb-intergenics/analysis/development/arnoldtl/code/theis/favor/n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB/chr22_1.csv"
-    )
-
-    df = pl.DataFrame(
-        {
-            "name": ["Alice Archer", "Ben Brown", "Chloe Cooper", "Daniel Donovan"],
-            "birthdate": [
-                dt.date(1997, 1, 10),
-                dt.date(1985, 2, 15),
-                dt.date(1983, 3, 22),
-                dt.date(1981, 4, 30),
-            ],
-            "weight": [57.9, 72.5, 53.6, 83.1],  # (kg)
-            "height": [1.56, 1.77, 1.65, 1.75],  # (m)
-        }
-    )
-
-    df2 = pl.DataFrame(
-        {
-            "name": ["Ben Brown", "Daniel Donovan", "Alice Archer", "Chloe Cooper"],
-            "parent": [True, False, False, False],
-            "siblings": [1, 2, 3, 4],
-        }
-    )
-
-    print(df.join(df2, on="name", how="left"))
-
-    "Rscript convertVCFtoGDS.r chrnumber"
-    "Rscript FAVORannotatorv2aGDS.r chrnumber"
-
-    "Rscript /sc-projects/sc-proj-dh-ukb-intergenics/analysis/development/arnoldtl/code/theis/favor/FAVORannotator/Scripts/CSV/convertVCFtoGDS.r /sc-projects/sc-proj-dh-ukb-intergenics/raw_data/genotype_single_cell/yazar_powell/genotype/filter_vcf_r08/chr22.dose.filtered.R2_0.8.vcf.gz"
-
-    # https://dvn-cloud.s3.amazonaws.com/10.7910/DVN/1VGTJI/17fdc14a662-18dc7770dec1?response-content-disposition=attachment%3B%20filename%2A%3DUTF-8%27%27Annotator22.sql.gz&response-content-type=application%2Fgzip&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20241008T130642Z&X-Amz-SignedHeaders=host&X-Amz-Expires=7199&X-Amz-Credential=AKIAIEJ3NV7UYCSRJC7A%2F20241008%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Signature=e3b427d85584e310f8445097fe34cc18ee85c4ba46e46a8f8c6d9a53127aa20e
-
-    return 0
-
-
-###############################################
-
 
 def _write_variants_to_vcf(variants, out_file):
     # TODO add check for if file allready exists
