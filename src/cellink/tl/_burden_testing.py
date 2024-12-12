@@ -62,7 +62,7 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"]):
         gene burdens for all genes, individuals and all annotations in weightcols
     """    
     this_gd = ddata.gdata.copy()
-    this_gd = this_gd[:, this_gd.var["AF"] < max_af]
+    this_gd = this_gd[:, this_gd.var["maf"] < max_af]
     all_burdens = []
     for gene in tqdm(ddata.adata.var.index):
         this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols)
@@ -139,6 +139,7 @@ def _burden_test(
     # output results
     output = []
     # retrieving tmp data for current cell_type and chromosome
+    # generate pseudbulks
     pb_data = _get_pb_data(
         donor_data.adata,
         donor_data.gdata,

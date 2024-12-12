@@ -8,6 +8,7 @@ import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
 from sgkit.io import plink as sg_plink
+import numpy as np 
 
 warnings.filterwarnings(
     "ignore",
@@ -96,6 +97,12 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     var[VAnn.chrom] = var[VAnn.contig].map(contig_mapping)
     var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
 
+    sgkit_dataset["sample_cohort"] = xr.DataArray(np.repeat([0], sgkit_dataset.sizes["samples"]), dims="samples") #cohort is needed to compute the MAF
+    af = sg.cohort_allele_frequencies(sgkit_dataset)["cohort_allele_frequency"].values
+    maf = af[:, 0, 0]
+
+    var[VAnn.maf] = maf
+    
     first_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
     var = var[first_cols + [c for c in var.columns if c not in first_cols]]
 
