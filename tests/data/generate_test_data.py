@@ -11,17 +11,18 @@ n_samples = 1000
 n_variants = 2000
 
 
-## genotype data 
+## genotype data  # still has to be fixed!! 
 adata = sgkit.simulate_genotype_call_dataset(n_variants, n_samples)
 # os.makedirs("../tests/data_new/")
-sgkit.io.plink.write_plink(adata, path="../simulated_genotype_calls")
-adata.to_zarr("../simulated_genotype_calls.zarr")
-#sgkit.io.vcf.read_vcf("../tests/data_new/simulated_genotype_calls")
-# plink --bfile simulated_genotype_calls --recode vcf --out simulated_genotype_calls
-# bgzip simulated_genotype_calls.vcf
-# tabix -p vcf simulated_genotype_calls.vcf.gz
-# vcf2zarr explode simulated_genotype_calls.vcf.gz simulated_genotype_calls.icf
-# vcf2zarr encode simulated_genotype_calls.icf simulated_genotype_calls.vcz
+sgkit.io.plink.write_plink(adata, path="simulated_genotype_calls")
+adata.to_zarr("simulated_genotype_calls.zarr")
+sgkit.io.vcf.read_vcf("simulated_genotype_calls")
+plink --bfile simulated_genotype_calls --recode vcf --out simulated_genotype_calls
+bgzip simulated_genotype_calls.vcf
+tabix -p vcf simulated_genotype_calls.vcf.gz
+vcf2zarr explode simulated_genotype_calls.vcf.gz simulated_genotype_calls.icf
+vcf2zarr encode simulated_genotype_calls.icf simulated_genotype_calls.vcz
+
 
 
 ## sc data 
@@ -40,4 +41,4 @@ cell_metadata = pd.DataFrame({'cell_label': cell_types, "age": age, "individual"
 gene_metadata = pd.DataFrame(index=[f'Gene_{i}' for i in range(n_genes)])
 
 adata = ad.AnnData(X=expression_matrix, obs=cell_metadata, var=gene_metadata)
-adata.write_h5ad("../simulated_gene_expression.h5ad")
+adata.write_h5ad("simulated_gene_expression.h5ad")
