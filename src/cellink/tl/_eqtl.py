@@ -145,6 +145,13 @@ def _column_normalize(X: np.ndarray) -> np.ndarray:
     assert X.ndim == 2
     return (X - X.mean(0)) / (X.std(0) * np.sqrt(X.shape[1]))
 
+def get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
+    eigenvec.loc[-1] = eigenvec.columns
+    eigenvec.index = eigenvec.index + 1 
+    eigenvec = eigenvec.sort_index() 
+    filtered_eigenvec = eigenvec[eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
+    gen_pcs = sc.tl.pca(filtered_eigenvec, n_comps=n_genetic_pcs)
+    return gen_pcs
 
 def _register_fixed_effects(
     pbdata: ad.AnnData,
@@ -166,18 +173,32 @@ def _register_fixed_effects(
     -------
         `ad.AnnData` containing with the updated `obsm` with the fixed effects
     """
+    
     # compute expression PCs
+    ###### NEW: NORMALIZATION (Plasma does not work without) ###### 
+    sc.pp.normalize_total(pbdata, target_sum=1e4)  # Normalize total counts per cell
+    sc.pp.log1p(pbdata)  # Apply log-transform
+    ###### END NEW ###### 
     sc.pp.highly_variable_genes(pbdata, n_top_genes=n_top_genes)
     sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_sc_comps)
     pbdata.obsm["E_dpc"] = _column_normalize(pbdata.obsm["X_pca"])
     # load genetic PCs
+    ####### OLD #################
     # TODO: Probably this is wrong
-    gen_pcs = sc.tl.pca(gdata.X, n_comps=n_genetic_pcs)
+    #gen_pcs = sc.tl.pca(gdata.X, n_comps=n_genetic_pcs)
+
+    ###### NEW: compute gen_pcs ###### 
+    eigenvec = pd.read_csv("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec",
+           sep = ' ')
+    gen_pcs = get_gen_pcs(eigenvec, pbdata, n_genetic_pcs)
+    ###### END NEW ###### 
+    
     # load patient covariates
     sex_one_hot = np.eye(2)[(pbdata.obs[sex_key_in_scdata].values - 1)]
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
     covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
     # store fixed effects in pb_adata
+    #import ipdb; ipdb.set_trace()
     pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1)
     return pbdata
 
