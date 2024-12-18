@@ -27,11 +27,66 @@ def _postprocess_results(results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """"""
     return None
 
+import requests
+
+def get_gene_location(ensembl_id):
+    url = f"https://rest.ensembl.org/lookup/id/{ensembl_id}?content-type=application/json"
+    response = requests.get(url)
+    if response.ok:
+        data = response.json()
+        return f"{data.get('seq_region_name')}:{data.get('start')}-{data.get('end')}"
+    else:
+        return f"Error: {response.status_code}, {response.text}"
+
+def find_snps_near_gene(gdata, gene_location, bp_range=10000):
+    """
+    Finds SNPs within a specified range of a gene's location.
+
+    Parameters:
+        gdata (pd.DataFrame): DataFrame with a 'Location' column in the format "chromosome:position".
+        gene_location (str): Gene location in the format "chromosome:start-end".
+        bp_range (int): Range in base pairs to search upstream and downstream.
+
+    Returns:
+        pd.Index: Index of SNPs within the specified range.
+    """
+    # Parse the gene location
+    #import ipdb; ipdb.set_trace()
+    gene_chrom, gene_range = gene_location.split(":")
+    gene_start, gene_end = map(int, gene_range.split("-"))
+
+    # Extract chromosome and position from the SNPs
+    gdata[['Chromosome', 'Position']] = gdata['Location'].str.split(':', expand=True)
+    gdata['Position'] = gdata['Position'].astype(int)
+
+    # Filter for SNPs within the range
+    snps_in_range = gdata[
+        (gdata['Chromosome'] == gene_chrom) &
+        (gdata['Position'] >= gene_start - bp_range) &
+        (gdata['Position'] <= gene_end + bp_range)
+    ]
+
+    return snps_in_range.index
+
+
 def _compute_burdens_for_gene(this_gd, 
                               this_gene, 
                               weight_cols,
-                              annotation_varm = "annotations_0"):
-    this_vars = this_gd.varm["annotations_0"][this_gd.varm["annotations_0"]["Gene"] == this_gene].index
+                              annotation_varm = "annotations_0",
+                              window_size=10000):
+    #this_vars = this_gd.varm["annotations_0"][this_gd.varm["annotations_0"]["Gene"] == this_gene].index
+    # filter the vars by using find_snps_near_gene and get_gene_location
+    gene_location = get_gene_location(this_gene)
+    # print(gene_location)
+    # this_vars = find_snps_near_gene(this_gd.varm["annotations_0"], gene_location, bp_range=window_size)
+    if "Error" in gene_location:
+        print(f"Failed to retrieve location for gene {this_gene}. Falling back to 'Gene' column.")
+        # Filter by the `Gene` column if gene location lookup fails
+        this_vars = this_gd.varm[annotation_varm][this_gd.varm[annotation_varm]["Gene"] == this_gene].index
+    else:
+        # Filter the variants using the SNP location and gene location
+        this_vars = find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
+    
     gd_gene = this_gd[:, this_vars]
     
     all_burdens_this_gene = []
@@ -44,7 +99,7 @@ def _compute_burdens_for_gene(this_gd,
     all_burdens_this_gene["Geneid"] = this_gene
     return all_burdens_this_gene
 
-def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"]):
+def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=10000):
     """Compute gene burdens for each gene and sample using different variant annotations
 
     Parameters
@@ -65,7 +120,7 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"]):
     this_gd = this_gd[:, this_gd.var["maf"] < max_af]
     all_burdens = []
     for gene in tqdm(ddata.adata.var.index):
-        this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols)
+        this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols, window_size=window_size)
         all_burdens.append(this_b)
     all_burdens = pd.concat(all_burdens)
 
