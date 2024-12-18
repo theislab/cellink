@@ -145,7 +145,7 @@ def _column_normalize(X: np.ndarray) -> np.ndarray:
     assert X.ndim == 2
     return (X - X.mean(0)) / (X.std(0) * np.sqrt(X.shape[1]))
 
-def get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
+def _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
     eigenvec.loc[-1] = eigenvec.columns
     eigenvec.index = eigenvec.index + 1 
     eigenvec = eigenvec.sort_index() 
@@ -190,7 +190,7 @@ def _register_fixed_effects(
     ###### NEW: compute gen_pcs ###### 
     eigenvec = pd.read_csv("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec",
            sep = ' ')
-    gen_pcs = get_gen_pcs(eigenvec, pbdata, n_genetic_pcs)
+    gen_pcs = _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs)
     ###### END NEW ###### 
     
     # load patient covariates

@@ -29,7 +29,7 @@ def _postprocess_results(results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
 
 import requests
 
-def get_gene_location(ensembl_id):
+def _get_gene_location(ensembl_id):
     url = f"https://rest.ensembl.org/lookup/id/{ensembl_id}?content-type=application/json"
     response = requests.get(url)
     if response.ok:
@@ -38,7 +38,7 @@ def get_gene_location(ensembl_id):
     else:
         return f"Error: {response.status_code}, {response.text}"
 
-def find_snps_near_gene(gdata, gene_location, bp_range=10000):
+def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
     """
     Finds SNPs within a specified range of a gene's location.
 
@@ -75,17 +75,17 @@ def _compute_burdens_for_gene(this_gd,
                               annotation_varm = "annotations_0",
                               window_size=10000):
     #this_vars = this_gd.varm["annotations_0"][this_gd.varm["annotations_0"]["Gene"] == this_gene].index
-    # filter the vars by using find_snps_near_gene and get_gene_location
-    gene_location = get_gene_location(this_gene)
+    # filter the vars by using _find_snps_near_gene and get_gene_location
+    gene_location = _get_gene_location(this_gene)
     # print(gene_location)
-    # this_vars = find_snps_near_gene(this_gd.varm["annotations_0"], gene_location, bp_range=window_size)
+    # this_vars = _find_snps_near_gene(this_gd.varm["annotations_0"], gene_location, bp_range=window_size)
     if "Error" in gene_location:
         print(f"Failed to retrieve location for gene {this_gene}. Falling back to 'Gene' column.")
         # Filter by the `Gene` column if gene location lookup fails
         this_vars = this_gd.varm[annotation_varm][this_gd.varm[annotation_varm]["Gene"] == this_gene].index
     else:
         # Filter the variants using the SNP location and gene location
-        this_vars = find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
+        this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
     
     gd_gene = this_gd[:, this_vars]
     
