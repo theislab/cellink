@@ -12,6 +12,7 @@ from pathlib import Path
 from functools import partial
 from anndata.utils import asarray
 import logging
+import requests
 
 
 logger = logging.getLogger(__name__)
@@ -27,14 +28,16 @@ def _postprocess_results(results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """"""
     return None
 
-import requests
-
 def _get_gene_location(ensembl_id):
     url = f"https://rest.ensembl.org/lookup/id/{ensembl_id}?content-type=application/json"
     response = requests.get(url)
     if response.ok:
         data = response.json()
-        return f"{data.get('seq_region_name')}:{data.get('start')}-{data.get('end')}"
+        #print(data)
+        if data.get('strand') == 1: # forward
+            return f"{data.get('seq_region_name')}:{data.get('start')}-{data.get('end')}"
+        else: # reverse
+            return f"{data.get('seq_region_name')}:{data.get('end')}-{data.get('start')}"
     else:
         return f"Error: {response.status_code}, {response.text}"
 
