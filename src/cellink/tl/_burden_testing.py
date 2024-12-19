@@ -179,7 +179,9 @@ def _burden_test(
     transforms_seq: Sequence[Callable],
     pv_transforms: Mapping[str, Callable],
     prog_bar: bool,
-    normalize_burdens: bool
+    normalize_burdens: bool,
+    eigenvector_df: pd.DataFrame
+    
 ) -> pd.DataFrame:
     """Runs the burden testing pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes
        Currently only implemented for cis testing (gene burden of gene_A vs expression of gene_A)
@@ -212,6 +214,7 @@ def _burden_test(
         n_sc_comps,
         n_genetic_pcs,
         n_cellstate_comps,
+        eigenvector_df
     )
     Y = pb_data.adata.layers["mean"] #pseudobulk expression
     # defining transform function
@@ -268,6 +271,7 @@ def burden_test(
     gene_burdens: pd.DataFrame,
     target_cell_type: str,
     target_chromosome: str,
+    eigenvector_df: pd.DataFrame,
     target_genes: Sequence[str] | None = None,
     donor_key_in_scdata: str = "individual",
     sex_key_in_scdata: str = "sex",
@@ -296,6 +300,8 @@ def burden_test(
             Target chromosome which GWAS experiment was ran on
         `target_chromosome: str`
             Target chromosome which GWAS experiment was ran on
+        `eigenvector_df: pd.DataFrame`
+            sampleId x eigenvector
 
     Returns
     -------
@@ -327,6 +333,7 @@ def burden_test(
         pv_transforms,
         prog_bar,
         normalize_burdens,
+        eigenvector_df
     )
 
     results_df["cell_type"] = target_cell_type

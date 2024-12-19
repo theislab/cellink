@@ -145,13 +145,6 @@ def _column_normalize(X: np.ndarray) -> np.ndarray:
     assert X.ndim == 2
     return (X - X.mean(0)) / (X.std(0) * np.sqrt(X.shape[1]))
 
-def _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
-    eigenvec.loc[-1] = eigenvec.columns
-    eigenvec.index = eigenvec.index + 1 
-    eigenvec = eigenvec.sort_index() 
-    filtered_eigenvec = eigenvec.iloc[:, 2:][eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
-    gen_pcs = sc.tl.pca(filtered_eigenvec, n_comps=n_genetic_pcs)
-    return gen_pcs
 
 def _register_fixed_effects(
     pbdata: ad.AnnData,
@@ -161,6 +154,7 @@ def _register_fixed_effects(
     n_genetic_pcs: int,
     sex_key_in_scdata: str,
     age_key_in_scdata: str,
+    eigenvector_df: pd.DataFrame
 ) -> ad.AnnData:
     """Registers the fixed effect matrix for the given pseudo-bulked data
 
@@ -168,6 +162,8 @@ def _register_fixed_effects(
     ----------
         `pbdata: ad.AnnData`
             The `ad.AnnData` object holding the pseudo-bulked single cell data
+        `eigenvector: pd.DataFrame`
+            sample id x eigenvector
 
     Returns
     -------
@@ -175,11 +171,7 @@ def _register_fixed_effects(
     """
 
     #import ipdb; ipdb.set_trace()
-    # compute expression PCs
-    ###### NEW: NORMALIZATION (Plasma does not work without) ###### 
-    sc.pp.normalize_total(pbdata, target_sum=1e4)  # Normalize total counts per cell
-    sc.pp.log1p(pbdata)  # Apply log-transform
-    ###### END NEW ###### 
+    # compute expression PCs 
     sc.pp.highly_variable_genes(pbdata, n_top_genes=n_top_genes)
     sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_sc_comps)
     pbdata.obsm["E_dpc"] = _column_normalize(pbdata.obsm["X_pca"])
@@ -189,9 +181,9 @@ def _register_fixed_effects(
     #gen_pcs = sc.tl.pca(gdata.X, n_comps=n_genetic_pcs)
 
     ###### NEW: compute gen_pcs ###### 
-    eigenvec = pd.read_csv("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec",
-           sep = ' ')
-    gen_pcs = _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs)
+    filtered_eigenvector_df = eigenvector_df[eigenvector_df.index.isin(pbdata.obs["individual"])]
+    gen_pcs = sc.tl.pca(filtered_eigenvector_df, n_comps=n_genetic_pcs)
+    
     ###### END NEW ###### 
     
     # load patient covariates
@@ -285,6 +277,7 @@ def _get_pb_data(
     n_sc_comps: int,
     n_genetic_pcs: int,
     n_cellstate_comps: int,
+    eigenvector_df: pd.DataFrame
 ) -> ad.AnnData | None:
     """Registers the fixed effect matrix for the given pseudo-bulked data
 
@@ -335,6 +328,7 @@ def _get_pb_data(
         n_genetic_pcs,
         sex_key_in_scdata,
         age_key_in_scdata,
+        eigenvector_df
     )
     # synchronizing sc and genetics data using DonorData DS
     data = DonorData(adata=pbdata, gdata=gdata, donor_key_in_sc_adata=donor_key_in_scdata)
@@ -659,6 +653,7 @@ def _run_eqtl(
     dump_intermediate_results: bool,
     file_prefix: str | None,
     dump_dir: str | None,
+    eigenvector_df: pd.DataFrame
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes
 
@@ -693,6 +688,7 @@ def _run_eqtl(
         n_sc_comps,
         n_genetic_pcs,
         n_cellstate_comps,
+        eigenvector_df
     )
     # retrieving the pseudo-bulked data
     Y = pb_data.adata.layers["mean"]
@@ -846,6 +842,7 @@ def eqtl(
     donor_data: DonorData,
     target_cell_type: str,
     target_chromosome: str,
+    eigenvector_df: pd.DataFrame,
     target_genes: Sequence[str] | None = None,
     donor_key_in_scdata: str = "individual",
     sex_key_in_scdata: str = "sex",
@@ -867,6 +864,7 @@ def eqtl(
     file_prefix: str | None = None,
     use_cell_type_chrom_specific_dir: bool = True,
     dump_intermediate_results: bool = False,
+ 
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes and
     stores the results to a `pd.DataFrame` object and optionally to disk
@@ -879,6 +877,8 @@ def eqtl(
             Target chromosome which GWAS experiment was ran on
         `cis_window: int`
             The window used for running the GWAS experiment
+        `eigenvector_df: pd.DataFrame`
+            sampleId x eigenvector
 
     Returns
     -------
@@ -920,6 +920,7 @@ def eqtl(
         dump_intermediate_results,
         file_prefix,
         dump_dir_cell,
+        eigenvector_df
     )
     results_df = pd.DataFrame(results)
     # postprocessing the results
