@@ -149,7 +149,7 @@ def _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
     eigenvec.loc[-1] = eigenvec.columns
     eigenvec.index = eigenvec.index + 1 
     eigenvec = eigenvec.sort_index() 
-    filtered_eigenvec = eigenvec[eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
+    filtered_eigenvec = eigenvec[:, 2:][eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
     gen_pcs = sc.tl.pca(filtered_eigenvec, n_comps=n_genetic_pcs)
     return gen_pcs
 
