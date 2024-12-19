@@ -149,7 +149,7 @@ def _get_gen_pcs(eigenvec, pbdata, n_genetic_pcs):
     eigenvec.loc[-1] = eigenvec.columns
     eigenvec.index = eigenvec.index + 1 
     eigenvec = eigenvec.sort_index() 
-    filtered_eigenvec = eigenvec[:, 2:][eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
+    filtered_eigenvec = eigenvec.iloc[:, 2:][eigenvec["1_1"].isin(pbdata.obs["individual"])].to_numpy()
     gen_pcs = sc.tl.pca(filtered_eigenvec, n_comps=n_genetic_pcs)
     return gen_pcs
 
@@ -173,7 +173,8 @@ def _register_fixed_effects(
     -------
         `ad.AnnData` containing with the updated `obsm` with the fixed effects
     """
-    
+
+    #import ipdb; ipdb.set_trace()
     # compute expression PCs
     ###### NEW: NORMALIZATION (Plasma does not work without) ###### 
     sc.pp.normalize_total(pbdata, target_sum=1e4)  # Normalize total counts per cell
