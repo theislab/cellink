@@ -120,12 +120,12 @@ def _pseudobulk_scdata(
     """
     # aggregating the data
     pbdata = sc.get.aggregate(
-        scdata_cell,
-        donor_key_in_scdata,
-        pseudobulk_aggregation_type,
+        adata=scdata_cell,
+        by=donor_key_in_scdata,
+        func=pseudobulk_aggregation_type,
     )
     # storing data lost in the aggregation
-    pbdata.X = pbdata.layers["mean"]
+    pbdata.X = pbdata.layers.pop("mean")
     pbdata = _map_col_scdata_obs_to_pbdata(scdata_cell, pbdata, donor_key_in_scdata, sex_key_in_scdata)
     pbdata = _map_col_scdata_obs_to_pbdata(scdata_cell, pbdata, donor_key_in_scdata, age_key_in_scdata)
     return pbdata
@@ -559,7 +559,7 @@ def _run_eqtl(
         n_cellstate_comps,
     )
     # retrieving the pseudo-bulked data
-    Y = pb_data.adata.layers["mean"]
+    Y = pb_data.adata.X
     # defining transform function
     transform_fn = partial(_apply_transforms_seq, transforms_seq=transforms_seq)
     # applying transformation
