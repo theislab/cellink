@@ -102,7 +102,7 @@ def _compute_burdens_for_gene(this_gd,
     all_burdens_this_gene["Geneid"] = this_gene
     return all_burdens_this_gene
 
-def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=10000):
+def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=100000):
     """Compute gene burdens for each gene and sample using different variant annotations
 
     Parameters
