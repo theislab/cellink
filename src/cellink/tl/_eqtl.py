@@ -61,6 +61,8 @@ def _register_fixed_effects(
     covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
     # store fixed effects in pb_adata
     pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1)
+    # final normalization
+    pbdata.obsm["F"][2:] = _column_normalize( pbdata.obsm["F"][2:])
     return pbdata
 
 
