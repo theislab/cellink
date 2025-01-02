@@ -139,6 +139,7 @@ def _get_pb_data(
     donor_key_in_scdata: str,
     sex_key_in_scdata: str,
     age_key_in_scdata: str,
+    cell_type_key_in_scdata: str,
     pseudobulk_aggregation_type: str,
     min_individuals_threshold: int,
     n_top_genes: int,
@@ -158,7 +159,7 @@ def _get_pb_data(
         `ad.AnnData` containing with the updated `obsm` with the fixed effects
     """
     # filtering cells
-    scdata_cell = scdata[scdata.obs.cell_label == cell_type]
+    scdata_cell = scdata[scdata.obs[cell_type_key_in_scdata] == cell_type]
     # early return if no cells left
     if scdata_cell.shape[0] == 0:
         logger.info(f"No cells found for the given cell type {cell_type} ({scdata_cell.shape=})")
@@ -483,18 +484,18 @@ def _gwas(
         ]
     Y, F, G = gwas_data
     # retrieving the no of cis snips
-    no_cis_snips = G.shape[1]
+    no_cis_snps = G.shape[1]
     # processing the found snips
     gwas = GWAS(Y, F=F)
     gwas.process(G)
     # retrieving the results
     if mode == "best":
         results = _best_eqtl(
-            pb_data, target_cell_type, target_chromosome, target_gene, gwas, no_cis_snips, pv_transforms
+            pb_data, target_cell_type, target_chromosome, target_gene, gwas, no_cis_snps, pv_transforms
         )
     elif mode == "all":
         results = _all_eqtls(
-            pb_data, target_cell_type, target_chromosome, target_gene, gwas, no_cis_snips, pv_transforms
+            pb_data, target_cell_type, target_chromosome, target_gene, gwas, no_cis_snps, pv_transforms
         )
     else:
         raise ValueError(f"{mode=} not supported, try either 'best' or 'all'")
@@ -509,6 +510,7 @@ def _run_eqtl(
     donor_key_in_scdata: str,
     sex_key_in_scdata: str,
     age_key_in_scdata: str,
+    cell_type_key_in_scdata: str,
     pseudobulk_aggregation_type: str,
     min_individuals_threshold: int,
     n_top_genes: int,
@@ -551,6 +553,7 @@ def _run_eqtl(
         donor_key_in_scdata,
         sex_key_in_scdata,
         age_key_in_scdata,
+        cell_type_key_in_scdata,
         pseudobulk_aggregation_type,
         min_individuals_threshold,
         n_top_genes,
@@ -713,6 +716,7 @@ def eqtl(
     donor_key_in_scdata: str = "individual",
     sex_key_in_scdata: str = "sex",
     age_key_in_scdata: str = "age",
+    cell_type_key_in_scdata: str = "cell_label",
     pseudobulk_aggregation_type: str = "mean",
     min_individuals_threshold: int = 10,
     n_top_genes: int = 5_000,
@@ -769,6 +773,7 @@ def eqtl(
         donor_key_in_scdata,
         sex_key_in_scdata,
         age_key_in_scdata,
+        cell_type_key_in_scdata,
         pseudobulk_aggregation_type,
         min_individuals_threshold,
         n_top_genes,
