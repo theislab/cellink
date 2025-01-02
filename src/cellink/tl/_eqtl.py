@@ -32,8 +32,8 @@ def _register_fixed_effects(
     pbdata: ad.AnnData,
     gdata: ad.AnnData,
     n_top_genes: int,
-    n_sc_comps: int,
-    n_genetic_pcs: int,
+    n_epcs: int,
+    n_gpcs: int,
     sex_key_in_scdata: str,
     age_key_in_scdata: str,
 ) -> ad.AnnData:
@@ -50,17 +50,17 @@ def _register_fixed_effects(
     """
     # compute expression PCs
     sc.pp.highly_variable_genes(pbdata, n_top_genes=n_top_genes)
-    sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_sc_comps)
-    pbdata.obsm["E_dpc"] = _column_normalize(pbdata.obsm["X_pca"])
+    sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_epcs)
+    pbdata.obsm["ePCs"] = _column_normalize(pbdata.obsm["X_pca"])
     # load genetic PCs
     # TODO: Probably this is wrong
-    gen_pcs = sc.tl.pca(gdata.X, n_comps=n_genetic_pcs)
+    gen_pcs = sc.tl.pca(gdata.X, n_comps=n_gpcs)
     # load patient covariates
     sex_one_hot = np.eye(2)[(pbdata.obs[sex_key_in_scdata].values - 1)]
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
     covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
     # store fixed effects in pb_adata
-    pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["E_dpc"]), axis=1)
+    pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["ePCs"]), axis=1)
     # final normalization
     pbdata.obsm["F"][2:] = _column_normalize( pbdata.obsm["F"][2:])
     return pbdata
@@ -145,8 +145,8 @@ def _get_pb_data(
     pseudobulk_aggregation_type: str,
     min_individuals_threshold: int,
     n_top_genes: int,
-    n_sc_comps: int,
-    n_genetic_pcs: int,
+    n_epcs: int,
+    n_gpcs: int,
     n_cellstate_comps: int,
 ) -> ad.AnnData | None:
     """Registers the fixed effect matrix for the given pseudo-bulked data
@@ -194,8 +194,8 @@ def _get_pb_data(
         pbdata,
         gdata,
         n_top_genes,
-        n_sc_comps,
-        n_genetic_pcs,
+        n_epcs,
+        n_gpcs,
         sex_key_in_scdata,
         age_key_in_scdata,
     )
@@ -516,8 +516,8 @@ def _run_eqtl(
     pseudobulk_aggregation_type: str,
     min_individuals_threshold: int,
     n_top_genes: int,
-    n_sc_comps: int,
-    n_genetic_pcs: int,
+    n_epcs: int,
+    n_gpcs: int,
     n_cellstate_comps: int,
     cis_window: int,
     transforms_seq: Sequence[Callable],
@@ -559,8 +559,8 @@ def _run_eqtl(
         pseudobulk_aggregation_type,
         min_individuals_threshold,
         n_top_genes,
-        n_sc_comps,
-        n_genetic_pcs,
+        n_epcs,
+        n_gpcs,
         n_cellstate_comps,
     )
     # retrieving the pseudo-bulked data
@@ -722,8 +722,8 @@ def eqtl(
     pseudobulk_aggregation_type: str = "mean",
     min_individuals_threshold: int = 10,
     n_top_genes: int = 5_000,
-    n_sc_comps: int = 15,
-    n_genetic_pcs: int = 20,
+    n_epcs: int = 15,
+    n_gpcs: int = 20,
     n_cellstate_comps: int = 50,
     cis_window: int = 1_000_000,
     transforms_seq: Sequence[Callable] | None = (quantile_transform,),
@@ -779,8 +779,8 @@ def eqtl(
         pseudobulk_aggregation_type,
         min_individuals_threshold,
         n_top_genes,
-        n_sc_comps,
-        n_genetic_pcs,
+        n_epcs,
+        n_gpcs,
         n_cellstate_comps,
         cis_window,
         transforms_seq,
