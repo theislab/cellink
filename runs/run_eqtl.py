@@ -15,7 +15,6 @@ from cellink import DonorData
 from cellink.io import read_plink
 from cellink.tl import eqtl, quantile_transform, bonferroni_adjustment, q_value
 
-warnings.filterwarnings("ignore")
 
 logger = logging.getLogger(__name__)
 
@@ -53,16 +52,6 @@ def load_scdata(sc_data_path: str, annotation_path: str):
     return scdata
 
 
-def load_chrom_gdata(chrom: str, data_root: Path):
-    plink_file = os.path.join(data_root, f"chr{chrom}.dose.filtered.R2_0.8")
-    gdata = read_plink(plink_file)
-    return gdata
-
-
-def get_pbdata_transforms(transforms: Sequence[str], transforms_map: dict[str, Callable]) -> Sequence[Callable]:
-    return [transforms_map[tr] for tr in transforms]
-
-
 @hydra.main(config_path="./config", config_name="eqtl")
 def main(config: DictConfig):
     ## loading sc data
@@ -72,7 +61,8 @@ def main(config: DictConfig):
     ## loading genetics data for current chromosome
     if config.eqtl.verbose:
         logger.info("scdata loaded. Loading gdata...")
-    gdata = load_chrom_gdata(config.eqtl.target_chromosome, config.paths.gdata_path)
+    plink_file = os.path.join(data_root, f"chr{chrom}.dose.filtered.R2_0.8")
+    gdata = read_plink(plink_file)
     ## initializing donor data
     if config.eqtl.verbose:
         logger.info("gdata loaded. Initializing DonorData...")
@@ -112,13 +102,7 @@ def main(config: DictConfig):
     )
     if config.eqtl.verbose:
         logger.info("Run Finished!")
-    return 0
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        logger.info(f"An error occurred: {e}", file=sys.stderr)
-        traceback.print_exc()
-        sys.exit(1)
+    main()
