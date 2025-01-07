@@ -56,13 +56,14 @@ def _register_fixed_effects(
     # TODO: Probably this is wrong
     gen_pcs = sc.tl.pca(gdata.X, n_comps=n_gpcs)
     # load patient covariates
-    sex_one_hot = np.eye(2)[(pbdata.obs[sex_key_in_scdata].values - 1)]
+    sex_encoded = pd.Categorical(pbdata.obs[sex_key_in_scdata]).codes[:, None]
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
-    covariates = np.concatenate((sex_one_hot, age_standardized), axis=1)
+    constant_col = np.ones_like(sex_encoded)
+    covariates = np.concatenate((constant_col, sex_encoded, age_standardized), axis=1)
     # store fixed effects in pb_adata
     pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["ePCs"]), axis=1)
     # final normalization
-    pbdata.obsm["F"][2:] = _column_normalize( pbdata.obsm["F"][2:])
+    # pbdata.obsm["F"][2:] = _column_normalize( pbdata.obsm["F"][2:])
     return pbdata
 
 
@@ -171,10 +172,6 @@ def _get_pb_data(
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found for the given chromosome {target_chromosome} ({scdata_cell.shape=})")
         return None
-    # retrieving the wanted number of sc PCs
-    if "X_pca" not in scdata_cell.obsm.keys():
-        sc.tl.pca(scdata_cell, n_comps=n_cellstate_comps)
-    scdata_cell.obsm["X_pca"] = _column_normalize(scdata_cell.obsm["X_pca"][:, :n_cellstate_comps])
     # pseudobulk aggregation
     pbdata = _pseudobulk_scdata(
         scdata_cell,
@@ -185,6 +182,10 @@ def _get_pb_data(
     )
     # filter out genes least expressed genes
     sc.pp.filter_genes(pbdata, min_cells=min_individuals_threshold)
+    # retrieving the wanted number of sc PCs
+    if "X_pca" not in pbdata.obsm.keys():
+        sc.tl.pca(pbdata, n_comps=n_cellstate_comps)
+    pbdata.obsm["X_pca"] = _column_normalize(pbdata.obsm["X_pca"][:, :n_cellstate_comps])
     # early return if no genes left
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found in more than {min_individuals_threshold} individuals ({scdata_cell.shape=})")
@@ -485,6 +486,10 @@ def _gwas(
             }
         ]
     Y, F, G = gwas_data
+    # checking for NAN or INF values
+    print(f"Y: {np.sum(np.isnan(Y))}")
+    print(f"F: {np.sum(np.isnan(F.compute()))}")
+    print(f"G: {np.sum(np.isnan(G))}")
     # retrieving the no of cis snips
     no_cis_snps = G.shape[1]
     # processing the found snips
