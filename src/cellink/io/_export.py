@@ -2,11 +2,90 @@ import numpy as np
 import pandas as pd
 import dask.array as da
 
-def generate_bim_fam():
+def generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
+    """
+    Generate a BIM DataFrame from genetic data.
 
-    print("khsdgkhs")
+    Parameters:
+    ----------
+    gdata : object
+        A genetic data object with a `var` attribute containing SNP information.
+    chrom_col : str, optional
+        The column name in `gdata.var` representing the chromosome. Default is "chrom".
+    cm_col : str, optional
+        The column name in `gdata.var` representing the centimorgan position. Default is "cm".
+    pos_col : str, optional
+        The column name in `gdata.var` representing the base pair position. Default is "pos".
+    a1_col : str, optional
+        The column name in `gdata.var` representing allele 1. Default is "a1".
+    a2_col : str, optional
+        The column name in `gdata.var` representing allele 2. Default is "a2".
 
-def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix):
+    Returns:
+    -------
+    pd.DataFrame
+        A BIM-formatted DataFrame with the following columns:
+        - "CHR": Chromosome number.
+        - "SNP": SNP identifier (from the index of `gdata.var`).
+        - "CM": Centimorgan position (default 0 if column is missing).
+        - "BP": Base pair position (default 0 if column is missing).
+        - "A1": Allele 1 (default 0 if column is missing).
+        - "A2": Allele 2 (default 0 if column is missing).
+    """
+    bim_data = pd.DataFrame({
+        "CHR": gdata.var[chrom_col],
+        "SNP": gdata.var.index,
+        "CM": gdata.var.get(cm_col, 0),
+        "BP": gdata.var.get(pos_col, 0),
+        "A1": gdata.var.get(a1_col, 0),
+        "A2": gdata.var.get(a2_col, 0),
+    })
+
+    return bim_data
+
+
+def generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
+    """
+    Generate a FAM DataFrame from genetic data.
+
+    Parameters:
+    ----------
+    gdata : object
+        A genetic data object with an `obs` attribute containing individual information.
+    fid_col : str, optional
+        The column name in `gdata.obs` representing family IDs. Default is "fid".
+    pid_col : str, optional
+        The column name in `gdata.obs` representing paternal IDs. Default is "pid".
+    mid_col : str, optional
+        The column name in `gdata.obs` representing maternal IDs. Default is "mid".
+    sex_col : str, optional
+        The column name in `gdata.obs` representing the sex of individuals. Default is "sex".
+    phenotype_col : str, optional
+        The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
+
+    Returns:
+    -------
+    pd.DataFrame
+        A FAM-formatted DataFrame with the following columns:
+        - "FID": Family ID (default 0 if column is missing).
+        - "IID": Individual ID (from the index of `gdata.obs`).
+        - "PID": Paternal ID (default 0 if column is missing).
+        - "MID": Maternal ID (default 0 if column is missing).
+        - "SEX": Sex (default 0 if column is missing).
+        - "PHENOTYPE": Phenotype (default 0 if column is missing).
+    """
+    fam_data = pd.DataFrame({
+        "FID": gdata.obs.get(fid_col, 0),
+        "IID": gdata.obs.index,
+        "PID": gdata.obs.get(pid_col, 0),
+        "MID": gdata.obs.get(mid_col, 0),
+        "SEX": gdata.obs.get(sex_col, 0),
+        "PHENOTYPE": gdata.obs.get(phenotype_col, 0),
+    })
+
+    return fam_data
+
+def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix, snp_per_byte=4, num_patients_chunk=100):
     """
     Export genotype data in Dask array format to PLINK binary format.
 
@@ -19,9 +98,15 @@ def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix):
         DataFrame containing individual information with columns: ['FID', 'IID', 'PID', 'MID', 'SEX', 'PHENOTYPE'].
     - output_prefix: str
         Prefix for the output PLINK files (.bed, .bim, .fam).
+    - snp_per_byte: int
+        Number of SNPs to pack into a single byte. Options are 1, 2, or 4.
+    - num_patients_chunk: int
+        Number of patients in chunk
     """
 
     num_individuals, num_snps = dask_genotype_array.shape
+    dask_genotype_array = dask_genotype_array.rechunk((num_patients_chunk, num_snps))
+
     if len(bim_df) != num_snps:
         raise ValueError("Number of SNPs in BIM file does not match genotype matrix.")
     if len(fam_df) != num_individuals:
@@ -29,10 +114,6 @@ def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix):
 
     if len(dask_genotype_array.chunks) != 2:
         raise ValueError("Dask array is not 2D. Please ensure the input is (individuals x SNPs).")
-
-    if dask_genotype_array.chunks[0][0] == 1 or dask_genotype_array.chunks[1][0] == 1:
-        print("Rechunking genotype array to ensure proper chunk alignment.")
-        dask_genotype_array = dask_genotype_array.rechunk((10, 1000))  # Adjust based on your data size ###################
 
     bim_file = f"{output_prefix}.bim"
     bim_df.to_csv(bim_file, sep="\t", index=False, header=False)
@@ -66,30 +147,3 @@ def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix):
                 bed.write(bytearray(bed_data))
 
     print(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
-
-if __name__ == "__main__":
-    genotype_data = da.random.randint(0, 3, size=(100, 10000))
-    genotype_data = genotype_data.rechunk((10, 10000))
-
-
-    bim_data = pd.DataFrame({
-        "CHR": [1] * 10000,
-        "SNP": [f"rs{i}" for i in range(1, 10001)],
-        "CM": [0] * 10000,
-        "BP": range(1, 10001),
-        "A1": ["A"] * 10000,
-        "A2": ["G"] * 10000,
-    })
-
-    fam_data = pd.DataFrame({
-        "FID": [f"F{i}" for i in range(1, 101)],
-        "IID": [f"I{i}" for i in range(1, 101)],
-        "PID": [0] * 100,
-        "MID": [0] * 100,
-        "SEX": [0] * 100,
-        "PHENOTYPE": [-9] * 100,
-    })
-
-    export_to_plink(genotype_data, bim_data, fam_data, "output/genotype")
-
-
