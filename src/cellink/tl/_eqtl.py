@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import quantile_transform as sk_quantile_transform
 from statsmodels.stats.multitest import fdrcorrection
 from tqdm import tqdm
+from dask.array import Array as DaskArray
 
 from cellink._core import DonorData
 from cellink.tl._gwas import GWAS
@@ -35,6 +36,7 @@ def _register_fixed_effects(
     n_gpcs: int,
     sex_key_in_scdata: str,
     age_key_in_scdata: str,
+    gen_pc_path: str | None,
 ) -> ad.AnnData:
     """Registers the fixed effect matrix for the given pseudo-bulked data
 
@@ -52,8 +54,12 @@ def _register_fixed_effects(
     sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_epcs)
     pbdata.obsm["ePCs"] = _column_normalize(pbdata.obsm["X_pca"])
     # load genetic PCs
-    # TODO: Probably this is wrong
-    gen_pcs = sc.tl.pca(gdata.X, n_comps=n_gpcs)
+    if gen_pc_path is None:
+        gen_pcs = sc.tl.pca(gdata.X, n_comps=n_gpcs)
+    else:
+        # load genetic PCs  
+        gen_pcs = pd.read_csv(gen_pc_path, sep=" ", header=None, index_col=1).drop(columns=[0])
+        gen_pcs = gen_pcs.loc[pbdata.obs.index, :].iloc[:, :n_gpcs].values
     # load patient covariates
     sex_encoded = pd.Categorical(pbdata.obs[sex_key_in_scdata]).codes[:, None]
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
@@ -147,6 +153,7 @@ def _get_pb_data(
     n_epcs: int,
     n_gpcs: int,
     n_cellstate_comps: int,
+    gen_pc_path: str | None,
 ) -> ad.AnnData | None:
     """Registers the fixed effect matrix for the given pseudo-bulked data
 
@@ -197,6 +204,7 @@ def _get_pb_data(
         n_gpcs,
         sex_key_in_scdata,
         age_key_in_scdata,
+        gen_pc_path,
     )
     # synchronizing sc and genetics data using DonorData DS
     data = DonorData(adata=pbdata, gdata=gdata, donor_key_in_sc_adata=donor_key_in_scdata)
@@ -246,7 +254,9 @@ def _prepare_gwas_data(
     if subgadata.shape[1] == 0:
         return None
     G = subgadata.X.compute()
-    F = pb_data.adata.obsm["F"].compute()
+    F = pb_data.adata.obsm["F"]
+    if isinstance(F, DaskArray):
+        F = F.compute()
     return Y, F, G
 
 
@@ -516,6 +526,7 @@ def _run_eqtl(
     dump_intermediate_results: bool,
     file_prefix: str | None,
     dump_dir: str | None,
+    gen_pc_path: str | None,
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes
 
@@ -551,6 +562,7 @@ def _run_eqtl(
         n_epcs,
         n_gpcs,
         n_cellstate_comps,
+        gen_pc_path,
     )
     # retrieving the pseudo-bulked data
     Y = pb_data.adata.X
@@ -725,6 +737,7 @@ def eqtl(
     file_prefix: str | None = None,
     use_cell_type_chrom_specific_dir: bool = True,
     dump_intermediate_results: bool = False,
+    gen_pc_path: str | None = None,
 ) -> Sequence[dict[str, float]]:
     """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes and stores the results to a `pd.DataFrame` object and optionally to disk
 
@@ -778,6 +791,7 @@ def eqtl(
         dump_intermediate_results,
         file_prefix,
         dump_dir_cell,
+        gen_pc_path,
     )
     results_df = pd.DataFrame(results)
     # postprocessing the results
