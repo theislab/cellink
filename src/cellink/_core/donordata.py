@@ -15,6 +15,8 @@ from cellink._core.annotation import DAnn
 
 logger = logging.getLogger(__name__)
 
+HIGHLIGHT_COLOR = "bold deep_pink2"
+
 
 @dataclass
 class DonorData:
@@ -39,6 +41,7 @@ class DonorData:
         C: AnnData,
         D: AnnData,
         donor_key: str = DAnn.donor,
+        var_dims_to_sync: list[str] = None,
     ):
         if donor_key not in C.obs.columns:
             raise ValueError(f"'{donor_key}' not found in C.obs")
@@ -47,6 +50,7 @@ class DonorData:
         if donor_key != D.obs.index.name:
             D.obs = D.obs.set_index(donor_key)
 
+        self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_key = donor_key
         self._match_donors(C, D)
 
@@ -61,16 +65,27 @@ class DonorData:
         D_idx = D.obs.index
         keep_donors = D_idx.intersection(C_idx)
 
-        C = C[C.obs[self.donor_key].isin(keep_donors)]
-        D = D[keep_donors]
+        if not keep_donors.equals(D.obs_names):
+            D = D[keep_donors]
+
+        keep_cells = C.obs[self.donor_key].isin(keep_donors)
+        if not keep_cells.all():
+            C = C[keep_cells]
 
         # Sort cells by donor order
         sorted_cells = C.obs.iloc[
             pd.Categorical(C.obs[self.donor_key], categories=keep_donors, ordered=True).argsort()
         ].index
+        if not sorted_cells.equals(C.obs_names):
+            C = C[sorted_cells]
 
-        self._C = C[sorted_cells]
+        self._C = C
         self._D = D
+
+    def copy(self) -> DonorData:
+        self._C = self._C.copy()
+        self._D = self._D.copy()
+        return self
 
     @property
     def C(self) -> AnnData:
@@ -80,7 +95,8 @@ class DonorData:
     def C(self, value: AnnData) -> None:
         if not isinstance(value, AnnData):
             raise ValueError("C must be an AnnData object")
-        self._match_donors(C=value, D=self._D)
+        self._C = value
+        self._match_donors()
 
     @property
     def D(self) -> AnnData:
@@ -90,7 +106,8 @@ class DonorData:
     def D(self, value: AnnData) -> None:
         if not isinstance(value, AnnData):
             raise ValueError("D must be an AnnData object")
-        self._match_donors(C=self._C, D=value)
+        self._D = value
+        self._match_donors()
 
     def __getitem__(self, key):
         key = key if isinstance(key, tuple) else (key,)
@@ -105,8 +122,14 @@ class DonorData:
             _C = _C[key[2]]
         if len(key) == 4:
             _C = _C[:, key[3]]
+            keys_to_sync = []
+            for key in self._var_dims_to_sync:
+                if key in _D.obsm:
+                    keys_to_sync.append(key)
+                    _D.obsm[key] = _D.obsm[key].loc[:, _C.var.index]
+            self._var_dims_to_sync = keys_to_sync
 
-        return DonorData(_C, _D, self.donor_key)
+        return DonorData(_C, _D, self.donor_key, self._var_dims_to_sync)
 
     def aggregate(
         self,
@@ -118,6 +141,7 @@ class DonorData:
         filter_value: None | str = None,
         add_to_obs: bool = False,
         func: str | Callable = "mean",
+        sync_var: bool = False,
     ) -> None:
         """Aggregate single-cell data to donor-level.
 
@@ -152,12 +176,15 @@ class DonorData:
 
         slot = layer or obsm or obs or "X"
         if key_added is None:
-            key_added = f"{slot}_{filter_value}_{func}"
+            key_added = f"{slot}_{func}"
+            if filter_value is not None:
+                key_added += f"_{filter_value}"
 
         if obs is not None:
             obs = obs if isinstance(obs, list) else [obs]
             _data = adata.obs.groupby(self.donor_key, observed=True)[obs].agg(func)
-            data = pd.DataFrame(index=self.D.obs_names, columns=obs)
+            dtype = _data.dtypes.iloc[0]
+            data = pd.DataFrame(index=self.D.obs_names, columns=obs, dtype=dtype)
             data.loc[data.index, obs] = _data
             if add_to_obs:
                 self.D.obs.loc[data.index, obs] = data
@@ -170,53 +197,85 @@ class DonorData:
                 columns = getattr(getattr(adata, slot), "columns", None)
             else:
                 columns = adata.var_names
+                if sync_var:
+                    self._var_dims_to_sync.append(key_added)
 
-            data = pd.DataFrame(index=self.D.obs_names, columns=columns)
+            dtype = aggdata.layers[func].dtype
+            data = pd.DataFrame(index=self.D.obs_names, columns=columns, dtype=dtype)
             data.loc[aggdata.obs_names] = aggdata.layers[func]
             self.D.obsm[key_added] = data
 
-    def __repr__(self) -> str:
+    def prep_repr(self) -> str:
         """String representation of DonorData showing side-by-side adata and gdata views."""
-        # Create a console for rich
-        console = Console()
+        # Split the representations into lines
+        D_lines, D_highlight = _anndata_repr(self.D, self.D.n_obs, self.D.n_vars, self._var_dims_to_sync)
+        C_lines, C_highlight = _anndata_repr(self.C, self.C.n_obs, self.C.n_vars, [self.donor_key])
 
-        # Create a table
-        table = Table(show_header=True, header_style="bold deep_pink2")
-
-        # Add two columns to represent adata and gdata
-        table.add_column("D (donors)", max_width=50, justify="left")
-        table.add_column("C (cells)", max_width=50, justify="left")
-
-        # Split the representations into lines for easy columnization
-        D_lines = str(self.D).splitlines()
-        C_lines = str(self.C).splitlines()
+        def pad_lists(l1, l2):
+            max_lines = max(len(l1), len(l2))
+            l1 += [""] * (max_lines - len(l1))
+            l2 += [""] * (max_lines - len(l2))
+            return l1, l2
 
         # Ensure both have the same number of lines by padding with empty lines if necessary
-        max_lines = max(len(D_lines), len(C_lines))
-        D_lines += [""] * (max_lines - len(D_lines))
-        C_lines += [""] * (max_lines - len(C_lines))
+        D_lines, C_lines = pad_lists(D_lines, C_lines)
+        D_highlight, C_highlight = pad_lists(D_highlight, C_highlight)
 
-        # Prepare the lines with highlighted donor key for adata
-        highlighted_donor_key = self.donor_key  # The donor key to highlight
-        adata_text_lines = []
+        def highlight_lines(lines, highlights):
+            _lines = []
+            for line, highlight in zip(lines, highlights, strict=True):
+                text = Text()
+                for idx, (el, hl) in enumerate(zip(line, highlight, strict=True)):
+                    _el = f"{el}, " if idx not in [0, len(line) - 1] else el
+                    text.append(_el, HIGHLIGHT_COLOR if hl else None)
+                _lines.append(text)
+            return _lines
 
-        for line in C_lines:
-            if highlighted_donor_key in line:
-                # If the donor key is found in the line, highlight it
-                parts = line.split(highlighted_donor_key)
-                highlighted_line = (
-                    Text(parts[0]) + Text(highlighted_donor_key, style="bold orange_red1 underline") + Text(parts[1])
-                )
-            else:
-                highlighted_line = Text(line)
-            adata_text_lines.append(highlighted_line)
+        C_lines = highlight_lines(C_lines, C_highlight)
+        D_lines = highlight_lines(D_lines, D_highlight)
 
-        for adata_line, gdata_line in zip(adata_text_lines, D_lines, strict=False):
+        # Create table
+        table = Table(show_header=True, header_style=HIGHLIGHT_COLOR)
+        table.add_column("D (donors)", max_width=50, justify="left")
+        table.add_column("C (cells)", max_width=50, justify="left")
+        for adata_line, gdata_line in zip(C_lines, D_lines, strict=True):
             table.add_row(gdata_line, adata_line)
-        # Use the console to print the table and return the string
-        console.print(table)
+
+        return table
+
+    def __repr__(self) -> str:
+        table = self.prep_repr()
+        Console().print(table)
         return ""
+
+    def __str__(self) -> str:
+        n_donors, n_donor_vars, n_cells, n_cell_vars = self.shape
+        return f"{__class__.__name__}({n_donors=}, {n_donor_vars=}, {n_cells=}, {n_cell_vars=})"
 
     @property
     def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
         return *self.D.shape, *self.C.shape
+
+
+def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
+    if adata.isbacked:
+        backed_at = f" backed at {str(adata.filename)!r}"
+    else:
+        backed_at = ""
+    lines = [[f"AnnData object with n_obs × n_vars = {n_obs} × {n_vars}{backed_at}"]]
+    highlight = [[False]]
+    for attr in ["obs", "var", "uns", "obsm", "varm", "layers", "obsp", "varp"]:
+        keys = getattr(adata, attr).keys()
+
+        if len(keys) > 0:
+            line = [f"    {attr}: "]
+            line_highlight = [False]
+            for key in keys:
+                if attr in ["obsm", "obs"] and key in highlight_keys:
+                    line_highlight.append(True)
+                else:
+                    line_highlight.append(False)
+                line.append(f"'{key}'")
+            lines.append(line)
+            highlight.append(line_highlight)
+    return lines, highlight
