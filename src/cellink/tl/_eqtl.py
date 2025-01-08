@@ -59,11 +59,10 @@ def _register_fixed_effects(
     sex_encoded = pd.Categorical(pbdata.obs[sex_key_in_scdata]).codes[:, None]
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
     constant_col = np.ones_like(sex_encoded)
-    covariates = np.concatenate((constant_col, sex_encoded, age_standardized), axis=1)
     # store fixed effects in pb_adata
-    pbdata.obsm["F"] = np.concatenate((covariates, gen_pcs, pbdata.obsm["ePCs"]), axis=1)
+    pbdata.obsm["F"] = np.concatenate((constant_col, sex_encoded, age_standardized, gen_pcs, pbdata.obsm["ePCs"]), axis=1)
     # final normalization
-    # pbdata.obsm["F"][2:] = _column_normalize( pbdata.obsm["F"][2:])
+    pbdata.obsm["F"][:, 2:] = _column_normalize(pbdata.obsm["F"][:, 2:])
     return pbdata
 
 
@@ -486,10 +485,6 @@ def _gwas(
             }
         ]
     Y, F, G = gwas_data
-    # checking for NAN or INF values
-    print(f"Y: {np.sum(np.isnan(Y))}")
-    print(f"F: {np.sum(np.isnan(F.compute()))}")
-    print(f"G: {np.sum(np.isnan(G))}")
     # retrieving the no of cis snips
     no_cis_snps = G.shape[1]
     # processing the found snips
