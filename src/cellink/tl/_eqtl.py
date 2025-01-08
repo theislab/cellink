@@ -248,7 +248,7 @@ def _prepare_gwas_data(
     if subgadata.shape[1] == 0:
         return None
     G = subgadata.X.compute()
-    F = pb_data.adata.obsm["F"]
+    F = pb_data.adata.obsm["F"].compute()
     return Y, F, G
 
 
@@ -276,15 +276,6 @@ def _parse_gwas_results(gwas: GWAS) -> Sequence[np.ndarray]:
     betasnp = gwas.getBetaSNP()
     betasnp_ste = gwas.getBetaSNPste()
     lrt = gwas.getLRT()
-    # converting to numpy array if not already
-    if isinstance(pv, Array):
-        pv = pv.compute()
-    if isinstance(betasnp, Array):
-        betasnp = betasnp.compute()
-    if isinstance(betasnp_ste, Array):
-        betasnp_ste = betasnp_ste.compute()
-    if isinstance(lrt, Array):
-        lrt = lrt.compute()
     # retrieving gwas results
     pv = np.squeeze(pv)
     betasnp = np.squeeze(betasnp)
