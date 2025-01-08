@@ -78,27 +78,11 @@ def main(config: DictConfig):
         logger.info("Starting the run...")
     eqtl(
         donor_data,
-        target_cell_type=config.eqtl.target_cell_type, 
-        target_chromosome=config.eqtl.target_chromosome,
-        target_genes=config.eqtl.target_genes,
-        donor_key_in_scdata=config.data.donor_key_in_scdata,
-        sex_key_in_scdata=config.data.sex_key_in_scdata,
-        age_key_in_scdata=config.data.age_key_in_scdata,
-        pseudobulk_aggregation_type=config.data.pseudobulk_aggregation_type,
-        min_individuals_threshold=config.data.min_individuals_threshold,
-        n_top_genes=config.data.n_top_genes, 
-        n_sc_comps=config.data.n_sc_comps,
-        n_genetic_pcs=config.data.n_genetic_pcs,
-        n_cellstate_comps=config.data.n_cellstate_comps,
-        cis_window=config.eqtl.cis_window, 
-        transforms_seq=transforms ,
+        transforms_seq=transforms,
         pv_transforms=pv_transforms,
-        mode=config.eqtl.mode,
-        prog_bar=config.eqtl.prog_bar,
-        all_genes=config.eqtl.all_genes,
-        dump_results=config.eqtl.dump_results,
-        dump_dir=config.paths.dump_path,
-        file_prefix=config.eqtl.file_prefix,
+        **config.eqtl,
+        **config.data,
+        **config.paths,
     )
     if config.eqtl.verbose:
         logger.info("Run Finished!")
