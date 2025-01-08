@@ -9,7 +9,6 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="anndata.utils"
 
 from importlib.metadata import version
 
-
 from . import io, pl, pp, tl
 from ._core.donordata import DonorData
 

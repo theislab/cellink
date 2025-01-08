@@ -40,7 +40,6 @@ class DonorData:
         D: AnnData,
         donor_key: str = DAnn.donor,
     ):
-
         if donor_key not in C.obs.columns:
             raise ValueError(f"'{donor_key}' not found in C.obs")
         if donor_key not in D.obs.columns and donor_key != D.obs.index.name:
@@ -67,9 +66,7 @@ class DonorData:
 
         # Sort cells by donor order
         sorted_cells = C.obs.iloc[
-            pd.Categorical(
-                C.obs[self.donor_key], categories=keep_donors, ordered=True
-            ).argsort()
+            pd.Categorical(C.obs[self.donor_key], categories=keep_donors, ordered=True).argsort()
         ].index
 
         self._C = C[sorted_cells]
@@ -167,9 +164,7 @@ class DonorData:
             else:
                 self.D.obsm[key_added] = data
         else:
-            aggdata = sc.get.aggregate(
-                adata, by=self.donor_key, func=func, layer=layer, obsm=obsm
-            )
+            aggdata = sc.get.aggregate(adata, by=self.donor_key, func=func, layer=layer, obsm=obsm)
             if slot == "obsm":
                 # use columns of obsm dataframe if provided
                 columns = getattr(getattr(adata, slot), "columns", None)
@@ -210,9 +205,7 @@ class DonorData:
                 # If the donor key is found in the line, highlight it
                 parts = line.split(highlighted_donor_key)
                 highlighted_line = (
-                    Text(parts[0])
-                    + Text(highlighted_donor_key, style="bold orange_red1 underline")
-                    + Text(parts[1])
+                    Text(parts[0]) + Text(highlighted_donor_key, style="bold orange_red1 underline") + Text(parts[1])
                 )
             else:
                 highlighted_line = Text(line)

@@ -37,9 +37,7 @@ def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes):
     return ad.AnnData(X=X, obs=obs, var=var)
 
 
-def sim_adata(
-    n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS
-):
+def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS):
     """Simulate an AnnData object with multiple donors.
 
     AnnData object with n_obs × n_vars = 445 × N_GENES
