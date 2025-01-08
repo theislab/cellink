@@ -1,6 +1,7 @@
 import anndata
-import numpy as np
 import dask.array as da
+import numpy as np
+from collections import Counter
 
 def variant_qc(
     adata: anndata.AnnData,
@@ -10,8 +11,7 @@ def variant_qc(
     inplace: bool = True,
     copy: bool = False,
 ) -> anndata.AnnData | None:
-    """\
-    Perform quality control on variants.
+    """Perform quality control on variants.
 
     This function filters variants based on Minor Allele Frequency (MAF) and Hardy-Weinberg Equilibrium (HWE).
 
@@ -34,8 +34,6 @@ def variant_qc(
     """
     X = adata.X
 
-    print("dsgjkgadsö")
-
     if not isinstance(X, da.Array):
         raise ValueError("adata.X must be a Dask array.")
 
@@ -48,6 +46,7 @@ def variant_qc(
 
     print("kjdsgköag")
     from collections import Counter
+
     print(Counter(combined_filter))
 
     adata = adata[:, combined_filter]

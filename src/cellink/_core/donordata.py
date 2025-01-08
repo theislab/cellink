@@ -5,12 +5,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import pandas as pd
+import scanpy as sc
 from anndata import AnnData
-from anndata.utils import asarray
-from pandas import Index
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
+
+from cellink._core.annotation import DAnn
 
 logger = logging.getLogger(__name__)
 
@@ -20,170 +21,164 @@ class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
     This class allows donor-level, especially genetic, analysis with single-cell datasets.
-    It holds AnnData objects for single-cell (adata) and genetic (gdata) data,
-    as well as gene annotation information.
-    The donor key in adata.obs must be a categorical column.
-
-    This class assumes that the adata object has been processed with annotate_genes,
-    so all genes in adata have gene annotations.
+    It holds AnnData objects for single-cell (C) and genetic (D) data
 
     Attributes
     ----------
-        adata (AnnData): Single-cell data with gene annotations
-        gdata (AnnData): Genetic data
-        donor_key_in_sc_adata (str): Key for donor information in adata.obs
-
-    Raises
-    ------
-        ValueError: If the specified donor_key_in_adata is not found in adata.obs
-        ValueError: If the specified donor_key_in_adata is not categorical
+        C (AnnData): Cell-level AnnData
+        D (AnnData): Donor-level AnnData (e.g.: GenoAnnData)
+        donor_key (str): Key for donor information in C.obs
 
     Returns
     -------
         _type_: DonorData object
     """
 
-    adata: AnnData
-    gdata: AnnData
-    donor_key_in_sc_adata: str
-
     def __init__(
         self,
-        adata: AnnData,
-        gdata: AnnData,
-        donor_key_in_sc_adata: str,
+        C: AnnData,
+        D: AnnData,
+        donor_key: str = DAnn.donor,
     ):
-        self.adata = adata
-        self.gdata = gdata
-        self.donor_key_in_sc_adata = donor_key_in_sc_adata
-        self._validate_data()
-        self._match_donors()
 
-    def _validate_data(self):
-        """Validates that the donor key exists in the single-cell data and is categorical, and that gene annotations are present in adata.var.
+        if donor_key not in C.obs.columns:
+            raise ValueError(f"'{donor_key}' not found in C.obs")
+        if donor_key not in D.obs.columns and donor_key != D.obs.index.name:
+            raise ValueError(f"'{donor_key}' must be in gdata.obs or set as index")
+        if donor_key != D.obs.index.name:
+            D.obs = D.obs.set_index(donor_key)
 
-        Raises
-        ------
-            ValueError: If the donor_key_in_adata is not found
-            ValueError: If adata.obs[self.donor_key_in_adata] is not categorical
-            ValueError: If gene annotations are not present in adata.var
-        """
-        if self.donor_key_in_sc_adata not in self.adata.obs.columns:
-            raise ValueError(f"'{self.donor_key_in_sc_adata}' not found in adata.obs")
-        if not self.adata.obs[self.donor_key_in_sc_adata].dtype.name == "category":
-            raise ValueError(f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical")
+        self.donor_key = donor_key
+        self._match_donors(C, D)
 
-        required_annotations = ["chrom", "start_position", "end_position", "strand"]
-        if not all(col in self.adata.var.columns for col in required_annotations):
-            raise ValueError("Gene annotations not found in adata.var. Please run annotate_genes first.")
-
-    def get_donor_adata(self, donor: str) -> AnnData:
-        """Retrieve single-cell data for a specific donor.
-
-        Args:
-            donor (str): The name of the donor.
-
-        Raises
-        ------
-            ValueError: If the donor is not found in the data.
-
-        Returns
-        -------
-            AnnData: AnnData object containing the donor's single-cell data.
-        """
-        if donor not in self.adata.obs[self.donor_key_in_sc_adata].cat.categories:
-            raise ValueError(f"Donor '{donor}' not found in adata")
-        return self.adata[self.adata.obs[self.donor_key_in_sc_adata] == donor]
-
-    def get_donor_gdata(self, donor: str) -> AnnData:
-        """Retrieve genetic data for a specific donor.
-
-        Args:
-            donor (str): The name of the donor.
-
-        Raises
-        ------
-            ValueError: If the donor is not found in the data.
-
-        Returns
-        -------
-            AnnData: AnnData object containing the donor's genetic data.
-        """
-        if donor not in self.gdata.obs_names:
-            raise ValueError(f"Donor '{donor}' not found in gdata")
-        return self.gdata[donor]
-
-    def slice_cells(self, cell_condition) -> DonorData:
-        """Returns a new DonorData object with single-cell data sliced based on the provided cell condition.
-
-        Args:
-            cell_condition: A boolean mask, condition, or slice to apply to the single-cell data.
-
-        Returns
-        -------
-            DonorData: A new DonorData object with sliced single-cell data.
-        """
-        return DonorData(self.adata[cell_condition], self.gdata, self.donor_key_in_sc_adata)
-
-    def slice_donors(self, donors: list[str]) -> DonorData:
-        """Returns a new DonorData object with both single-cell and genetic data sliced to only include the specified donors.
-
-        Args:
-            donors (list[str]): A list of donor names to retain.
-
-        Returns
-        -------
-            DonorData: A new DonorData object with sliced data.
-        """
-        new_gdata = self.gdata[self.gdata.obs.index.isin(donors)]
-        return DonorData(self.adata, new_gdata, self.donor_key_in_sc_adata)
-
-    def _match_donors(self) -> None:
-        """Match donors between genetic and single-cell data.
-
-        This method aligns the donors in genetic and single-cell data,
-        keeping only the donors' data that is present in both datasets, and sorts the single-cell adata on the donors.
-
-        Raises
-        ------
-            None
-
-        Returns
-        -------
-            None
-
-        Notes
-        -----
-        - Donor's data where a donor is not present in both datasets is dropped.
-        - Warnings are logged about the number of donors kept and dropped.
-        """
-        # Sort single-cell data by the specified column
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].sort_values().index]
+    def _match_donors(self, C: AnnData | None = None, D: AnnData | None = None) -> None:
+        if C is None:
+            C = self._C
+        if D is None:
+            D = self._D
 
         # Get unique sample identifiers from both datasets
-        sc_index: Index = pd.Index(self.adata.obs[self.donor_key_in_sc_adata].unique())
-        g_index: Index = self.gdata.obs.index
+        C_idx = pd.Index(C.obs[self.donor_key].unique())
+        D_idx = D.obs.index
+        keep_donors = D_idx.intersection(C_idx)
 
-        # Find common donors and all unique donors
-        keep_donors: Index = sc_index.intersection(g_index)
-        all_donors: Index = sc_index.union(g_index)
+        C = C[C.obs[self.donor_key].isin(keep_donors)]
+        D = D[keep_donors]
 
-        # Log warnings about sample matching
-        logger.info("Keeping %s/%s donors", len(keep_donors), len(all_donors))
-        logger.info(
-            "Dropping %s/%s donors from genetic data",
-            len(g_index) - len(keep_donors),
-            len(g_index),
-        )
-        logger.info(
-            "Dropping %s/%s donors from single-cell data",
-            len(sc_index) - len(keep_donors),
-            len(sc_index),
-        )
+        # Sort cells by donor order
+        sorted_cells = C.obs.iloc[
+            pd.Categorical(
+                C.obs[self.donor_key], categories=keep_donors, ordered=True
+            ).argsort()
+        ].index
 
-        # Filter both datasets to keep only matched donors
-        self.gdata = self.gdata[keep_donors]
-        self.adata = self.adata[self.adata.obs[self.donor_key_in_sc_adata].isin(keep_donors)]
+        self._C = C[sorted_cells]
+        self._D = D
+
+    @property
+    def C(self) -> AnnData:
+        return self._C
+
+    @C.setter
+    def C(self, value: AnnData) -> None:
+        if not isinstance(value, AnnData):
+            raise ValueError("C must be an AnnData object")
+        self._match_donors(C=value, D=self._D)
+
+    @property
+    def D(self) -> AnnData:
+        return self._D
+
+    @D.setter
+    def D(self, value: AnnData) -> None:
+        if not isinstance(value, AnnData):
+            raise ValueError("D must be an AnnData object")
+        self._match_donors(C=self._C, D=value)
+
+    def __getitem__(self, key):
+        key = key if isinstance(key, tuple) else (key,)
+        if len(key) > 4:
+            raise ValueError(f"Invalid slice length: {len(key)}")
+
+        _D = self.D[key[0]]
+        _C = self.C
+        if len(key) >= 2:
+            _D = _D[:, key[1]]
+        if len(key) >= 3:
+            _C = _C[key[2]]
+        if len(key) == 4:
+            _C = _C[:, key[3]]
+
+        return DonorData(_C, _D, self.donor_key)
+
+    def aggregate(
+        self,
+        key_added: None | str = None,
+        layer: None | str = None,
+        obs: None | str = None,
+        obsm: None | str = None,
+        filter_key: None | str = None,
+        filter_value: None | str = None,
+        add_to_obs: bool = False,
+        func: str | Callable = "mean",
+    ) -> None:
+        """Aggregate single-cell data to donor-level.
+
+        If neither layer, obsm, or obs is provided, adata.X is aggregated.
+        Args:
+            key_added:
+                The key in gdata to store the aggregated data.
+            layer:
+                The layer in adata to aggregate. Defaults to None.
+            obs:
+                The key in adata.obs to aggregate. Defaults to None.
+            obsm:
+                The key in adata.obsm to aggregate. Defaults to None.
+            filter_key:
+                The key in adata.obs to filter by. Defaults to None.
+            filter_value:
+                The value in adata.obs[filter_key] to filter by. Defaults to None.
+            func:
+                The aggregation function to use. Defaults to "mean".
+        """
+        assert (filter_key is None) == (
+            filter_value is None
+        ), "filter_key and filter_value both have to be provided or None"
+
+        assert (layer is None) + (obsm is None) + (
+            obs is None
+        ) >= 2, "Only one of layer, obsm, varm, or obs can be provided"
+
+        adata = self.C
+        if filter_key is not None:
+            adata = adata[adata.obs[filter_key] == filter_value]
+
+        slot = layer or obsm or obs or "X"
+        if key_added is None:
+            key_added = f"{slot}_{filter_value}_{func}"
+
+        if obs is not None:
+            obs = obs if isinstance(obs, list) else [obs]
+            _data = adata.obs.groupby(self.donor_key, observed=True)[obs].agg(func)
+            data = pd.DataFrame(index=self.D.obs_names, columns=obs)
+            data.loc[data.index, obs] = _data
+            if add_to_obs:
+                self.D.obs.loc[data.index, obs] = data
+            else:
+                self.D.obsm[key_added] = data
+        else:
+            aggdata = sc.get.aggregate(
+                adata, by=self.donor_key, func=func, layer=layer, obsm=obsm
+            )
+            if slot == "obsm":
+                # use columns of obsm dataframe if provided
+                columns = getattr(getattr(adata, slot), "columns", None)
+            else:
+                columns = adata.var_names
+
+            data = pd.DataFrame(index=self.D.obs_names, columns=columns)
+            data.loc[aggdata.obs_names] = aggdata.layers[func]
+            self.D.obsm[key_added] = data
 
     def __repr__(self) -> str:
         """String representation of DonorData showing side-by-side adata and gdata views."""
@@ -191,166 +186,44 @@ class DonorData:
         console = Console()
 
         # Create a table
-        table = Table(show_header=True, header_style="bold magenta")
+        table = Table(show_header=True, header_style="bold deep_pink2")
 
         # Add two columns to represent adata and gdata
-        table.add_column("Cells (adata)", max_width=100, justify="left")
-        table.add_column("Donors (gdata)", max_width=100, justify="left")
-
-        # Prepare the string representation of adata and gdata
-        adata_repr = str(self.adata)
-        gdata_repr = str(self.gdata)
+        table.add_column("D (donors)", max_width=50, justify="left")
+        table.add_column("C (cells)", max_width=50, justify="left")
 
         # Split the representations into lines for easy columnization
-        adata_lines = adata_repr.splitlines()
-        gdata_lines = gdata_repr.splitlines()
+        D_lines = str(self.D).splitlines()
+        C_lines = str(self.C).splitlines()
 
         # Ensure both have the same number of lines by padding with empty lines if necessary
-        max_lines = max(len(adata_lines), len(gdata_lines))
-        adata_lines += [""] * (max_lines - len(adata_lines))
-        gdata_lines += [""] * (max_lines - len(gdata_lines))
+        max_lines = max(len(D_lines), len(C_lines))
+        D_lines += [""] * (max_lines - len(D_lines))
+        C_lines += [""] * (max_lines - len(C_lines))
 
         # Prepare the lines with highlighted donor key for adata
-        highlighted_donor_key = self.donor_key_in_sc_adata  # The donor key to highlight
+        highlighted_donor_key = self.donor_key  # The donor key to highlight
         adata_text_lines = []
 
-        for line in adata_lines:
+        for line in C_lines:
             if highlighted_donor_key in line:
                 # If the donor key is found in the line, highlight it
                 parts = line.split(highlighted_donor_key)
                 highlighted_line = (
-                    Text(parts[0]) + Text(highlighted_donor_key, style="bold blue underline") + Text(parts[1])
+                    Text(parts[0])
+                    + Text(highlighted_donor_key, style="bold orange_red1 underline")
+                    + Text(parts[1])
                 )
             else:
                 highlighted_line = Text(line)
             adata_text_lines.append(highlighted_line)
 
-        for adata_line, gdata_line in zip(adata_text_lines, gdata_lines, strict=False):
-            table.add_row(adata_line, gdata_line)
+        for adata_line, gdata_line in zip(adata_text_lines, D_lines, strict=False):
+            table.add_row(gdata_line, adata_line)
         # Use the console to print the table and return the string
         console.print(table)
         return ""
 
-    def aggregate(
-        self,
-        key,
-        target_key,
-        filter_key: str = None,
-        filter_value: str = None,
-        agg_func: str | Callable = "mean",
-    ) -> None:
-        """Aggregate single-cell data to donor-level.
-
-        Args:
-            key:
-                The key in adata to aggregate.
-            target_key:
-                The key in gdata to store the aggregated data.
-            filter_key:
-                The key in adata.obs to filter by. Defaults to None.
-            filter_value:
-                The value in adata.obs[filter_key] to filter by. Defaults to None.
-            agg_func:
-                The aggregation function to use. Defaults to "mean".
-        """
-        assert (filter_key is None) == (
-            filter_value is None
-        ), "filter_key and filter_value both have to be provided or None"
-
-        adata = self.adata
-        if filter_key is not None:
-            adata = adata[adata.obs[filter_key] == filter_value]
-
-        if key == "X":
-            data = adata.X
-            columns = adata.var_names
-        elif key in adata.layers:
-            data = adata.layers[key]
-            columns = adata.var_names
-        elif key in adata.obs.columns:
-            data = adata.obs[[key]]
-            columns = [key]
-        elif key in adata.var.index:
-            data = adata[:, [key]].X
-            columns = [key]
-        elif key in adata.obsm:
-            data = adata.obsm[key]
-            columns = getattr(data, "columns", range(data.shape[1]))
-        else:
-            raise ValueError(f"Key '{key}' not found in adata")
-
-        data = pd.DataFrame(asarray(data), columns=columns)
-        data["group"] = adata.obs[self.donor_key_in_sc_adata].values
-        data = data.groupby("group", observed=True).agg(agg_func)
-        data = data.loc[self.gdata.obs_names]
-        if data.shape[1] == 1:
-            self.gdata.obs[target_key] = data.iloc[:, 0]
-        else:
-            self.gdata.obsm[target_key] = data
-
-    def _slice_genomic_region(self, chrom, start, end, window_size=1e6):
-        """Returns a new DonorData object with genetic data sliced to a specific genomic region.
-
-        Args:
-            chrom: The chromosome to slice.
-            start: The start position of the region.
-            end: The end position of the region.
-            window_size: Additional window size to include around the region. Defaults to 0.
-
-        Returns
-        -------
-            A new DonorData object with sliced genetic data.
-
-        Raises
-        ------
-            ValueError: If the required columns are not present in gdata.var.
-        """
-        required_columns = ["chrom", "pos"]
-        if not all(col in self.gdata.var.columns for col in required_columns):
-            raise ValueError(f"gdata.var must contain the following columns: {required_columns}")
-
-        # Slice the genetic data
-        mask = (
-            (self.gdata.var.chrom == chrom)
-            & (self.gdata.var.pos >= start - window_size)
-            & (self.gdata.var.pos <= end + window_size)
-        )
-        new_gdata = self.gdata[:, mask]
-
-        # Create a new DonorData object with the sliced genetic data
-        return DonorData(self.adata, new_gdata, self.donor_key_in_sc_adata)
-
-    def slice_genomic_region(self, ensembl_id: str, window_size: float = 1e6, tss: bool = True) -> DonorData:
-        """
-        Slice the genetic data to a specific genomic region based on an Ensembl gene ID.
-
-        Args:
-            ensembl_id: The Ensembl gene ID to slice around.
-            window_size: Additional window size to include around the region. Defaults to 1e6.
-            tss: If True, use only the transcription start site. If False, use the entire gene body. Defaults to True.
-
-        Returns
-        -------
-            A new DonorData object with sliced genetic data.
-
-        Raises
-        ------
-            ValueError: If the Ensembl ID is not found in the adata.var.
-        """
-        if ensembl_id not in self.adata.var.index:
-            raise ValueError(f"Ensembl ID '{ensembl_id}' not found in adata.var.")
-
-        gene_info = self.adata.var.loc[ensembl_id]
-        chrom = gene_info["chrom"]
-        strand = gene_info["strand"]
-
-        if tss:
-            if strand == 1:
-                start = end = gene_info["start_position"]
-            else:
-                start = end = gene_info["end_position"]
-        else:
-            start = gene_info["start_position"]
-            end = gene_info["end_position"]
-
-        return self._slice_genomic_region(chrom, start, end, window_size)
+    @property
+    def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
+        return *self.D.shape, *self.C.shape
