@@ -7,7 +7,6 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
-from dask.array import Array
 from anndata.utils import asarray
 from sklearn.preprocessing import StandardScaler
 from sklearn.preprocessing import quantile_transform as sk_quantile_transform
@@ -60,7 +59,9 @@ def _register_fixed_effects(
     age_standardized = StandardScaler().fit_transform(pbdata.obs[age_key_in_scdata].values.reshape(-1, 1))
     constant_col = np.ones_like(sex_encoded)
     # store fixed effects in pb_adata
-    pbdata.obsm["F"] = np.concatenate((constant_col, sex_encoded, age_standardized, gen_pcs, pbdata.obsm["ePCs"]), axis=1)
+    pbdata.obsm["F"] = np.concatenate(
+        (constant_col, sex_encoded, age_standardized, gen_pcs, pbdata.obsm["ePCs"]), axis=1
+    )
     # final normalization
     pbdata.obsm["F"][:, 2:] = _column_normalize(pbdata.obsm["F"][:, 2:])
     return pbdata
@@ -69,8 +70,7 @@ def _register_fixed_effects(
 def _map_col_scdata_obs_to_pbdata(
     scdata: ad.AnnData, pbdata: ad.AnnData, donor_key_in_scdata: str, column: str
 ) -> ad.AnnData:
-    """Maps the selected column, assumed to have only one unique value for each patient (i.e.: age, sex, etc.)
-    from the base single cell data to the pseudo-bulked one, as not all the columns are returned after aggregation
+    """Maps the selected column, assumed to have only one unique value for each patient (i.e.: age, sex, etc.) from the base single cell data to the pseudo-bulked one, as not all the columns are returned after aggregation
 
     Parameters
     ----------
@@ -84,7 +84,6 @@ def _map_col_scdata_obs_to_pbdata(
         `ad.AnnData` containing with the updated `obs` containing the required column
     """
     # mapping over the individuals
-    individuals = pbdata.obs[donor_key_in_scdata]
     reference_data = scdata.obs[[donor_key_in_scdata, column]]
     reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
 
@@ -236,7 +235,6 @@ def _prepare_gwas_data(
     # retrieving start and end position for each gene
     start = pb_data.adata.var.loc[target_gene].start
     end = pb_data.adata.var.loc[target_gene].end
-    chrom = pb_data.adata.var.loc[target_gene].chrom
     # retrieving the variants within the cis window
     subgadata = pb_data.gdata[
         :,
@@ -687,7 +685,9 @@ def _dump_results(
     dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
     dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
     if target_gene is not None:
-        dump_path = Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}_Gene{target_gene}.csv"
+        dump_path = (
+            Path(dump_dir) / f"{file_prefix}_CellType{target_cell_type}_Chrom{target_chromosome}_Gene{target_gene}.csv"
+        )
     results_df.to_csv(dump_path, index=False)
     # saving post processed results df to disk
     if postprocessed_dfs is not None:
@@ -695,9 +695,7 @@ def _dump_results(
             dump_file = f"{file_prefix}_PP{post_processing_id}_CellType{target_cell_type}_Chrom{target_chromosome}.csv"
             if target_gene is not None:
                 dump_file = f"{file_prefix}_PP{post_processing_id}_CellType{target_cell_type}_Chrom{target_chromosome}_Gene{target_gene}.csv"
-            dump_path = (
-                Path(dump_dir) / dump_file
-            )
+            dump_path = Path(dump_dir) / dump_file
             post_processed_df.to_csv(dump_path, index=False)
 
 
@@ -728,8 +726,7 @@ def eqtl(
     use_cell_type_chrom_specific_dir: bool = True,
     dump_intermediate_results: bool = False,
 ) -> Sequence[dict[str, float]]:
-    """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes and
-    stores the results to a `pd.DataFrame` object and optionally to disk
+    """Runs the EQTL pipeline on a given pair of (`target_cell_type`, `target_chromosome`) over all genes and stores the results to a `pd.DataFrame` object and optionally to disk
 
     Parameters
     ----------
@@ -754,7 +751,7 @@ def eqtl(
     dump_dir_cell = None
     if use_cell_type_chrom_specific_dir:
         dump_dir_base = "./" if dump_dir is None else dump_dir
-        dump_dir_cell = Path(dump_dir) / f"Cell{target_cell_type}_Chrom{target_chromosome}"
+        dump_dir_cell = Path(dump_dir_base) / f"Cell{target_cell_type}_Chrom{target_chromosome}"
         dump_dir_cell.mkdir(exist_ok=True)
         dump_dir_cell = str(dump_dir_cell)
     # running the pipeline and constructing results DataFrame
