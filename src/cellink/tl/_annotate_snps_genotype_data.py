@@ -1,4 +1,3 @@
-import datetime as dt
 import logging
 import os
 import subprocess
@@ -7,7 +6,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import polars as pl
 import yaml
 
 from cellink.tl.utils import (
@@ -33,7 +31,6 @@ def setup_snpeff():
     of SnpEff from SourceForge, and extracts the contents. It ensures that the
     required tool is available for genome annotation tasks.
     """
-
     os.makedirs("deps", exist_ok=True)
     subprocess.run(
         [
@@ -48,6 +45,7 @@ def setup_snpeff():
     subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
     os.chdir("../")
 
+
 def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
     """
     Runs genome annotation using the SnpEff tool.
@@ -61,7 +59,6 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         genome (str): Genome version to be used for annotation (default: "GRCh37.75").
                       Ensure this genome is supported by SnpEff.
     """
-
     snpeff_path = "./deps/snpEff/snpEff.jar"
 
     subprocess.run(
@@ -69,6 +66,7 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         stdout=open(vcf_output, "w"),
         check=True,
     )
+
 
 def _write_variants_to_vcf(variants, out_file):
     # TODO add check for if file allready exists

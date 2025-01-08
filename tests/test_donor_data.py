@@ -1,8 +1,6 @@
 from pathlib import Path
 
-import pytest
-
-from cellink._core.annotation import CAnn, DAnn, VAnn
+from cellink._core.annotation import CAnn, DAnn
 from cellink._core.donordata import DonorData
 
 DATA = Path("tests/data")
@@ -72,9 +70,7 @@ def test_donordata_aggregate(adata, gdata, dummy_covariates):
 
     for celltype in adata.obs[CAnn.celltype].unique():
         celltype_key = f"Gex_{celltype}"
-        dd.aggregate(
-            key_added=celltype_key, filter_key=CAnn.celltype, filter_value=celltype
-        )
+        dd.aggregate(key_added=celltype_key, filter_key=CAnn.celltype, filter_value=celltype)
         assert celltype_key in dd.D.obsm
         assert dd.C.shape == previous_adata_shape
 

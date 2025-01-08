@@ -56,9 +56,7 @@ SGVAR_TO_GDATA = {
 }
 
 
-def from_sgkit_dataset(
-    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None
-) -> AnnData:
+def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -107,9 +105,7 @@ def from_sgkit_dataset(
     return gdata
 
 
-def read_sgkit_zarr(
-    path: str | Path, *, var_rename=None, obs_rename=None, **kwargs
-) -> AnnData:
+def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -122,15 +118,11 @@ def read_sgkit_zarr(
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     """
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
-    gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename
-    )
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
     return gdata
 
 
-def read_plink(
-    path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs
-) -> AnnData:
+def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
     """Read Plink Format
 
     Params
@@ -143,7 +135,5 @@ def read_plink(
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     """
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
-    gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename
-    )
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
     return gdata
