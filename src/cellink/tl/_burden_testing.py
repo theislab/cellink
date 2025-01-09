@@ -59,6 +59,7 @@ def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
     gene_start, gene_end = map(int, gene_range.split("-"))
 
     # Extract chromosome and position from the SNPs
+    gdata = gdata.copy()
     gdata[['Chromosome', 'Position']] = gdata['Location'].str.split(':', expand=True)
     gdata['Position'] = gdata['Position'].astype(int)
 
@@ -86,6 +87,9 @@ def _compute_burdens_for_gene(this_gd,
         print(f"Failed to retrieve location for gene {this_gene}. Falling back to 'Gene' column.")
         # Filter by the `Gene` column if gene location lookup fails
         this_vars = this_gd.varm[annotation_varm][this_gd.varm[annotation_varm]["Gene"] == this_gene].index
+
+        #with open("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/missing_genes_for_burden_calc.txt", "a") as file:
+        #    file.write(this_gene + "\n")
     else:
         # Filter the variants using the SNP location and gene location
         this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
@@ -102,7 +106,7 @@ def _compute_burdens_for_gene(this_gd,
     all_burdens_this_gene["Geneid"] = this_gene
     return all_burdens_this_gene
 
-def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=10000):
+def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=100000):
     """Compute gene burdens for each gene and sample using different variant annotations
 
     Parameters
@@ -122,6 +126,7 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], 
     this_gd = ddata.gdata.copy()
     this_gd = this_gd[:, this_gd.var["maf"] < max_af]
     all_burdens = []
+
     for gene in tqdm(ddata.adata.var.index):
         this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols, window_size=window_size)
         all_burdens.append(this_b)
