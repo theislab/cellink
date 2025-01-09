@@ -11,5 +11,6 @@ changelog.md
 contributing.md
 references.md
 
-notebooks/example
+tutorials/index.md
+
 ```
