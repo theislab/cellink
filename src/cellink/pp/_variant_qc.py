@@ -2,6 +2,8 @@ from collections import Counter
 
 import anndata
 import dask.array as da
+import numpy as np
+from collections import Counter
 
 
 def variant_qc(
