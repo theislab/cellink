@@ -1,7 +1,6 @@
 import anndata
 import dask.array as da
 
-
 def low_abundance_filter(
     adata: anndata.AnnData,
     *,
@@ -55,7 +54,6 @@ def low_abundance_filter(
         return None
     return adata
 
-
 def missing_values_filter(
     adata: anndata.AnnData,
     *,
@@ -96,7 +94,6 @@ def missing_values_filter(
     if inplace:
         return None
     return adata
-
 
 def log_transform(
     adata: anndata.AnnData,
