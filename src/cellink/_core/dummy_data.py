@@ -16,18 +16,22 @@ MIN_GENE_LENGTH = 18_000
 MAX_GENE_LENGTH = 30_000
 EXAMPLE_CHROMOSOME = 1
 DUMMY_COVARIATES = ["cov1", "cov2", "cov3"]
+CELL_PREFIX = "C"
+DONOR_PREFIX = "D"
+GENE_PREFIX = "G"
+SNP_PREFIX = "SNP"
 
 
 def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes):
     X = np.random.randn(n_cells, n_genes)
     _celltypes = CELLTYPES if has_all_celltypes else CELLTYPES[:-1]
     obs = pd.DataFrame({CAnn.celltype: np.random.choice(_celltypes, size=n_cells)})
-    obs.index = [f"C{i}" for i in range(start_index, start_index + n_cells)]
+    obs.index = [f"{CELL_PREFIX}{i}" for i in range(start_index, start_index + n_cells)]
     obs[DUMMY_COVARIATES] = np.random.randn(n_cells, len(DUMMY_COVARIATES))
     gene_lengths = np.random.randint(MIN_GENE_LENGTH, MAX_GENE_LENGTH, size=n_genes)
     var = pd.DataFrame(
         {
-            GAnn.name: np.array([f"G{i}" for i in np.arange(n_genes)]),
+            GAnn.name: np.array([f"{GENE_PREFIX}{i}" for i in np.arange(n_genes)]),
             GAnn.chrom: EXAMPLE_CHROMOSOME,
             GAnn.start: np.concatenate([[0], np.cumsum(gene_lengths[:-1])]),
             GAnn.end: np.cumsum(gene_lengths),
@@ -68,7 +72,7 @@ def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n
         has_all_celltypes = i != 0  # the first donor misses one celltype
         adatas.append(_sim_donor(cum_n_cells, n_cells, n_genes, has_all_celltypes))
         cum_n_cells += n_cells
-    donors = [f"D{i}" for i in range(n_donors)]
+    donors = [f"{DONOR_PREFIX}{i}" for i in range(n_donors)]
     adata = ad.concat(adatas, merge="first", keys=donors, label=DAnn.donor)
     return adata
 
@@ -97,7 +101,7 @@ def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
             VAnn.a1: np.random.choice(["C", "G"], size=n_snps),
             VAnn.maf: mafs,
         },
-        index="SNP" + pd.RangeIndex(n_snps).astype(str),
+        index=SNP_PREFIX + pd.RangeIndex(n_snps).astype(str),
     )
     gdata = ad.AnnData(X=X, obs=obs, var=var)
     return gdata
