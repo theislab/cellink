@@ -1,12 +1,3 @@
-import warnings
-
-warnings.filterwarnings(
-    "ignore",
-    message="pkg_resources is deprecated as an API",
-    category=DeprecationWarning,
-)
-warnings.filterwarnings("ignore", category=FutureWarning, module="anndata.utils")
-
 from importlib.metadata import version
 
 from . import io, pl, pp, tl
