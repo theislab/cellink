@@ -1,0 +1,23 @@
+import os
+
+# Get a list of all .vcz files in the directory
+gdata_dir = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08"
+input_files = [f"{gdata_dir}/{f}" for f in os.listdir(gdata_dir) if f.endswith(".vcz")]
+
+# Define the output files
+
+#output_files = [f"results/{os.path.splitext(f)[0]}.processed" for f in input_files]
+
+# Rule to process each .vcz file
+rule burden_testing:
+    input:
+        lambda wildcards: f"data/{wildcards.input_file}"
+    output:
+        lambda wildcards: f"results/{wildcards.input_file.split('.')[0]}.processed"
+    shell:
+        "python process_script.py {input} {output}"
+
+# Rule to process all .vcz files
+rule all:
+    input:
+        output_files
