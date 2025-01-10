@@ -41,12 +41,12 @@ def _get_gene_location(ensembl_id):
     else:
         return f"Error: {response.status_code}, {response.text}"
 
-def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
+def _find_snps_near_gene(gdata_df, gene_location, bp_range=10000):
     """
     Finds SNPs within a specified range of a gene's location.
 
     Parameters:
-        gdata (pd.DataFrame): DataFrame with a 'Location' column in the format "chromosome:position".
+        gdata_df (pd.DataFrame): DataFrame with a 'Location' column in the format "chromosome:position".
         gene_location (str): Gene location in the format "chromosome:start-end".
         bp_range (int): Range in base pairs to search upstream and downstream.
 
@@ -59,15 +59,17 @@ def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
     gene_start, gene_end = map(int, gene_range.split("-"))
 
     # Extract chromosome and position from the SNPs
-    gdata = gdata.copy()
-    gdata[['Chromosome', 'Position']] = gdata['Location'].str.split(':', expand=True)
-    gdata['Position'] = gdata['Position'].astype(int)
+    gdata_df = gdata_df.copy()
+
+    gdata_df['Location'] = gdata_df.index.tolist()
+    gdata_df[['Chromosome', 'Position', 'ref', 'alt']] = gdata_df['Location'].str.split('_', expand=True)
+    gdata_df['Position'] = gdata_df['Position'].astype(int)
 
     # Filter for SNPs within the range
-    snps_in_range = gdata[
-        (gdata['Chromosome'] == gene_chrom) &
-        (gdata['Position'] >= gene_start - bp_range) &
-        (gdata['Position'] <= gene_end + bp_range)
+    snps_in_range = gdata_df[
+        (gdata_df['Chromosome'] == gene_chrom) &
+        (gdata_df['Position'] >= gene_start - bp_range) &
+        (gdata_df['Position'] <= gene_end + bp_range)
     ]
 
     return snps_in_range.index
@@ -77,33 +79,49 @@ def _compute_burdens_for_gene(this_gd,
                               this_gene, 
                               weight_cols,
                               annotation_varm = "annotations_0",
-                              window_size=10000):
+                              window_size=100000):
+    """
+    Compute burdenscores for a given gene and given annotations
+
+    Parameters:
+        this_gd (pd.DataFrame): ddata.gdata.
+        this_gene (str): Ensemble ID.
+        weight_cols (list): colnames of variant annotations to compute burden scores for.
+        annotation_varm (str): key for pd.DataFrame (gdata.varm[key])
+        window_size (int)
+
+    Returns:
+        pd.DataFrame containing burden scores for this_gene across the weight_cols
+    """
     #this_vars = this_gd.varm["annotations_0"][this_gd.varm["annotations_0"]["Gene"] == this_gene].index
     # filter the vars by using _find_snps_near_gene and get_gene_location
     gene_location = _get_gene_location(this_gene)
-    # print(gene_location)
-    # this_vars = _find_snps_near_gene(this_gd.varm["annotations_0"], gene_location, bp_range=window_size)
     if "Error" in gene_location:
-        print(f"Failed to retrieve location for gene {this_gene}. Falling back to 'Gene' column.")
-        # Filter by the `Gene` column if gene location lookup fails
-        this_vars = this_gd.varm[annotation_varm][this_gd.varm[annotation_varm]["Gene"] == this_gene].index
-
-        #with open("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/missing_genes_for_burden_calc.txt", "a") as file:
-        #    file.write(this_gene + "\n")
-    else:
-        # Filter the variants using the SNP location and gene location
-        this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
+        print(f"Failed to retrieve location for gene {this_gene}. No Burden scores computed.")
+        # Create a DataFrame with None for all the weight columns
+        empty_burdens = pd.DataFrame(
+            None, 
+            index=this_gd.obs.index,  # Assuming these are the sample indices
+            columns=weight_cols
+        )
+        # Add the Geneid column
+        empty_burdens["Geneid"] = this_gene
+        return empty_burdens
+        
+    # Filter the variants using the SNP location and gene location
+    this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
     
     gd_gene = this_gd[:, this_vars]
-    
+ 
     all_burdens_this_gene = []
     for weight_col in weight_cols: 
         this_burden = _get_burden(gd_gene, weight_col)
         all_burdens_this_gene.append(this_burden)
-    all_burdens_this_gene = np.stack(all_burdens_this_gene, axis = 1)
-    all_burdens_this_gene = pd.DataFrame(all_burdens_this_gene, index = gd_gene.obs.index,
-            columns = weight_cols)
+        
+    all_burdens_this_gene = np.stack(all_burdens_this_gene, axis=1)
+    all_burdens_this_gene = pd.DataFrame(all_burdens_this_gene, index=gd_gene.obs.index, columns=weight_cols)
     all_burdens_this_gene["Geneid"] = this_gene
+    
     return all_burdens_this_gene
 
 def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=100000):
