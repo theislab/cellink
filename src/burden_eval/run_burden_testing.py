@@ -74,17 +74,15 @@ if __name__ == '__main___':
     parser = argparse.ArgumentParser(
                     prog='burdenTesting',
                     description='Run burden testing for provided chromosome')
-    parser.add_argument('-c', '--chromosome', help='Enter target chromosome') 
-    #parser.add_argument('-z', '--zarrfile', help='Path to zarr file')
-    
+    parser.add_argument('-c', '--chromosome', help='Enter target chromosome')
     args = parser.parse_args()
 
-    cell_type_col = "cell_label"
-
-    # set paths
+    # SET PATHS
     base_data_dir = Path("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/")
     scdata_path = base_data_dir / "input_data/OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad.gz"
     gdata_dir = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/"
+
+    # READ FILES
     zarr_file = os.path.join(gdata_dir, f"chr{str(args.chromosome)}.dose.filtered.R2_0.8.vcz")
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
 
@@ -92,11 +90,10 @@ if __name__ == '__main___':
     DNA_LM_downstream = input_dir/ "annotations/onek1k_inf_scores_downstream_model.tsv"
     vep_scores = input_dir/ "annotations/onek1k1_all_variants_annotated_vep.txt"
 
-    # read objects
     scdata = sc.read_h5ad(scdata_path)
-    gdata = cl.io.read_sgkit_zarr(args.zarrfile)
+    gdata = cl.io.read_sgkit_zarr(zarr_file)
 
-    # perform normalization and log transformation
+    # PERFORM NORMALIZATION AND LOG TRANSFORMATION
     scdata = preprocess_scdata(scdata)
 
     
@@ -110,19 +107,16 @@ if __name__ == '__main___':
     gdata = add_maf_annotation(gdata)
 
     # add DNA_LM annotations (downstream and upstream models) to gdata 
-
     gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
     gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.c, colname='DNA_LM_down')
     
-    # create data object
+    # CREATE DATA OBJ
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
-
-
-    # run burden testing for specified chromosome
+    # RUN BURDEN TESTING
     results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_influence_score", "MAF_beta_1.25"], window_size=100000)
     
-    # write results
+    # WRITE RESULTS
     res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_and_MAF_100k.pkl"
     with open(res_path, "wb") as file:
         all_res = pickle.dump(results, file)
