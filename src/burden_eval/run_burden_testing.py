@@ -5,6 +5,16 @@ import pandas as pd
 import scanpy as sc
 import cellink as cl
 from cellink.tl._burden_testing import *
+from scipy.stats import beta
+
+
+
+def preprocess_scdata(scdata):
+    scdata = scdata.copy() # don't mess with view changes just in case
+    sc.pp.normalize_total(scdata, target_sum=1e4)  # Normalize total counts per cell
+    sc.pp.log1p(scdata)  # Apply log-transform
+    return scdata
+    
 
 def add_snp_id(DNA_LM):
     DNA_LM['snp_id'] = DNA_LM['Chromosome'] + "_" + DNA_LM['pos'].astype(str) + "_" + DNA_LM['ref'] + "_" + DNA_LM['alt']
@@ -39,11 +49,25 @@ def reverse_and_update_snp_ids(gdata_df, dna_df):
     return dna_df
 
 
-def preprocess_scdata(scdata):
-    scdata = scdata.copy() # don't mess with view changes just in case
-    sc.pp.normalize_total(scdata, target_sum=1e4)  # Normalize total counts per cell
-    sc.pp.log1p(scdata)  # Apply log-transform
-    return scdata
+def add_maf_annotation(gdata):
+    weighted_snp_maf = beta.pdf(gdata.var["maf"], 1, 25)
+    gdata.varm["annotations_0"]["MAF_beta_1.25"] = weighted_snp_maf
+    return gdata
+
+def add_DNA_LM(gdata, file, chromosome, colname):
+
+    DNA_LM = pd.read_csv(file,
+                sep = '\t')
+    DNA_LM = add_snp_id(DNA_LM)
+    DNA_LM = reverse_and_update_snp_ids(gdata.varm["annotations_0"],
+                                        DNA_LM[DNA_LM["Chromosome"]==f"chr{chromosome}"])
+    
+    gdata.varm["annotations_0"][colname] = DNA_LM["influence_score"].reindex(gdata.varm["annotations_0"].index)
+
+    # Rename the merged column if needed
+    gdata.varm["annotations_0"].rename(columns={"influence_score": colname}, inplace=True)
+    return gdata
+
 
 if __name__ == '__main___':
 
@@ -66,6 +90,7 @@ if __name__ == '__main___':
 
     DNA_LM_upstream = input_dir/ "annotations/onek1k_inf_scores_upstream_model.tsv"
     DNA_LM_downstream = input_dir/ "annotations/onek1k_inf_scores_downstream_model.tsv"
+    vep_scores = input_dir/ "annotations/onek1k1_all_variants_annotated_vep.txt"
 
     # read objects
     scdata = sc.read_h5ad(scdata_path)
@@ -74,17 +99,25 @@ if __name__ == '__main___':
     # perform normalization and log transformation
     scdata = preprocess_scdata(scdata)
 
+    
+    # ANNOTATIONS
+    # add vep annotation to gdata 
+    cl.tl.add_vep_annos_to_gdata(vep_scores, gdata,
+                             cols_to_explode=["Consequence"],
+                             cols_to_dummy=["Consequence"])
+
+    # add maf annotaion to gdata
+    gdata = add_maf_annotation(gdata)
+
+    # add DNA_LM annotations (downstream and upstream models) to gdata 
+
+    gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
+    gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.c, colname='DNA_LM_down')
+    
     # create data object
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
-    DNA_LM_up = pd.read_csv(DNA_LM_up,
-                sep = '\t')
-    DNA_LM_down = pd.read_csv(DNA_LM_down,
-                sep = '\t')
-    DNA_LM_up = add_snp_id(DNA_LM_up)
-    DNA_LM_down = add_snp_id(DNA_LM_down)
-    DNA_LM_up_chr = reverse_and_update_snp_ids(data.gdata.varm["annotations_0"], DNA_LM_up[DNA_LM_up["Chromosome"]==f"chr{args.c}"])
-    DNA_LM_down_chr = reverse_and_update_snp_ids(data.gdata.varm["annotations_0"], DNA_LM_down[DNA_LM_down["Chromosome"]==f"chr{args.c}"])
+
 
     # run burden testing for specified chromosome
     results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_influence_score", "MAF_beta_1.25"], window_size=100000)

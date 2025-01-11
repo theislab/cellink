@@ -41,12 +41,12 @@ def _get_gene_location(ensembl_id):
     else:
         return f"Error: {response.status_code}, {response.text}"
 
-def _find_snps_near_gene(gdata_df, gene_location, bp_range=10000):
+def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
     """
     Finds SNPs within a specified range of a gene's location.
 
     Parameters:
-        gdata_df (pd.DataFrame): DataFrame with a 'Location' column in the format "chromosome:position".
+        gdata (pd.DataFrame): DataFrame with a 'Location' column in the format "chromosome:position".
         gene_location (str): Gene location in the format "chromosome:start-end".
         bp_range (int): Range in base pairs to search upstream and downstream.
 
@@ -59,10 +59,10 @@ def _find_snps_near_gene(gdata_df, gene_location, bp_range=10000):
     gene_start, gene_end = map(int, gene_range.split("-"))
 
     # Extract chromosome and position from the SNPs
+    gdata_df = gdata.copy()
+    
     gdata_df = gdata_df.copy()
-
-    gdata_df['Location'] = gdata_df.index.tolist()
-    gdata_df[['Chromosome', 'Position', 'ref', 'alt']] = gdata_df['Location'].str.split('_', expand=True)
+    gdata_df[['Chromosome', 'Position']] = gdata_df['Location'].str.split(':', expand=True)
     gdata_df['Position'] = gdata_df['Position'].astype(int)
 
     # Filter for SNPs within the range
