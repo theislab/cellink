@@ -85,10 +85,10 @@ if __name__ == '__main___':
     # READ FILES
     zarr_file = os.path.join(gdata_dir, f"chr{str(args.chromosome)}.dose.filtered.R2_0.8.vcz")
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
-
-    DNA_LM_upstream = input_dir/ "annotations/onek1k_inf_scores_upstream_model.tsv"
-    DNA_LM_downstream = input_dir/ "annotations/onek1k_inf_scores_downstream_model.tsv"
-    vep_scores = input_dir/ "annotations/onek1k1_all_variants_annotated_vep.txt"
+    input_dir
+    DNA_LM_upstream = base_data_dir/ "input_data/annotations/incomptlete_onek1k_inf_scores_upstream_model.tsv"
+    DNA_LM_downstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_downstream_model.tsv"
+    vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
 
     scdata = sc.read_h5ad(scdata_path)
     gdata = cl.io.read_sgkit_zarr(zarr_file)
