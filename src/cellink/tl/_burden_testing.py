@@ -34,9 +34,11 @@ def _get_gene_location(ensembl_id):
     if response.ok:
         data = response.json()
         #print(data)
-        if data.get('strand') == 1: # forward
+        if data.get('strand') == 1: 
+            # forward: this means start ----> end (start < end)
             return f"{data.get('seq_region_name')}:{data.get('start')}-{data.get('end')}"
-        else: # reverse
+        else:
+            # reverse: this means end <---- start (start > end, on the scale of the forward strand)
             return f"{data.get('seq_region_name')}:{data.get('end')}-{data.get('start')}"
     else:
         return f"Error: {response.status_code}, {response.text}"
@@ -66,20 +68,46 @@ def _find_snps_near_gene(gdata, gene_location, bp_range=10000):
     gdata_df['Position'] = gdata_df['Position'].astype(int)
 
     # Filter for SNPs within the range
-    snps_in_range = gdata_df[
-        (gdata_df['Chromosome'] == gene_chrom) &
-        (gdata_df['Position'] >= gene_start - bp_range) &
-        (gdata_df['Position'] <= gene_end + bp_range)
-    ]
-
-    return snps_in_range.index
+    # snps_in_range = gdata_df[
+    #     (gdata_df['Chromosome'] == gene_chrom) &
+    #     (gdata_df['Position'] >= gene_start - bp_range) &
+    #     (gdata_df['Position'] <= gene_end + bp_range)
+    # ]
+    
+    if gene_start < gene_end:
+        # forward strand
+        snps_upstream = gdata_df[
+            (gdata_df['Chromosome'] == gene_chrom) &
+            (gdata_df['Position'] >= gene_start - bp_range)
+        ]
+        snps_downstream = gdata_df[
+            (gdata_df['Chromosome'] == gene_chrom) &
+            (gdata_df['Position'] <= gene_start + bp_range)
+        ]
+        
+    else:
+        # reverse strand
+        snps_upstream = gdata_df[
+            (gdata_df['Chromosome'] == gene_chrom) &
+            (gdata_df['Position'] >= gene_start + bp_range)
+        ]
+        snps_downstream = gdata_df[
+            (gdata_df['Chromosome'] == gene_chrom) &
+            (gdata_df['Position'] <= gene_start - bp_range)
+        ]
+    
+    return snps_upstream.index, snps_downstream.index
+    #return snps_in_range.index
 
 
 def _compute_burdens_for_gene(this_gd, 
                               this_gene, 
                               weight_cols,
                               annotation_varm = "annotations_0",
-                              window_size=100000):
+                              window_size=100000,
+                              DNA_LM_up = "",
+                              DNA_LM_down = "",
+                              DNA_LM_mixed = "DNA_LM_mixed"):
     """
     Compute burdenscores for a given gene and given annotations
 
@@ -89,6 +117,11 @@ def _compute_burdens_for_gene(this_gd,
         weight_cols (list): colnames of variant annotations to compute burden scores for.
         annotation_varm (str): key for pd.DataFrame (gdata.varm[key])
         window_size (int)
+        DNA_LM_up (str): colname for DNA_LM upstream model
+                    if empty, mixed model is not computed
+        DNA_LM_down (str): colname for DNA_LM downstream model
+                    if empty, mixed model is not computed
+        DNA_LM_mixed (str): name of mixed model column
 
     Returns:
         pd.DataFrame containing burden scores for this_gene across the weight_cols
@@ -109,10 +142,23 @@ def _compute_burdens_for_gene(this_gd,
         return empty_burdens
         
     # Filter the variants using the SNP location and gene location
-    this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
+    #this_vars = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
+    this_vars_up, this_vars_down  = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_location, bp_range=window_size)
     
-    gd_gene = this_gd[:, this_vars]
- 
+    gd_gene = this_gd[:, this_vars_up.append(this_vars_down).unique()].copy()
+
+    # if mixed model is computed, add column for DNA_LM mixed model
+    if DNA_LM_up!="":
+        # Add the "DNA_LM_mixed" column to the annotations_0 DataFrame
+        gd_gene.varm["annotations_0"][DNA_LM_mixed] = np.nan  # Initialize the column with NaN
+        
+        # Assign values to the "DNA_LM_mixed" column based on the conditions
+        gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_up]
+        gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_down]
+
+        # add mixed model to the weight cols for which burden score is computed
+        weight_cols.append(DNA_LM_mixed)
+        
     all_burdens_this_gene = []
     for weight_col in weight_cols: 
         this_burden = _get_burden(gd_gene, weight_col)
@@ -124,7 +170,7 @@ def _compute_burdens_for_gene(this_gd,
     
     return all_burdens_this_gene
 
-def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], window_size=100000):
+def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], annotations_varm="annotations_0", window_size=100000, DNA_LM_up="", DNA_LM_down="", DNA_LM_mixed = "DNA_LM_mixed"):
     """Compute gene burdens for each gene and sample using different variant annotations
 
     Parameters
@@ -135,18 +181,31 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], 
         maximum variant minor allele frequency, by default 0.05
     weight_cols : list, optional
         variant annotations used for weighting (columns of gdata.varm.annotations_0), by default ["DISTANCE", "CADD_PHRED"]
+    annotations_varm: str, optional
+        key for gdata.varm dataframe (eg: gdata.varm["annotations_0"])
+    window_size: int, optional
+        range around gene TSS, in which variants are regarded for gene burden scores
+    DNA_LM_up: str, optional, if DNA_LM mixed model should be computed
+        colname of DNA_LM score upstream model
+    DNA_LM_down: str, optional, if DNA_LM mixed model should be computed
+        colname of DNA_LM score downstream model
+    DNA_LM_mixed: str, optional
+        colname of DNA_LM score mixed model
 
     Returns
     -------
     pandas.DataFrame
         gene burdens for all genes, individuals and all annotations in weightcols
     """    
+    if (DNA_LM_up!="" and DNA_LM_down=="") or (DNA_LM_up=="" and DNA_LM_down!=""):
+        raise ValueError("If you want to compute the burden scores using the DNA_LM mixed model, you must set both DNA_LM_up and DNA_LM_down, else leave both empty.")
+        
     this_gd = ddata.gdata.copy()
     this_gd = this_gd[:, this_gd.var["maf"] < max_af]
     all_burdens = []
 
     for gene in tqdm(ddata.adata.var.index):
-        this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols, window_size=window_size)
+        this_b = _compute_burdens_for_gene(this_gd, gene, weight_cols,annotations_varm, window_size, DNA_LM_up, DNA_LM_down, DNA_LM_mixed)
         all_burdens.append(this_b)
     all_burdens = pd.concat(all_burdens)
 

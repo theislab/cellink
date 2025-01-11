@@ -116,6 +116,7 @@ if __name__ == '__main___':
     # TODO: ADD COMBINED DNA_LM MODEL
     results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
     
+    
     # WRITE RESULTS
     res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_and_MAF_100k.pkl"
     with open(res_path, "wb") as file:
