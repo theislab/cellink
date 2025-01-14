@@ -106,19 +106,19 @@ if __name__ == '__main___':
     gdata = add_maf_annotation(gdata)
 
     # add DNA_LM annotations (downstream and upstream models) to gdata 
-    gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
+    #gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
     gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.c, colname='DNA_LM_down')
     
     # CREATE DATA OBJ
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
     # RUN BURDEN TESTING
-    # TODO: ADD COMBINED DNA_LM MODEL
-    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
+    # TODO: ADD COMBINED DNA_LM MODEL and UP
+    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
     
     
     # WRITE RESULTS
-    res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_and_MAF_100k.pkl"
+    res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_down_and_MAF_100k.pkl"
     with open(res_path, "wb") as file:
         all_res = pickle.dump(results, file)
 

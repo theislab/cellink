@@ -10,7 +10,7 @@ rule burden_testing:
     input:
         lambda wildcards:  f"{wildcards.chrom}"
     output:
-        lambda wildcards: f"{OUTPUT_DIR}/chr{wildcards.chrom}_all_results_DNA_LM_and_MAF_100k.pkl"
+        lambda wildcards: f"{OUTPUT_DIR}/chr{wildcards.chrom}_all_results_DNA_LM_down_and_MAF_100k.pkl"
     shell:
         "python run_burden_testing.py {input}"
         #"echo '{input}' > out_{input}.txt"
@@ -18,4 +18,4 @@ rule burden_testing:
 # Rule to process all .vcz files
 rule all:
     input:
-        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_and_MAF_100k.pkl", chrom=CHROMOSOMES)
+        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k.pkl", chrom=CHROMOSOMES)

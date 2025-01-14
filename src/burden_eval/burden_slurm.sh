@@ -19,4 +19,4 @@ conda activate mm_scgenetics
 
 # run burden testing
 echo "Running my SLURM job..."
-python /data/nasif12/home_if12/l_mai/sc-genetics/docs/slurm/run_burden_test.py
+snakemake 
