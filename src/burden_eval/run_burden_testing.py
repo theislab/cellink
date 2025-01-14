@@ -6,9 +6,7 @@ import scanpy as sc
 import cellink as cl
 from cellink.tl._burden_testing import *
 from scipy.stats import beta
-import sys
-
-
+#import sys
 
 def preprocess_scdata(scdata):
     scdata = scdata.copy() # don't mess with view changes just in case
@@ -69,9 +67,10 @@ def add_DNA_LM(gdata, file, chromosome, colname):
     gdata.varm["annotations_0"].rename(columns={"influence_score": colname}, inplace=True)
     return gdata
 
+#print("hi außerhalb")
 
-if __name__ == '__main___':
-    print("hi")
+if __name__ == "__main__":
+    #print("hi")
 
     parser = argparse.ArgumentParser(
                     prog='burdenTesting',
@@ -81,8 +80,8 @@ if __name__ == '__main___':
     parser.add_argument('-o', '--output_path', help='Enter path to target chromosome output file')
     args = parser.parse_args()
 
-    print(f"-c:{args.c}, -i: {args.i}, -o: {args.o}")
-    sys.exit()
+    #print(f"-c:{args.c}, -i: {args.i}, -o: {args.o}")
+    #sys.exit()
 
     # SET PATHS
     base_data_dir = Path("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/")
@@ -103,7 +102,6 @@ if __name__ == '__main___':
     # PERFORM NORMALIZATION AND LOG TRANSFORMATION
     scdata = preprocess_scdata(scdata)
 
-    
     # ANNOTATIONS
     # add vep annotation to gdata 
     cl.tl.add_vep_annos_to_gdata(vep_scores, gdata,
@@ -122,6 +120,7 @@ if __name__ == '__main___':
 
     # RUN BURDEN TESTING
     # TODO: ADD COMBINED DNA_LM MODEL
+    print(f"start burden computing for chr{args.c}...")
     results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
     
     
