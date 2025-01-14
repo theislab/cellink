@@ -6,6 +6,7 @@ import scanpy as sc
 import cellink as cl
 from cellink.tl._burden_testing import *
 from scipy.stats import beta
+import sys
 
 
 
@@ -70,12 +71,18 @@ def add_DNA_LM(gdata, file, chromosome, colname):
 
 
 if __name__ == '__main___':
+    print("hi")
 
     parser = argparse.ArgumentParser(
                     prog='burdenTesting',
                     description='Run burden testing for provided chromosome')
     parser.add_argument('-c', '--chromosome', help='Enter target chromosome')
+    parser.add_argument('-i', '--input_path', help='Enter path to target chromosome input file')
+    parser.add_argument('-o', '--output_path', help='Enter path to target chromosome output file')
     args = parser.parse_args()
+
+    print(f"-c:{args.c}, -i: {args.i}, -o: {args.o}")
+    sys.exit()
 
     # SET PATHS
     base_data_dir = Path("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/")
@@ -83,7 +90,8 @@ if __name__ == '__main___':
     gdata_dir = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/"
 
     # READ FILES
-    zarr_file = os.path.join(gdata_dir, f"chr{str(args.chromosome)}.dose.filtered.R2_0.8.vcz")
+    zarr_file = args.input_path
+    #zarr_file = os.path.join(gdata_dir, f"chr{str(args.chromosome)}.dose.filtered.R2_0.8.vcz")
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
     DNA_LM_upstream = base_data_dir/ "input_data/annotations/incomptlete_onek1k_inf_scores_upstream_model.tsv"
     DNA_LM_downstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_downstream_model.tsv"
@@ -106,19 +114,20 @@ if __name__ == '__main___':
     gdata = add_maf_annotation(gdata)
 
     # add DNA_LM annotations (downstream and upstream models) to gdata 
-    #gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
+    gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
     gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.c, colname='DNA_LM_down')
     
     # CREATE DATA OBJ
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
     # RUN BURDEN TESTING
-    # TODO: ADD COMBINED DNA_LM MODEL and UP
-    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
+    # TODO: ADD COMBINED DNA_LM MODEL
+    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
     
     
     # WRITE RESULTS
-    res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_down_and_MAF_100k.pkl"
+    #res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_and_MAF_100k.pkl"
+    res_path = args.output_path
     with open(res_path, "wb") as file:
         all_res = pickle.dump(results, file)
 

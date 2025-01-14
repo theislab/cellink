@@ -2,20 +2,24 @@ import os
 
 # Configurations
 CHROMOSOMES = list(range(1, 23))  # Chromosomes 1 to 22
-INPUT_DIR = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/"
-OUTPUT_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/"
+INPUT_DIR = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08"
+OUTPUT_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output"
+
+rule all:
+    input:
+        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_and_MAF_100k.pkl", chrom=CHROMOSOMES)
 
 # Rule to process each .vcz file
 rule burden_testing:
+    threads: 8
     input:
-        lambda wildcards:  f"{wildcards.chrom}"
+        vcz=lambda wildcards:(f"{INPUT_DIR}/chr{wildcards.chrom}.dose.filtered.R2_0.8.vcz")
     output:
-        lambda wildcards: f"{OUTPUT_DIR}/chr{wildcards.chrom}_all_results_DNA_LM_down_and_MAF_100k.pkl"
+        pkl=f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k.pkl",
+    log:
+        out="burden_testing_logs/{chrom}_stdout.log",
+        err="burden_testing_logs/{chrom}_stderr.err"
     shell:
-        "python run_burden_testing.py {input}"
-        #"echo '{input}' > out_{input}.txt"
-
-# Rule to process all .vcz files
-rule all:
-    input:
-        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k.pkl", chrom=CHROMOSOMES)
+        """
+        python run_burden_testing.py -c {wildcards.chrom} -p {input.vcz} -o {output.pkl}
+        """
