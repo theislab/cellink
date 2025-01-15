@@ -1,4 +1,3 @@
-import datetime as dt
 import logging
 import os
 import subprocess
@@ -7,15 +6,12 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import polars as pl
 import yaml
 
+from cellink._core.annotation import AAnn, VAnn
 from cellink.tl.utils import (
     _get_vep_start_row,
 )
-
-from cellink._core.annotation import VAnn, AAnn
-
 
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
@@ -34,7 +30,6 @@ def setup_snpeff():
     of SnpEff from SourceForge, and extracts the contents. It ensures that the
     required tool is available for genome annotation tasks.
     """
-
     os.makedirs("deps", exist_ok=True)
     subprocess.run(
         [
@@ -50,9 +45,7 @@ def setup_snpeff():
     os.chdir("../")
 
 
-def run_annotation_with_snpeff(
-    vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"
-):
+def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
     """
     Runs genome annotation using the SnpEff tool.
 
@@ -65,7 +58,6 @@ def run_annotation_with_snpeff(
         genome (str): Genome version to be used for annotation (default: "GRCh37.75").
                       Ensure this genome is supported by SnpEff.
     """
-
     snpeff_path = "./deps/snpEff/snpEff.jar"
 
     subprocess.run(
@@ -204,16 +196,12 @@ def run_vep(
 
     logger.info(f"running VEP command {cmd}")
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, shell=True
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
         logger.info("VEP ran successfully!")
         logger.info("Output:\n", result.stdout)  # Standard output of the command
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running VEP: {e}")
-        logger.error(
-            f"Error output:\n{e.stderr}"
-        )  # Standard error message if command fails
+        logger.error(f"Error output:\n{e.stderr}")  # Standard error message if command fails
 
     if return_annos:
         annos = pd.read_csv(output, sep="\t", skiprows=_get_vep_start_row(output))
@@ -268,9 +256,7 @@ def _prep_vep_annos(
 
     # Read VEP annotation file
     logger.info(f"Reading annotation file {vep_anno_file}")
-    annos = pd.read_csv(
-        vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file)
-    )
+    annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))
 
     logger.info("Annotation file loaded")
 
@@ -297,9 +283,7 @@ def _prep_vep_annos(
     # Verify that unique identifier cols are chosen correctly
     assert len(annos[unique_identifier_cols].drop_duplicates()) == len(annos)
     # Determine columns to keep
-    columns_to_keep = set(unique_identifier_cols).union(set(annos.columns)) - set(
-        cols_to_drop
-    )
+    columns_to_keep = set(unique_identifier_cols).union(set(annos.columns)) - set(cols_to_drop)
     anno_cols = set(columns_to_keep) - set(unique_identifier_cols)
 
     # Define column order
@@ -353,9 +337,7 @@ def add_vep_annos_to_gdata(
     """
     logger.info("Preparing VEP annotations for addition to gdata")
     # Process the VEP annotations
-    vep_data = _prep_vep_annos(
-        vep_anno_file, gdata, id_col_vep, cols_to_drop, dummy_consequence
-    )
+    vep_data = _prep_vep_annos(vep_anno_file, gdata, id_col_vep, cols_to_drop, dummy_consequence)
     # Subset annotations to match the variants in gdata
     vep_data = pd.DataFrame(index=gdata.var.index).join(vep_data, how="left")
     missing_vars = nan_rows = vep_data[vep_data.isna().all(axis=1)]
@@ -420,9 +402,7 @@ def combine_annotations(
     >>> print(gdata["variant_annotation"])
     # Outputs the combined annotations stored in gdata under the `variant_annotation` key.
     """
-    logger.warning(
-        "Function still under development until it can be tested with other annotations"
-    )
+    logger.warning("Function still under development until it can be tested with other annotations")
 
     allowed_keys = [AAnn.vep]  # update once snpeff and favor are implemented as well
     assert set(keys).issubset(allowed_keys)
@@ -434,9 +414,7 @@ def combine_annotations(
         columns = this_annotations.columns
 
         # check that identifer columns are present
-        assert set(unique_identifier_cols).issubset(
-            columns
-        ), f"Missing unique identifiers in {key} annotations."
+        assert set(unique_identifier_cols).issubset(columns), f"Missing unique identifiers in {key} annotations."
 
         annotation_cols = set(columns) - set(unique_identifier_cols)
         combined_annotation_cols = combined_annotation_cols + list(annotation_cols)
@@ -446,17 +424,11 @@ def combine_annotations(
             combined_annotations = this_annotations
             unique_contexts = this_annotations[unique_identifier_cols]
         else:
-            combined_annotations = combined_annotations.merge(
-                this_annotations, on=unique_identifier_cols, how="outer"
-            )
-            unique_contexts = pd.concat(
-                [unique_contexts, this_annotations[unique_identifier_cols]]
-            )
+            combined_annotations = combined_annotations.merge(this_annotations, on=unique_identifier_cols, how="outer")
+            unique_contexts = pd.concat([unique_contexts, this_annotations[unique_identifier_cols]])
         i += 1
     # check that no annotation columns are duplicated in the data frames
-    assert len(set(combined_annotation_cols)) == len(
-        combined_annotation_cols
-    ), "Duplicate annotation columns detected."
+    assert len(set(combined_annotation_cols)) == len(combined_annotation_cols), "Duplicate annotation columns detected."
 
     # check that number of unique variant-context in combined object is correct
     assert len(combined_annotations) == len(
@@ -469,9 +441,7 @@ def combine_annotations(
 def custom_agg(x, agg_type):
     if agg_type == "unique_list_max":
         if x.dtype == "object":  # Check if column is of string type
-            return ",".join(
-                [str(i) for i in x.unique()]
-            )  # Unique values as comma-separated string
+            return ",".join([str(i) for i in x.unique()])  # Unique values as comma-separated string
         elif pd.api.types.is_numeric_dtype(x):  # Check if column is numeric
             return x.max()  # Aggregate using max value
         else:
@@ -519,7 +489,7 @@ def aggregate_annotations_for_varm(
         aggregated annotations to gdata.varm["variant_annotation"].
 
     Examples
-    -------
+    --------
     >>> aggregate_annotations(gdata, "variant_annotation_vep",
                             agg_type = "unique_list_max",
                             debug = True)
@@ -531,30 +501,19 @@ def aggregate_annotations_for_varm(
     # Validate aggregation type
     allowed_agg_types = ["first", "unique_list_max", "list", "str"]
     if agg_type not in allowed_agg_types:
-        raise ValueError(
-            f"Invalid agg_type '{agg_type}'. Allowed types are: {allowed_agg_types}"
-        )
+        raise ValueError(f"Invalid agg_type '{agg_type}'. Allowed types are: {allowed_agg_types}")
 
     logger.info(f"Aggregating using method: {agg_type}")
 
     # Handle "first" agg_type
     if agg_type == "first":
-        aggregated_df = anno_df.reset_index().drop_duplicates(subset=AAnn.index, keep="first")\
-            .set_index(AAnn.index)
+        aggregated_df = anno_df.reset_index().drop_duplicates(subset=AAnn.index, keep="first").set_index(AAnn.index)
 
     else:
         # Identify columns to aggregate
         col_order = anno_df.columns
-        cols_with_multiple_values = (
-            anno_df.reset_index()
-            .groupby(AAnn.index)
-            .nunique()
-            .max()
-            .loc[lambda x: x > 1]
-            .index
-        )
+        cols_with_multiple_values = anno_df.reset_index().groupby(AAnn.index).nunique().max().loc[lambda x: x > 1].index
         logger.info(f"Columns to aggregate: {list(cols_with_multiple_values)}")
-
 
         # Aggregate columns with differing values
         aggregated_df = (
@@ -570,16 +529,12 @@ def aggregate_annotations_for_varm(
 
         # Validate and merge results
         if len(unique_cols_df) != len(aggregated_df):
-            raise ValueError(
-                "Mismatch in row counts after aggregation. Check your input data."
-            )
+            raise ValueError("Mismatch in row counts after aggregation. Check your input data.")
 
-        aggregated_df = aggregated_df.join(
-            unique_cols_df, how="left", validate="1:1"
-        ).reindex(columns=col_order)
+        aggregated_df = aggregated_df.join(unique_cols_df, how="left", validate="1:1").reindex(columns=col_order)
 
-    aggregated_df = aggregated_df.loc[gdata.var.index] 
+    aggregated_df = aggregated_df.loc[gdata.var.index]
     gdata.varm[AAnn.name_prefix] = aggregated_df
-    
+
     if return_data:
         return aggregated_df

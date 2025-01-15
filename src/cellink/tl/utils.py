@@ -1,8 +1,6 @@
 import logging
 import sys
 
-import pandas as pd
-
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
     level=logging.INFO,
@@ -17,4 +15,3 @@ def _get_vep_start_row(filename):
         for line_number, line in enumerate(file, start=0):
             if line.startswith("#") and not line.startswith("##"):
                 return line_number
-
