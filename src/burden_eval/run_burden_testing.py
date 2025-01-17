@@ -101,6 +101,9 @@ if __name__ == "__main__":
     gdata = cl.io.read_sgkit_zarr(zarr_file)
 
     # PERFORM NORMALIZATION AND LOG TRANSFORMATION
+    # TODO Subset scdata for single chromosome
+    # ----------
+    #scdata.var["chrom"] = args.chromosome #current fix before chromosome is added to object
     scdata = preprocess_scdata(scdata)
 
     # ANNOTATIONS
