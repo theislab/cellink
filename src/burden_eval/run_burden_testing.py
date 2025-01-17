@@ -6,7 +6,8 @@ import scanpy as sc
 import cellink as cl
 from cellink.tl._burden_testing import *
 from scipy.stats import beta
-#import sys
+import sys
+import pickle
 
 def preprocess_scdata(scdata):
     scdata = scdata.copy() # don't mess with view changes just in case
@@ -80,7 +81,7 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output_path', help='Enter path to target chromosome output file')
     args = parser.parse_args()
 
-    #print(f"-c:{args.c}, -i: {args.i}, -o: {args.o}")
+    #print(f"-c:{args.chromosome}, -i: {args.input_path}, -o: {args.output_path}")
     #sys.exit()
 
     # SET PATHS
@@ -112,15 +113,15 @@ if __name__ == "__main__":
     gdata = add_maf_annotation(gdata)
 
     # add DNA_LM annotations (downstream and upstream models) to gdata 
-    gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.c, colname='DNA_LM_up')
-    gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.c, colname='DNA_LM_down')
+    gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.chromosome, colname='DNA_LM_up')
+    gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.chromosome, colname='DNA_LM_down')
     
     # CREATE DATA OBJ
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
     # RUN BURDEN TESTING
     # TODO: ADD COMBINED DNA_LM MODEL
-    print(f"start burden computing for chr{args.c}...")
+    print(f"start burden computing for chr{args.chromosome}...")
     results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
     
     
