@@ -219,7 +219,7 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], 
             lambda x: pd.Series(_get_gene_location(x))
         )
 
-    for gene in tqdm(this_ad.var.index):
+    for gene in tqdm(this_ad.var.index[0:10]):
         gene_chrom = this_ad.var["chromosome"]
         gene_start = this_ad.var["start"]
         gene_end = this_ad.var["end"]

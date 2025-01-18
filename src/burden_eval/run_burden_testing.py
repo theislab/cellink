@@ -68,7 +68,7 @@ def add_DNA_LM(gdata, file, chromosome, colname):
     gdata.varm["annotations_0"].rename(columns={"influence_score": colname}, inplace=True)
     return gdata
 
-#print("hi außerhalb")
+
 
 if __name__ == "__main__":
     #print("hi")
@@ -86,50 +86,55 @@ if __name__ == "__main__":
 
     # SET PATHS
     base_data_dir = Path("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/")
-    scdata_path = base_data_dir / "input_data/OneK1K_cohort_gene_expression_matrix_14_celltypes.h5ad.gz"
+    scdata_path = base_data_dir / "input_data/OneK1K_cohort_gene_expression_matrix_14_celltypes_w_gene_locations.h5ad.gz"
     gdata_dir = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/"
 
     # READ FILES
     zarr_file = args.input_path
     #zarr_file = os.path.join(gdata_dir, f"chr{str(args.chromosome)}.dose.filtered.R2_0.8.vcz")
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
-    DNA_LM_upstream = base_data_dir/ "input_data/annotations/incomptlete_onek1k_inf_scores_upstream_model.tsv"
+    DNA_LM_upstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_upstream_model.tsv"
     DNA_LM_downstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_downstream_model.tsv"
     vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
 
+    print(f"reading scdata")
     scdata = sc.read_h5ad(scdata_path)
+    print(f"reading gdata")
     gdata = cl.io.read_sgkit_zarr(zarr_file)
 
+    print(f"preparing scdata")
     # PERFORM NORMALIZATION AND LOG TRANSFORMATION
-    # TODO Subset scdata for single chromosome
+    scdata = scdata[:,scdata.var["chromosome"] == str(args.chromosome)]
     # ----------
     #scdata.var["chrom"] = args.chromosome #current fix before chromosome is added to object
     scdata = preprocess_scdata(scdata)
 
     # ANNOTATIONS
+    print(f"add vep annotation to gdata ")
     # add vep annotation to gdata 
     cl.tl.add_vep_annos_to_gdata(vep_scores, gdata,
                              cols_to_explode=["Consequence"],
                              cols_to_dummy=["Consequence"])
 
     # add maf annotaion to gdata
+    print(f"add maf annotation to gdata ")
     gdata = add_maf_annotation(gdata)
 
     # add DNA_LM annotations (downstream and upstream models) to gdata 
+    print(f"add DNA_LM annotation to gdata ")
     gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.chromosome, colname='DNA_LM_up')
     gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.chromosome, colname='DNA_LM_down')
     
     # CREATE DATA OBJ
+    print(f"CREATE DATA OBJ")
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
     # RUN BURDEN TESTING
-    # TODO: ADD COMBINED DNA_LM MODEL
     print(f"start burden computing for chr{args.chromosome}...")
-    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000)
-    
+    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
+    print(f"done with burden computing for chr{args.chromosome}...")
     
     # WRITE RESULTS
-    #res_path = output_dir/f"chr{args.chromosome}_all_results_DNA_LM_and_MAF_100k.pkl"
     res_path = args.output_path
     with open(res_path, "wb") as file:
         all_res = pickle.dump(results, file)

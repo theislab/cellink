@@ -8,7 +8,7 @@ OUTPUT_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/ou
 
 rule all:
     input:
-        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k.pkl", chrom=CHROMOSOMES)
+        expand(f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k_test_10_genes.pkl", chrom=CHROMOSOMES)
 
 # Rule to process each .vcz file
 rule burden_testing:
@@ -16,7 +16,7 @@ rule burden_testing:
     input:
         vcz=lambda wildcards:(f"{INPUT_DIR}/chr{wildcards.chrom}.dose.filtered.R2_0.8.vcz")
     output:
-        pkl=f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k.pkl",
+        pkl=f"{OUTPUT_DIR}/chr{{chrom}}_all_results_DNA_LM_down_and_MAF_100k_test_10_genes.pkl",
     log:
         out="burden_testing_logs/{chrom}_stdout.log",
         err="burden_testing_logs/{chrom}_stderr.err"
