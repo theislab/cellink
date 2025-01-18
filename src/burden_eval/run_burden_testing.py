@@ -95,7 +95,11 @@ if __name__ == "__main__":
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
     DNA_LM_upstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_upstream_model.tsv"
     DNA_LM_downstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_downstream_model.tsv"
-    vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
+    # ---------------------------
+    # TODO REMOVE TEST WITH CHR22
+    # ---------------------------
+    #vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
+    vep_scores = base_data_dir/ "input_data/annotations/onek1k1_chr22_variants_annotated_vep.txt"
 
     print(f"reading scdata")
     scdata = sc.read_h5ad(scdata_path)
@@ -131,7 +135,8 @@ if __name__ == "__main__":
 
     # RUN BURDEN TESTING
     print(f"start burden computing for chr{args.chromosome}...")
-    results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
+    #results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
+    results = compute_burdens(data, max_af=0.05, weight_cols=["CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
     print(f"done with burden computing for chr{args.chromosome}...")
     
     # WRITE RESULTS

@@ -70,6 +70,7 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
     #import ipdb; ipdb.set_trace()
     
     # Extract chromosome and position from the SNPs
+    gene_chrom = str(gene_chrom)
     gdata_df = gdata.copy()
     gdata_df[['Chromosome', 'Position']] = gdata_df['Location'].str.split(':', expand=True)
     gdata_df['Position'] = gdata_df['Position'].astype(int)
@@ -163,9 +164,6 @@ def _compute_burdens_for_gene(this_gd,
         # Assign values to the "DNA_LM_mixed" column based on the conditions
         gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_up]
         gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_down]
-
-        # add mixed model to the weight cols for which burden score is computed
-        weight_cols.append(DNA_LM_mixed)
         
     all_burdens_this_gene = []
     for weight_col in weight_cols: 
@@ -219,13 +217,27 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], 
             lambda x: pd.Series(_get_gene_location(x))
         )
 
+    # add mixed model to the weight cols for which burden score is computed
+    if DNA_LM_up!="" and DNA_LM_down!="" and DNA_LM_mixed not in weight_cols:
+        weight_cols.append(DNA_LM_mixed)
+        if DNA_LM_up not in weight_cols:
+            weight_cols.append(DNA_LM_up)
+        if DNA_LM_down not in weight_cols:
+            weight_cols.append(DNA_LM_down)
+            
+    
     for gene in tqdm(this_ad.var.index[0:10]):
-        gene_chrom = this_ad.var["chromosome"]
-        gene_start = this_ad.var["start"]
-        gene_end = this_ad.var["end"]
+        gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
+        gene_start = int(this_ad.var.loc[gene,"start"])
+        gene_end = int(this_ad.var.loc[gene,"end"])
 
         this_b = _compute_burdens_for_gene(this_gd, gene, gene_chrom, gene_start, gene_end, weight_cols,annotations_varm, window_size, DNA_LM_up, DNA_LM_down, DNA_LM_mixed)
         all_burdens.append(this_b)
+        
+    import pickle
+    with open('/data/nasif12/home_if12/l_back/sysGen/sc-genetics/docs/notebooks/all_burdens.pkl', "wb") as file:
+        all_res = pickle.dump(all_burdens, file)
+
     all_burdens = pd.concat(all_burdens)
 
     return all_burdens
