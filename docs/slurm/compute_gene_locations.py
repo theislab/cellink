@@ -42,10 +42,12 @@ scdata = sc.read_h5ad(scdata_path)
 scdata.var[['chromosome', 'start', 'end']] = scdata.var.index.to_series().apply(
     lambda x: pd.Series(get_gene_location(x))
 )
-res_path =  base_data_dir / "input_data/OneK1K_cohort_gene_expression_matrix_14_celltypes_w_gene_loc.h5ad.gz"
+res_path =  base_data_dir / "input_data/OneK1K_cohort_gene_expression_matrix_14_celltypes_w_gene_locations.h5ad.gz"
 
-with open(res_path, "wb") as file:
-        all_res = pickle.dump(scdata, file)
+scdata.write_h5ad(res_path)
+
+# with open(res_path, "wb") as file:
+#         all_res = pickle.dump(scdata, file)
 
 
 
