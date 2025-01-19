@@ -1,39 +1,37 @@
 import argparse
 from pathlib import Path
-import os
 import pandas as pd
 import scanpy as sc
 import cellink as cl
-from cellink.tl._burden_testing import *
 from scipy.stats import beta
-import sys
 import pickle
 
+
 def preprocess_scdata(scdata):
-    scdata = scdata.copy() # don't mess with view changes just in case
+    scdata = scdata.copy()  # don't mess with view changes just in case
     sc.pp.normalize_total(scdata, target_sum=1e4)  # Normalize total counts per cell
     sc.pp.log1p(scdata)  # Apply log-transform
     return scdata
-    
+
 
 def add_snp_id(DNA_LM):
     DNA_LM['snp_id'] = DNA_LM['Chromosome'] + "_" + DNA_LM['pos'].astype(str) + "_" + DNA_LM['ref'] + "_" + DNA_LM['alt']
     DNA_LM['snp_id'] = DNA_LM['snp_id'].str.replace('chr', '')
-    
+
     # Set 'snap_id' as the index
     DNA_LM.set_index('snp_id', inplace=True)
     return DNA_LM
 
 def reverse_and_update_snp_ids(gdata_df, dna_df):
     updated_index = []
-    
+
     for snp_id in dna_df.index:
         if snp_id in gdata_df.index:
             updated_index.append(snp_id)
         else:
             chrom, pos, ref, alt = snp_id.split("_")
             reversed_snp_id = f"{chrom}_{pos}_{alt}_{ref}"  # Reverse ref and alt
-            
+
             # Check if reversed_snp_id exists in data_df
             if reversed_snp_id in gdata_df.index:
                 #print(f"Reversing {snp_id} to {reversed_snp_id}")
@@ -41,7 +39,7 @@ def reverse_and_update_snp_ids(gdata_df, dna_df):
             else:
                 print(f"Error, unknown snp_id {snp_id}")
                 updated_index.append(snp_id)
-    
+
     # Update DNA_LM's index
     dna_df.index = updated_index
     print("\nUpdated DNA_LM index:")
@@ -54,14 +52,14 @@ def add_maf_annotation(gdata):
     gdata.varm["annotations_0"]["MAF_beta_1.25"] = weighted_snp_maf
     return gdata
 
+
 def add_DNA_LM(gdata, file, chromosome, colname):
 
-    DNA_LM = pd.read_csv(file,
-                sep = '\t')
+    DNA_LM = pd.read_csv(file, sep='\t')
     DNA_LM = add_snp_id(DNA_LM)
     DNA_LM = reverse_and_update_snp_ids(gdata.varm["annotations_0"],
-                                        DNA_LM[DNA_LM["Chromosome"]==f"chr{chromosome}"])
-    
+                                        DNA_LM[DNA_LM["Chromosome"] == f"chr{chromosome}"])
+
     gdata.varm["annotations_0"][colname] = DNA_LM["influence_score"].reindex(gdata.varm["annotations_0"].index)
 
     # Rename the merged column if needed
@@ -69,13 +67,10 @@ def add_DNA_LM(gdata, file, chromosome, colname):
     return gdata
 
 
-
 if __name__ == "__main__":
-    #print("hi")
-
     parser = argparse.ArgumentParser(
-                    prog='burdenTesting',
-                    description='Run burden testing for provided chromosome')
+                    prog='dataAnnotation',
+                    description='Run data annotation for provided chromosome')
     parser.add_argument('-c', '--chromosome', help='Enter target chromosome')
     parser.add_argument('-i', '--input_path', help='Enter path to target chromosome input file')
     parser.add_argument('-o', '--output_path', help='Enter path to target chromosome output file')
@@ -101,48 +96,41 @@ if __name__ == "__main__":
     #vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
     vep_scores = base_data_dir/ "input_data/annotations/onek1k1_chr22_variants_annotated_vep.txt"
 
-    print(f"reading scdata")
+    print("reading scdata")
     scdata = sc.read_h5ad(scdata_path)
-    print(f"reading gdata")
+    print("reading gdata")
     gdata = cl.io.read_sgkit_zarr(zarr_file)
 
-    print(f"preparing scdata")
+    print("preparing scdata")
     # PERFORM NORMALIZATION AND LOG TRANSFORMATION
-    scdata = scdata[:,scdata.var["chromosome"] == str(args.chromosome)]
+    scdata = scdata[:, scdata.var["chromosome"] == str(args.chromosome)]
     # ----------
     #scdata.var["chrom"] = args.chromosome #current fix before chromosome is added to object
     scdata = preprocess_scdata(scdata)
 
     # ANNOTATIONS
-    print(f"add vep annotation to gdata ")
-    # add vep annotation to gdata 
-    cl.tl.add_vep_annos_to_gdata(vep_scores, gdata,
-                             cols_to_explode=["Consequence"],
-                             cols_to_dummy=["Consequence"])
+    print("add vep annotation to gdata ")
+    # add vep annotation to gdata
+    cl.tl.add_vep_annos_to_gdata(vep_scores, gdata, cols_to_explode=["Consequence"], cols_to_dummy=["Consequence"])
 
     # add maf annotaion to gdata
-    print(f"add maf annotation to gdata ")
+    print("add maf annotation to gdata")
     gdata = add_maf_annotation(gdata)
 
-    # add DNA_LM annotations (downstream and upstream models) to gdata 
-    print(f"add DNA_LM annotation to gdata ")
+    # add DNA_LM annotations (downstream and upstream models) to gdata
+    print("add DNA_LM annotation to gdata ")
     gdata = add_DNA_LM(gdata, file=DNA_LM_upstream, chromosome=args.chromosome, colname='DNA_LM_up')
     gdata = add_DNA_LM(gdata, file=DNA_LM_downstream, chromosome=args.chromosome, colname='DNA_LM_down')
-    
+
     # CREATE DATA OBJ
     print(f"CREATE DATA OBJ")
     data = cl.DonorData(adata=scdata, gdata=gdata, donor_key_in_sc_adata="individual")
 
-    # RUN BURDEN TESTING
-    print(f"start burden computing for chr{args.chromosome}...")
-    #results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
-    results = compute_burdens(data, max_af=0.05, weight_cols=["CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
-    print(f"done with burden computing for chr{args.chromosome}...")
-    
     # WRITE RESULTS
+    print(f"SAVE DATA OBJ to {args.output_path}")
     res_path = args.output_path
     with open(res_path, "wb") as file:
-        all_res = pickle.dump(results, file)
+        pickle.dump(data, file)
 
 
 

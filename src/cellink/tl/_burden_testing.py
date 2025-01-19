@@ -24,6 +24,7 @@ def _get_burden(gd_gene, weight_col):
     this_burdens = np.nansum(g_weigthed, axis = 1) #TODO implement alternative weighting functions
     return this_burdens
 
+
 def _postprocess_results(results_df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """"""
     return None
@@ -52,7 +53,59 @@ def _get_gene_location(ensembl_id):
         start = np.nan
         end = np.nan
         return chrom, start, end
-        
+
+
+def _calc_tss_distance_per_gene(variants_df,
+                                gene_start,
+                                gene_end,
+                                col_name_distance,
+                                col_name_saige=""):
+    """
+    Calculate absolute TSS Distance.
+
+    Parameters:
+        variants_df (pd.DataFrame): DataFrame with SNP ID as index and contains variant position in column "Position"
+        gene_start (int): Start of Gene aka TS
+        col_name_distance (str): name of TSS column
+        col_name_saige (str, optional): determines whether saige formula should be calculated as well.
+
+    Returns:
+        distances_df (pd.DataFrame): Dataframe with tss distance per variant
+    """
+    distances = {"snp_id": [], col_name_distance: []}
+    saige_distances = []
+
+    if gene_start > gene_end:
+        gene_start, gene_end = gene_end, gene_start  # Reverse strand handling
+
+    for i, row in variants_df.iterrows():
+        if gene_start <= row["Position"] <= gene_end:
+            distances["snp_id"].append(i)
+            distances[col_name_distance].append(0)  # Variant is within the gene
+
+        # Calculate absolute distances to start and end positions
+        distance_to_start = abs(row["Position"] - gene_start)  # upstream
+        distance_to_end = abs(row["Position"] - gene_end)  # downstream
+
+        # Get the minimum distance = correct distance
+        distance = min(distance_to_start, distance_to_end)
+        distances["snp_id"].append(i)
+        distances[col_name_distance].append(distance)
+
+        # calculate saige if parameter is set
+        if col_name_saige != "":
+            distance_saige = np.exp(-1e-5 * distance)
+            saige_distances.append(distance_saige)
+
+    # add saige to final dataframe if parameter is set
+    if col_name_saige != "":
+        distances[col_name_saige] = saige_distances
+
+    # return dataframe with tss distance and if applied tss distance saige per variant
+    distance_df = pd.DataFrame(distances)
+    distance_df.set_index("snp_id", inplace=True)
+    return distance_df
+
 
 def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000):
     """
@@ -64,11 +117,11 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
         bp_range (int): Range in base pairs to search upstream and downstream.
 
     Returns:
-        pd.Index: Index of SNPs within the specified range.
+        pd.DataFrame: With data of SNPs within the specified range.
     """
     # Parse the gene location
     #import ipdb; ipdb.set_trace()
-    
+
     # Extract chromosome and position from the SNPs
     gene_chrom = str(gene_chrom)
     gdata_df = gdata.copy()
@@ -81,7 +134,7 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
     #     (gdata_df['Position'] >= gene_start - bp_range) &
     #     (gdata_df['Position'] <= gene_end + bp_range)
     # ]
-    
+
     if gene_start < gene_end:
         # forward strand
         snps_upstream = gdata_df[
@@ -92,7 +145,6 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
             (gdata_df['Chromosome'] == gene_chrom) &
             (gdata_df['Position'] <= gene_start + bp_range)
         ]
-        
     else:
         # reverse strand
         snps_upstream = gdata_df[
@@ -103,22 +155,24 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
             (gdata_df['Chromosome'] == gene_chrom) &
             (gdata_df['Position'] <= gene_start - bp_range)
         ]
-    
-    return snps_upstream.index, snps_downstream.index
-    #return snps_in_range.index
+
+    # return snps_in_range.index
+    return snps_upstream, snps_downstream
 
 
-def _compute_burdens_for_gene(this_gd, 
-                              this_gene, 
+def _compute_burdens_for_gene(this_gd,
+                              this_gene,
                               gene_chrom,
                               gene_start,
                               gene_end,
                               weight_cols,
-                              annotation_varm = "annotations_0",
+                              annotation_varm="annotations_0",
                               window_size=100000,
-                              DNA_LM_up = "",
-                              DNA_LM_down = "",
-                              DNA_LM_mixed = "DNA_LM_mixed"):
+                              DNA_LM_up="",
+                              DNA_LM_down="",
+                              DNA_LM_mixed="DNA_LM_mixed",
+                              GENE_TSS_DISTANCE="",
+                              GENE_TSS_DISTANCE_SAIGE=""):
     """
     Compute burdenscores for a given gene and given annotations
 
@@ -134,6 +188,8 @@ def _compute_burdens_for_gene(this_gd,
         DNA_LM_down (str): colname for DNA_LM downstream model
                     if empty, mixed model is not computed
         DNA_LM_mixed (str): name of mixed model column
+        GENE_TSS_DISTANCE (str): name for tss distance column
+        GENE_TSS_DISTANCE_SAIGE (str): name for tss distance saige column
 
     Returns:
         pd.DataFrame containing burden scores for this_gene across the weight_cols
@@ -143,40 +199,76 @@ def _compute_burdens_for_gene(this_gd,
         print(f"Failed to retrieve location for gene {this_gene}. No Burden scores computed.")
         # Create a DataFrame with None for all the weight columns
         empty_burdens = pd.DataFrame(
-            None, 
+            None,
             index=this_gd.obs.index,  # Assuming these are the sample indices
             columns=weight_cols
         )
         # Add the Geneid column
         empty_burdens["Geneid"] = this_gene
         return empty_burdens
-        
+
     # Filter the variants using the SNP location and gene location
-    this_vars_up, this_vars_down  = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_chrom, gene_start, gene_end, bp_range=window_size)
-    
+    this_vars_up_df, this_vars_down_df = _find_snps_near_gene(this_gd.varm[annotation_varm], gene_chrom, gene_start, gene_end, bp_range=window_size)
+
+    # get snps IDs
+    this_vars_down = this_vars_down_df.index
+    this_vars_up = this_vars_up_df.index
+
     gd_gene = this_gd[:, this_vars_up.append(this_vars_down).unique()].copy()
 
     # if mixed model is computed, add column for DNA_LM mixed model
-    if DNA_LM_up!="":
+    if DNA_LM_up != "":
         # Add the "DNA_LM_mixed" column to the annotations_0 DataFrame
         gd_gene.varm["annotations_0"][DNA_LM_mixed] = np.nan  # Initialize the column with NaN
-        
+
         # Assign values to the "DNA_LM_mixed" column based on the conditions
         gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_up, DNA_LM_up]
         gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_mixed] = gd_gene.varm["annotations_0"].loc[this_vars_down, DNA_LM_down]
-        
+
+    if GENE_TSS_DISTANCE_SAIGE != "": # calc GENE_TSS_DISTANCE and GENE_TSS_DISTANCE_SAIGE
+        gd_gene.varm["annotations_0"][GENE_TSS_DISTANCE] = np.nan # Initialize the column with NaN
+        gd_gene.varm["annotations_0"][GENE_TSS_DISTANCE_SAIGE] = np.nan  # Initialize the column with NaN
+
+        # calculate GENE_TSS_DISTANCE and GENE_TSS_DISTANCE_SAIGE independent of up or downstream
+        all_variants = pd.concat([this_vars_up_df, this_vars_down_df], axis=0)
+        distances = _calc_tss_distance_per_gene(all_variants, gene_start, gene_end, GENE_TSS_DISTANCE, GENE_TSS_DISTANCE_SAIGE)
+
+        # add GENE_TSS_DISTANCE and GENE_TSS_DISTANCE_SAIGE to annotation 0
+        gd_gene.varm["annotations_0"].loc[distances.index, GENE_TSS_DISTANCE] = distances[GENE_TSS_DISTANCE]
+        gd_gene.varm["annotations_0"].loc[distances.index, GENE_TSS_DISTANCE_SAIGE] = distances[GENE_TSS_DISTANCE_SAIGE]
+
+    elif GENE_TSS_DISTANCE != "":  # calc only GENE_TSS_DISTANCE
+        gd_gene.varm["annotations_0"][GENE_TSS_DISTANCE] = np.nan  # Initialize the column with NaN
+
+        # calculate tss distance independent of up or downstream
+        all_variants = pd.concat([this_vars_up_df, this_vars_down_df])
+        tss_distances = _calc_tss_distance_per_gene(all_variants, gene_start, gene_end, GENE_TSS_DISTANCE)
+
+        # add to gd_gene
+        gd_gene.varm["annotations_0"].loc[tss_distances.index, GENE_TSS_DISTANCE] = tss_distances[GENE_TSS_DISTANCE]
+
     all_burdens_this_gene = []
-    for weight_col in weight_cols: 
+    for weight_col in weight_cols:
         this_burden = _get_burden(gd_gene, weight_col)
         all_burdens_this_gene.append(this_burden)
-        
+
     all_burdens_this_gene = np.stack(all_burdens_this_gene, axis=1)
     all_burdens_this_gene = pd.DataFrame(all_burdens_this_gene, index=gd_gene.obs.index, columns=weight_cols)
     all_burdens_this_gene["Geneid"] = this_gene
-    
+
     return all_burdens_this_gene
 
-def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], annotations_varm="annotations_0", window_size=100000, DNA_LM_up="", DNA_LM_down="", DNA_LM_mixed = "DNA_LM_mixed"):
+
+def compute_burdens(ddata,
+                    max_af=0.05,
+                    weight_cols=["DISTANCE", "CADD_PHRED"],
+                    annotations_varm="annotations_0",
+                    window_size=100000,
+                    DNA_LM_up="",
+                    DNA_LM_down="",
+                    DNA_LM_mixed="DNA_LM_mixed",
+                    GENE_TSS_DISTANCE="",
+                    GENE_TSS_DISTANCE_SAIGE=""):
     """Compute gene burdens for each gene and sample using different variant annotations
 
     Parameters
@@ -197,55 +289,66 @@ def compute_burdens(ddata, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED"], 
         colname of DNA_LM score downstream model
     DNA_LM_mixed: str, optional
         colname of DNA_LM score mixed model
-
+    GENE_TSS_DISTANCE: str, optional
+        colname for TSS distances and also flag to compute its burden 
+    GENE_TSS_DISTANCE_SAIGE:str, optional
+        colname for TSS distances using saige formula and also flag to compute its burden 
     Returns
     -------
     pandas.DataFrame
         gene burdens for all genes, individuals and all annotations in weightcols
-    """    
-    if (DNA_LM_up!="" and DNA_LM_down=="") or (DNA_LM_up=="" and DNA_LM_down!=""):
+    """
+    if (DNA_LM_up != "" and DNA_LM_down == "") or (DNA_LM_up == "" and DNA_LM_down != ""):
         raise ValueError("If you want to compute the burden scores using the DNA_LM mixed model, you must set both DNA_LM_up and DNA_LM_down, else leave both empty.")
-        
+
     this_gd = ddata.gdata.copy()
     this_ad = ddata.adata.copy()
     this_gd = this_gd[:, this_gd.var["maf"] < max_af]
     all_burdens = []
 
     if not all(col in this_ad.var.columns for col in ["chromosome", "start", "end"]):
-        # compute all the gene locations    
+        # compute all the gene locations
         this_ad.var[['chromosome', 'start', 'end']] = this_ad.var.index.to_series().apply(
             lambda x: pd.Series(_get_gene_location(x))
         )
 
     # add mixed model to the weight cols for which burden score is computed
-    if DNA_LM_up!="" and DNA_LM_down!="" and DNA_LM_mixed not in weight_cols:
+    if DNA_LM_up != "" and DNA_LM_down != "" and DNA_LM_mixed not in weight_cols:
         weight_cols.append(DNA_LM_mixed)
         if DNA_LM_up not in weight_cols:
             weight_cols.append(DNA_LM_up)
         if DNA_LM_down not in weight_cols:
             weight_cols.append(DNA_LM_down)
-            
-    
-    for gene in tqdm(this_ad.var.index[0:10]):
-        gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
-        gene_start = int(this_ad.var.loc[gene,"start"])
-        gene_end = int(this_ad.var.loc[gene,"end"])
 
-        this_b = _compute_burdens_for_gene(this_gd, gene, gene_chrom, gene_start, gene_end, weight_cols,annotations_varm, window_size, DNA_LM_up, DNA_LM_down, DNA_LM_mixed)
+    # add tss distance to the weight cols to initialize burden score computations
+    if GENE_TSS_DISTANCE != "" and GENE_TSS_DISTANCE not in weight_cols:
+        weight_cols.append(GENE_TSS_DISTANCE)
+
+    # add tss distance saige to the weight cols to initialize burden score computations
+    if GENE_TSS_DISTANCE_SAIGE != "":
+        if GENE_TSS_DISTANCE_SAIGE not in weight_cols:
+            weight_cols.append(GENE_TSS_DISTANCE_SAIGE)
+        if GENE_TSS_DISTANCE == "":  # if saige is set then tss distance has to be calculated too
+            GENE_TSS_DISTANCE = "GENE_TSS_DISTANCE"
+
+    # TODO remove subsetting!!!!
+    for gene in tqdm(this_ad.var.index[0:500]):
+        gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
+        gene_start = int(this_ad.var.loc[gene, "start"])
+        gene_end = int(this_ad.var.loc[gene, "end"])
+
+        this_b = _compute_burdens_for_gene(this_gd, gene, gene_chrom, gene_start, gene_end, weight_cols, annotations_varm, window_size, DNA_LM_up, DNA_LM_down, DNA_LM_mixed, GENE_TSS_DISTANCE, GENE_TSS_DISTANCE_SAIGE)
         all_burdens.append(this_b)
-        
-    import pickle
-    with open('/data/nasif12/home_if12/l_back/sysGen/sc-genetics/docs/notebooks/all_burdens.pkl', "wb") as file:
-        all_res = pickle.dump(all_burdens, file)
 
     all_burdens = pd.concat(all_burdens)
 
     return all_burdens
 
+
 def _run_burden_testing_on_gene(pb_data, burden_gene, target_gene, normalize_burdens):
-    #target gene: gene whose expression is tested against
-    #burden gene: gene whose gene burden score is tested against the target gene 
-    #for cis tests, burden_gene = target_gene
+    # target gene: gene whose expression is tested against
+    # burden gene: gene whose gene burden score is tested against the target gene 
+    # for cis tests, burden_gene = target_gene
     F = pb_data.adata.obsm["F"]
     Y = pb_data.adata[:, [target_gene]].layers["transformed_mean"]
 
