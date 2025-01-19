@@ -90,11 +90,8 @@ if __name__ == "__main__":
     eigenvec = pd.read_csv(base_data_dir / "input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec", sep = ' ')
     DNA_LM_upstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_upstream_model.tsv"
     DNA_LM_downstream = base_data_dir/ "input_data/annotations/onek1k_inf_scores_downstream_model.tsv"
-    # ---------------------------
-    # TODO REMOVE TEST WITH CHR22
-    # ---------------------------
-    #vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
-    vep_scores = base_data_dir/ "input_data/annotations/onek1k1_chr22_variants_annotated_vep.txt"
+    vep_scores = base_data_dir/ "input_data/annotations/onek1k1_all_variants_annotated_vep.txt"
+    #vep_scores = base_data_dir/ "input_data/annotations/onek1k1_chr22_variants_annotated_vep.txt"
 
     print("reading scdata")
     scdata = sc.read_h5ad(scdata_path)

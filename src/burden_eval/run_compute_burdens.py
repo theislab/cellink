@@ -27,7 +27,7 @@ if __name__ == "__main__":
     # RUN BURDEN TESTING
     print(f"START burden computing for chr{args.chromosome}...")
     #results = compute_burdens(data, max_af=0.05, weight_cols=["DISTANCE", "CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
-    all_burdens = compute_burdens(data, max_af=0.05, weight_cols=["CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down")
+    all_burdens = compute_burdens(data, max_af=0.05, weight_cols=["CADD_PHRED", "DNA_LM_up", "DNA_LM_down", "MAF_beta_1.25"], window_size=100000, DNA_LM_up="DNA_LM_up", DNA_LM_down="DNA_LM_down",GENE_TSS_DISTANCE="GENE_TSS_DISTANCE", GENE_TSS_DISTANCE_SAIGE="GENE_TSS_DISTANCE_SAIGE")
     print(f"DONE with burden computing for chr{args.chromosome}...")
 
     # WRITE RESULTS
