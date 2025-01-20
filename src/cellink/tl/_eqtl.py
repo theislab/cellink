@@ -297,7 +297,7 @@ def _get_pb_data(
         logger.info(f"No cells found for the given cell type {cell_type} ({scdata_cell.shape=})")
         return None
     # filtering chromosomes
-    scdata_cell = scdata_cell[:, scdata_cell.var["chrom"] == target_chromosome]
+    scdata_cell = scdata_cell[:, scdata_cell.var["chromosome"] == target_chromosome]
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found for the given chromosome {target_chromosome} ({scdata_cell.shape=})")
         return None

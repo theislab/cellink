@@ -57,11 +57,10 @@ def _get_gene_location(ensembl_id):
 
 def _calc_tss_distance_per_gene(variants_df,
                                 gene_start,
-                                gene_end,
                                 col_name_distance,
                                 col_name_saige=""):
     """
-    Calculate absolute TSS Distance.
+    Calculate absolute TSS Distance and if set also TSS Distance Saige
 
     Parameters:
         variants_df (pd.DataFrame): DataFrame with SNP ID as index and contains variant position in column "Position"
@@ -75,26 +74,16 @@ def _calc_tss_distance_per_gene(variants_df,
     distances = {"snp_id": [], col_name_distance: []}
     saige_distances = []
 
-    if gene_start > gene_end:
-        gene_start, gene_end = gene_end, gene_start  # Reverse strand handling
-
     for i, row in variants_df.iterrows():
-        if gene_start <= row["Position"] <= gene_end:
-            distances["snp_id"].append(i)
-            distances[col_name_distance].append(0)  # Variant is within the gene
-
         # Calculate absolute distances to start and end positions
-        distance_to_start = abs(row["Position"] - gene_start)  # upstream
-        distance_to_end = abs(row["Position"] - gene_end)  # downstream
+        distance_to_start = abs(row["Position"] - gene_start)
 
-        # Get the minimum distance = correct distance
-        distance = min(distance_to_start, distance_to_end)
         distances["snp_id"].append(i)
-        distances[col_name_distance].append(distance)
+        distances[col_name_distance].append(distance_to_start)
 
         # calculate saige if parameter is set
         if col_name_saige != "":
-            distance_saige = np.exp(-1e-5 * distance)
+            distance_saige = np.exp(-1e-5 * distance_to_start)
             saige_distances.append(distance_saige)
 
     # add saige to final dataframe if parameter is set
@@ -231,7 +220,7 @@ def _compute_burdens_for_gene(this_gd,
 
         # calculate GENE_TSS_DISTANCE and GENE_TSS_DISTANCE_SAIGE independent of up or downstream
         all_variants = pd.concat([this_vars_up_df, this_vars_down_df], axis=0)
-        distances = _calc_tss_distance_per_gene(all_variants, gene_start, gene_end, GENE_TSS_DISTANCE, GENE_TSS_DISTANCE_SAIGE)
+        distances = _calc_tss_distance_per_gene(all_variants, gene_start, GENE_TSS_DISTANCE, GENE_TSS_DISTANCE_SAIGE)
 
         # add GENE_TSS_DISTANCE and GENE_TSS_DISTANCE_SAIGE to annotation 0
         gd_gene.varm["annotations_0"].loc[distances.index, GENE_TSS_DISTANCE] = distances[GENE_TSS_DISTANCE]
@@ -242,7 +231,7 @@ def _compute_burdens_for_gene(this_gd,
 
         # calculate tss distance independent of up or downstream
         all_variants = pd.concat([this_vars_up_df, this_vars_down_df])
-        tss_distances = _calc_tss_distance_per_gene(all_variants, gene_start, gene_end, GENE_TSS_DISTANCE)
+        tss_distances = _calc_tss_distance_per_gene(all_variants, gene_start, GENE_TSS_DISTANCE)
 
         # add to gd_gene
         gd_gene.varm["annotations_0"].loc[tss_distances.index, GENE_TSS_DISTANCE] = tss_distances[GENE_TSS_DISTANCE]
@@ -331,8 +320,7 @@ def compute_burdens(ddata,
         if GENE_TSS_DISTANCE == "":  # if saige is set then tss distance has to be calculated too
             GENE_TSS_DISTANCE = "GENE_TSS_DISTANCE"
 
-    # TODO remove subsetting!!!!
-    for gene in tqdm(this_ad.var.index[0:500]):
+    for gene in tqdm(this_ad.var.index):  # add subsetting [0:10] for test purposes
         gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
         gene_start = int(this_ad.var.loc[gene, "start"])
         gene_end = int(this_ad.var.loc[gene, "end"])
@@ -553,7 +541,7 @@ def burden_test(
     )
 
     results_df["cell_type"] = target_cell_type
-    results_df["chrom"] = target_chromosome 
+    results_df["chromosome"] = target_chromosome
     # postprocessing the results
     postprocessed_dfs = _postprocess_results(results_df)
     # optionally saving the results to disk
