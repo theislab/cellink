@@ -21,10 +21,10 @@ if __name__ == "__main__":
 
     all_burdens = pd.read_parquet(args.burdens)
     eigenvec = pd.read_csv(args.eigenvector, sep=' ', header=None)
+    eigenvec.index = eigenvec[1]
+    eigenvec = eigenvec.iloc[:, 2:]
     eigenvec = eigenvec[eigenvec.index.isin(all_burdens[0].index)]
-    #eigenvec.index = eigenvec[1]
-    #eigenvec = eigenvec.iloc[:, 2:]
-
+    
     all_res = []
     # get cell_types
     cell_types = data.adata.obs["cell_label"].unique()
