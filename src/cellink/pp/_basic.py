@@ -1,5 +1,6 @@
 import anndata
 import dask.array as da
+import numpy as np
 
 def low_abundance_filter(
     adata: anndata.AnnData,
@@ -7,7 +8,7 @@ def low_abundance_filter(
     abundance_threshold: float = 1e-6,
     method: str = "mean",
     inplace: bool = True,
-    copy: bool = False,
+    copy: bool = True,
 ) -> anndata.AnnData | None:
     """\
     Filter out low-abundance metabolites.
@@ -36,30 +37,32 @@ def low_abundance_filter(
     """
     X = adata.X
 
-    if method not in {"mean", "median"}:
-        raise ValueError("Method must be either 'mean' or 'median'.")
+    if not isinstance(X, (da.Array, np.ndarray)):
+        raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "mean":
-        abundance = da.mean(X, axis=0)
-    else:  # method == "median"
-        abundance = da.median(X, axis=0)
+        abundance = da.mean(X, axis=0) if isinstance(X, da.Array) else np.mean(X, axis=0)
+    elif method == "median":
+        abundance = da.median(X, axis=0) if isinstance(X, da.Array) else np.median(X, axis=0)
+    else:
+        raise NotImplementedError("Method must be either 'mean' or 'median'.")
 
-    # Apply the abundance filter
     abundance_filter = abundance >= abundance_threshold
-    abundance_filter = abundance_filter.compute()
+    abundance_filter = abundance_filter.compute() if isinstance(abundance_filter, da.Array) else abundance_filter
 
-    adata = adata[:, abundance_filter]
+    adata = adata[:, abundance_filter].copy()
 
     if inplace:
+        adata.X = adata.X
         return None
-    return adata
+    return adata.copy() if copy else adata
 
 def missing_values_filter(
     adata: anndata.AnnData,
     *,
     max_missing_ratio: float = 0.2,
     inplace: bool = True,
-    copy: bool = False,
+    copy: bool = True,
 ) -> anndata.AnnData | None:
     """\
     This function removes features that have a proportion of missing values
@@ -86,21 +89,24 @@ def missing_values_filter(
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     is_missing = da.isnan(X) if isinstance(X, da.Array) else np.isnan(X)
-    missing_ratio = da.mean(is_missing, axis=0)
+    missing_ratio = da.mean(is_missing, axis=0) if isinstance(X, da.Array) else np.mean(is_missing, axis=0)
 
-    valid_proteins = (missing_ratio <= max_missing_ratio).compute()
-    adata = adata[:, valid_proteins]
+    valid_features = (missing_ratio <= max_missing_ratio)
+    valid_features = valid_features.compute() if isinstance(valid_features, da.Array) else valid_features
+
+    adata = adata[:, valid_features]
 
     if inplace:
+        adata.X = adata.X
         return None
-    return adata
+    return adata.copy() if copy else adata
 
 def log_transform(
     adata: anndata.AnnData,
     *,
     base: float = 2,
     inplace: bool = True,
-    copy: bool = False,
+    copy: bool = True,
 ) -> anndata.AnnData | None:
     """\
     Apply log transformation to protein abundance values.
@@ -131,8 +137,9 @@ def log_transform(
     log_base = np.log(base)
     X_log = da.log1p(X) / log_base if isinstance(X, da.Array) else np.log1p(X) / log_base
 
+    adata.X = X_log
+
     if inplace:
-        adata.X = X_log
         return None
     return adata.copy() if copy else adata
 
@@ -142,7 +149,7 @@ def normalize(
     *,
     method: str = "zscore",
     inplace: bool = True,
-    copy: bool = False,
+    copy: bool = True,
 ) -> anndata.AnnData | None:
     """\
     This function normalizes values using the specified method.
@@ -171,20 +178,21 @@ def normalize(
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "zscore":
-        mean = da.mean(X, axis=0)
-        std = da.std(X, axis=0)
+        mean = da.mean(X, axis=0) if isinstance(X, da.Array) else np.mean(X, axis=0)
+        std = da.std(X, axis=0) if isinstance(X, da.Array) else np.std(X, axis=0)
         X_norm = (X - mean) / std
     elif method == "minmax":
-        min_val = da.min(X, axis=0)
-        max_val = da.max(X, axis=0)
+        min_val = da.min(X, axis=0) if isinstance(X, da.Array) else np.min(X, axis=0)
+        max_val = da.max(X, axis=0) if isinstance(X, da.Array) else np.max(X, axis=0)
         X_norm = (X - min_val) / (max_val - min_val)
     elif method == "median":
-        median = da.median(X, axis=0)
+        median = da.median(X, axis=0) if isinstance(X, da.Array) else np.median(X, axis=0)
         X_norm = X - median
     else:
         raise ValueError("Invalid method. Choose from 'zscore', 'minmax', or 'median'.")
 
+    adata.X = X_norm
+
     if inplace:
-        adata.X = X_norm
         return None
     return adata.copy() if copy else adata
