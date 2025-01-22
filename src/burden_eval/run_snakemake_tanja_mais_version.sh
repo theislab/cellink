@@ -13,8 +13,8 @@
 # sbatch slurm_burden_testing.sh
 
 # activate conda env
-#source /data/nasif12/modules_if12/SL7/i12g/miniforge/24.9.0-0/etc/profile.d/conda.sh
-#conda activate mm_scgenetics
+source /data/nasif12/modules_if12/SL7/i12g/miniforge/24.9.0-0/etc/profile.d/conda.sh
+conda activate mm_scgenetics
 
 # run burden testing
 echo "Running Snakemake"

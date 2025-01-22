@@ -8,30 +8,23 @@
   warn(msg, FutureWarning)
 /data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/anndata/_core/aligned_df.py:68: ImplicitModificationWarning: Transforming to str index.
   warnings.warn("Transforming to str index.", ImplicitModificationWarning)
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:432: ImplicitModificationWarning: Setting element `.layers['transformed_mean']` of view, initializing view as actual.
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:433: ImplicitModificationWarning: Setting element `.layers['transformed_mean']` of view, initializing view as actual.
   pb_data.adata.layers["transformed_mean"] = Y
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:442: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:451: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
   pb_data.gdata.uns["gene_burdens"] = gene_burdens.query("Geneid in @target_genes")
-  0%|                                                                      | 0/462 [00:00<?, ?it/s]Traceback (most recent call last):
-  File "/data/nasif12/home_if12/l_mai/sc-genetics/src/burden_eval/run_burden_ass.py", line 35, in <module>
-    target_cell_type=target_cell_type,
-  File "/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py", line 522, in burden_test
-    results_df = _burden_test(
-  File "/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py", line 459, in _burden_test
-    burden_test_out = _run_burden_testing_on_gene(
-  File "/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py", line 345, in _run_burden_testing_on_gene
-    G = pb_data.gdata.uns["gene_burdens"].query("Geneid ==@burden_gene")\
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexing.py", line 1191, in __getitem__
-    return self._getitem_axis(maybe_callable, axis=axis)
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexing.py", line 1420, in _getitem_axis
-    return self._getitem_iterable(key, axis=axis)
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexing.py", line 1360, in _getitem_iterable
-    keyarr, indexer = self._get_listlike_indexer(key, axis)
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexing.py", line 1558, in _get_listlike_indexer
-    keyarr, indexer = ax._get_indexer_strict(key, axis_name)
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexes/base.py", line 6200, in _get_indexer_strict
-    self._raise_if_missing(keyarr, indexer, axis_name)
-  File "/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/pandas/core/indexes/base.py", line 6249, in _raise_if_missing
-    raise KeyError(f"None of [{key}] are in the [{axis_name}]")
-KeyError: "None of [Index(['1_1', '2_2', '3_3', '4_4', '6_6', '7_7', '8_8', '9_9', '10_10',\n       '11_11',\n       ...\n       '1072_1073', '1073_1074', '1074_1075', '1075_1076', '1076_1077',\n       '1077_1078', '1078_1079', '1079_1080', '1080_1081', '1081_1082'],\n      dtype='object', name='id', length=981)] are in the [index]"
-  0%|▏                                                             | 1/462 [00:00<00:51,  8.96it/s]
+  0%|                                                                                                                    | 0/10 [00:00<?, ?it/s] 10%|██████████▊                                                                                                 | 1/10 [00:00<00:00, 17.64it/s]
+/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:317: ImplicitModificationWarning: Setting element `.obsm['X_pca']` of view, initializing view as actual.
+  adata.obsm[key_obsm] = X_pca
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
+  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
+/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:377: FutureWarning: Argument `use_highly_variable` is deprecated, consider using the mask argument. Use_highly_variable=True can be called through mask_var="highly_variable". Use_highly_variable=False can be called through mask_var=None
+  warn(msg, FutureWarning)
+/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/anndata/_core/aligned_df.py:68: ImplicitModificationWarning: Transforming to str index.
+  warnings.warn("Transforming to str index.", ImplicitModificationWarning)
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:433: ImplicitModificationWarning: Setting element `.layers['transformed_mean']` of view, initializing view as actual.
+  pb_data.adata.layers["transformed_mean"] = Y
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:451: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
+  pb_data.gdata.uns["gene_burdens"] = gene_burdens.query("Geneid in @target_genes")
+  0%|                                                                                                                    | 0/10 [00:00<?, ?it/s] 10%|██████████▋                                                                                                | 1/10 [00:00<00:00, 122.08it/s]

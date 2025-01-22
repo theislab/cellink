@@ -24,9 +24,12 @@ if __name__ == "__main__":
     eigenvec.index = eigenvec[1]
     eigenvec = eigenvec.iloc[:, 2:]
     print(f'eigenvec: {eigenvec.index}')
-    print(f'allburdens 0: {all_burdens[0].index}')
-    eigenvec = eigenvec[eigenvec.index.isin(all_burdens[0].index)]
-    
+    print(f'allburdens 0: {all_burdens.index}')
+    eigenvec = eigenvec[eigenvec.index.isin(all_burdens.index.unique())]
+    print(f'eigenvec: {eigenvec.index}')
+
+    print(f'gene ids: {all_burdens["Geneid"].unique()}')
+
     all_res = []
     # get cell_types
     cell_types = data.adata.obs["cell_label"].unique()
@@ -38,6 +41,7 @@ if __name__ == "__main__":
                 target_cell_type=target_cell_type,
                 target_chromosome=args.chromosome,
                 eigenvector_df=eigenvec,
+                target_genes=all_burdens["Geneid"].unique(),
                 dump_dir=args.dump,
                 # target_genes = target_genes,
                 #transforms_seq=None #  TODO comment this back in to quantile transform phenotype. Commented out to make testing faster

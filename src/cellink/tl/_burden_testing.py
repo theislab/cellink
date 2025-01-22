@@ -320,7 +320,7 @@ def compute_burdens(ddata,
         if GENE_TSS_DISTANCE == "":  # if saige is set then tss distance has to be calculated too
             GENE_TSS_DISTANCE = "GENE_TSS_DISTANCE"
 
-    for gene in tqdm(this_ad.var.index):  # add subsetting [0:10] for test purposes
+    for gene in tqdm(this_ad.var.index[0:500]):  # add subsetting [0:500] for test purposes
         gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
         gene_start = int(this_ad.var.loc[gene, "start"])
         gene_end = int(this_ad.var.loc[gene, "end"])
@@ -340,6 +340,8 @@ def _run_burden_testing_on_gene(pb_data, burden_gene, target_gene, normalize_bur
     F = pb_data.adata.obsm["F"]
     Y = pb_data.adata[:, [target_gene]].layers["transformed_mean"]
 
+    print(f"burden_gene: {burden_gene}")
+    
     #TODO don't hard code the gene_id column
     G = pb_data.gdata.uns["gene_burdens"].query("Geneid ==@burden_gene")\
             .drop(columns = "Geneid").loc[pb_data.gdata.obs_names]
@@ -420,7 +422,12 @@ def _burden_test(
         n_cellstate_comps,
         eigenvector_df
     )
-    Y = pb_data.adata.layers["mean"] #pseudobulk expression
+    
+    for gene in target_genes:
+        if gene not in pb_data.adata.var_names:
+            print(f"This is missing after pb calc: {gene}")
+            
+    Y = pb_data.adata.layers["mean"]  # pseudobulk expression
     # defining transform function
     transform_fn = partial(_apply_transforms_seq, transforms_seq=transforms_seq)
     # applying transformation
@@ -431,6 +438,10 @@ def _burden_test(
     pb_data.adata.layers["transformed_mean"] = Y
     # retrieving current genes
     current_genes = pb_data.adata.var_names
+
+    print(f"current_genes: {current_genes}")
+    print(f"target_genes: {target_genes}")
+    
     # optionally setting all genes by default
     if target_genes is None:
         # logging message
@@ -439,6 +450,7 @@ def _burden_test(
         target_genes = current_genes
     # early return if pseudo bulked data is None
     pb_data.gdata.uns["gene_burdens"] = gene_burdens.query("Geneid in @target_genes")
+
     if pb_data is None:
         # logging message
         msg = "Filtering the pseudo-bulked data retrieved an empty dataset."
@@ -512,6 +524,10 @@ def burden_test(
         `pd.DataFrame`
             The output data in a `pd.DataFrame` object
     """
+    for gene in target_genes:
+        if gene not in donor_data.adata.var_names:
+            print(f"This is missing before pb calc: {gene}")
+    
     # ensuring the type of target chromose is a string
     if isinstance(target_chromosome, int):
         target_chromosome = str(target_chromosome)

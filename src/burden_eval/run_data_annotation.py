@@ -22,6 +22,7 @@ def add_snp_id(DNA_LM):
     DNA_LM.set_index('snp_id', inplace=True)
     return DNA_LM
 
+
 def reverse_and_update_snp_ids(gdata_df, dna_df):
     updated_index = []
 

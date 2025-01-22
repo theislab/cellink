@@ -1,0 +1,2 @@
+/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_annotate_snps_genotype_data.py:258: DtypeWarning: Columns (15) have mixed types. Specify dtype option on import or set low_memory=False.
+  annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))

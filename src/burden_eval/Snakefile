@@ -8,12 +8,14 @@ OUTPUT_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/ou
 EIGENVECOTOR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec"
 DUMP_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/association/dump"
 
+suffix = "_test_500_genes"
+
 rule all:
     input:
         # run only until burdens are computed
-        #expand(f"{OUTPUT_DIR}/burdens/chr{{chrom}}_all_burdens.parquet", chrom=CHROMOSOMES) 
+        #expand(f"{OUTPUT_DIR}/burdens/chr{{chrom}}_all_burdens{suffix}.parquet", chrom=CHROMOSOMES) 
         # run all: 
-        expand(f"{OUTPUT_DIR}/association/chr{{chrom}}_all_results_10_genes.pkl", chrom=CHROMOSOMES)
+        expand(f"{OUTPUT_DIR}/association/chr{{chrom}}_all_results{suffix}.pkl", chrom=CHROMOSOMES)
 
 # Rule to process each .vcz file
 rule data_annotation:
@@ -21,7 +23,7 @@ rule data_annotation:
     input:
         vcz=lambda wildcards:(f"{INPUT_DIR}/chr{wildcards.chrom}.dose.filtered.R2_0.8.vcz")
     output:
-        pkl=f"{OUTPUT_DIR}/annotations/chr{{chrom}}_data_test.pkl",
+        pkl=f"{OUTPUT_DIR}/annotations/chr{{chrom}}_data{suffix}.pkl",
     log:
         out="burden_testing_logs/{chrom}_data_anno_stdout.log",
         err="burden_testing_logs/{chrom}_data_anno_stderr.err"
@@ -34,9 +36,9 @@ rule data_annotation:
 rule burden_computing:
     threads: 8
     input:
-        data=lambda wildcards:(f"{OUTPUT_DIR}/annotations/chr{wildcards.chrom}_data_test.pkl")
+        data=lambda wildcards:(f"{OUTPUT_DIR}/annotations/chr{wildcards.chrom}_data{suffix}.pkl")
     output:
-        parquet=f"{OUTPUT_DIR}/burdens/chr{{chrom}}_all_burdens_test_10_genes.parquet",
+        parquet=f"{OUTPUT_DIR}/burdens/chr{{chrom}}_all_burdens{suffix}.parquet",
     log:
         out="burden_testing_logs/{chrom}_burden_comp_stdout.log",
         err="burden_testing_logs/{chrom}_burden_comp_stderr.err"
@@ -48,12 +50,12 @@ rule burden_computing:
 rule burden_association:
     threads: 8
     input:
-        burdens=lambda wildcards:(f"{OUTPUT_DIR}/burdens/chr{wildcards.chrom}_all_burdens_test_10_genes.parquet"),
-        data=lambda wildcards:(f"{OUTPUT_DIR}/annotations/chr{wildcards.chrom}_data_test.pkl"),
+        burdens=lambda wildcards:(f"{OUTPUT_DIR}/burdens/chr{wildcards.chrom}_all_burdens{suffix}.parquet"),
+        data=lambda wildcards:(f"{OUTPUT_DIR}/annotations/chr{wildcards.chrom}_data{suffix}.pkl"),
         eigenvector=f"{EIGENVECOTOR}",
         dump=f"{DUMP_DIR}",
     output:
-        pkl=f"{OUTPUT_DIR}/association/chr{{chrom}}_all_results_10_genes.pkl",
+        pkl=f"{OUTPUT_DIR}/association/chr{{chrom}}_all_results{suffix}.pkl",
     log:
         out="burden_testing_logs/{chrom}_burden_ass_stdout.log",
         err="burden_testing_logs/{chrom}_burden_ass_stderr.err"

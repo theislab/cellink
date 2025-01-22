@@ -1,0 +1,26 @@
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 8
+Rules claiming more threads will be scaled down.
+Job stats:
+job                   count
+------------------  -------
+all                       1
+burden_association        1
+burden_computing          1
+data_annotation           1
+total                     4
+
+Select jobs to execute...
+
+[Wed Jan 22 17:56:49 2025]
+rule data_annotation:
+    input: /data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/chr22.dose.filtered.R2_0.8.vcz
+    output: /s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/annotations/chr22_data_test_500_genes.pkl
+    log: burden_testing_logs/22_data_anno_stdout.log, burden_testing_logs/22_data_anno_stderr.err
+    jobid: 3
+    reason: Missing output files: /s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/annotations/chr22_data_test_500_genes.pkl
+    wildcards: chrom=22
+    threads: 8
+    resources: tmpdir=/scratch/tmp/l_mai
+
