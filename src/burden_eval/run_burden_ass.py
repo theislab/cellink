@@ -23,6 +23,8 @@ if __name__ == "__main__":
     eigenvec = pd.read_csv(args.eigenvector, sep=' ', header=None)
     eigenvec.index = eigenvec[1]
     eigenvec = eigenvec.iloc[:, 2:]
+    print(f'eigenvec: {eigenvec.index}')
+    print(f'allburdens 0: {all_burdens[0].index}')
     eigenvec = eigenvec[eigenvec.index.isin(all_burdens[0].index)]
     
     all_res = []
