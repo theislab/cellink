@@ -5,7 +5,7 @@ import os
 from sgkit.io.plink import read_plink as sg_read_plink
 
 from cellink._core.donordata import DonorData
-from cellink.io import from_sgkit_dataset, read_plink, read_sgkit_zarr, generate_bim_df, generate_fam_df, to_plink
+from cellink.io import from_sgkit_dataset, read_plink, read_sgkit_zarr, to_plink
 
 DATA = Path("tests/data")
 
@@ -31,9 +31,7 @@ def test_export():
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata = gdata[:, :1996]
     # gdata.obs = gdata.obs.set_index("id")
-    bim_df = generate_bim_df(gdata)
-    fam_df = generate_fam_df(gdata)
     os.makedirs("output_data/test_export")
-    to_plink(gdata.X, bim_df, fam_df, output_prefix="output_data/test_export", num_patients_chunk=100)
+    to_plink(gdata, output_prefix="output_data/test_export", num_patients_chunk=100)
     os.removedirs("output_data/test_export")
 
