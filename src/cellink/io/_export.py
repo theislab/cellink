@@ -1,8 +1,19 @@
+import logging
+import sys
+
 import numpy as np
 import pandas as pd
 import dask.array as da
 
-def generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
+logging.basicConfig(
+    format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
+    level=logging.INFO,
+    stream=sys.stdout,
+)
+
+logger = logging.getLogger(__name__)
+
+def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
     """
     Generate a BIM DataFrame from genetic data.
 
@@ -44,7 +55,7 @@ def generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col
     return bim_data
 
 
-def generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
+def _generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
     """
     Generate a FAM DataFrame from genetic data.
 
@@ -85,24 +96,44 @@ def generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col=
 
     return fam_data
 
-def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix, snp_per_byte=4, num_patients_chunk=100):
+def to_plink(gdata, output_prefix, snp_per_byte=4, num_patients_chunk=100, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2", fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
     """
     Export genotype data in Dask array format to PLINK binary format.
 
     Parameters:
-    - dask_genotype_array: dask.array.Array
-        Genotype data (individuals x SNPs). Values must be 0, 1, 2, or np.nan for missing.
-    - bim_df: pandas.DataFrame
-        DataFrame containing SNP information with columns: ['CHR', 'SNP', 'CM', 'BP', 'A1', 'A2'].
-    - fam_df: pandas.DataFrame
-        DataFrame containing individual information with columns: ['FID', 'IID', 'PID', 'MID', 'SEX', 'PHENOTYPE'].
-    - output_prefix: str
+    gdata : object
+        A genetic data object with an `obs` attribute containing individual information.
+    output_prefix: str
         Prefix for the output PLINK files (.bed, .bim, .fam).
-    - snp_per_byte: int
+    snp_per_byte: int
         Number of SNPs to pack into a single byte. Options are 1, 2, or 4.
-    - num_patients_chunk: int
+    num_patients_chunk: int
         Number of patients in chunk
+    chrom_col : str, optional
+        The column name in `gdata.var` representing the chromosome. Default is "chrom".
+    cm_col : str, optional
+        The column name in `gdata.var` representing the centimorgan position. Default is "cm".
+    pos_col : str, optional
+        The column name in `gdata.var` representing the base pair position. Default is "pos".
+    a1_col : str, optional
+        The column name in `gdata.var` representing allele 1. Default is "a1".
+    a2_col : str, optional
+        The column name in `gdata.var` representing allele 2. Default is "a2".
+    fid_col : str, optional
+        The column name in `gdata.obs` representing family IDs. Default is "fid".
+    pid_col : str, optional
+        The column name in `gdata.obs` representing paternal IDs. Default is "pid".
+    mid_col : str, optional
+        The column name in `gdata.obs` representing maternal IDs. Default is "mid".
+    sex_col : str, optional
+        The column name in `gdata.obs` representing the sex of individuals. Default is "sex".
+    phenotype_col : str, optional
+        The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
     """
+
+    bim_df = _generate_bim_df(gdata)
+    fam_df = _generate_fam_df(gdata)
+    dask_genotype_array = gdata.X
 
     num_individuals, num_snps = dask_genotype_array.shape
     dask_genotype_array = dask_genotype_array.rechunk((num_patients_chunk, num_snps))
@@ -146,4 +177,4 @@ def to_plink(dask_genotype_array, bim_df, fam_df, output_prefix, snp_per_byte=4,
 
                 bed.write(bytearray(bed_data))
 
-    print(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
+    logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
