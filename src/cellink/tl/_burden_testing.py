@@ -128,21 +128,26 @@ def _find_snps_near_gene(gdata, gene_chrom, gene_start, gene_end, bp_range=10000
         # forward strand
         snps_upstream = gdata_df[
             (gdata_df['Chromosome'] == gene_chrom) &
-            (gdata_df['Position'] >= gene_start - bp_range)
+            (gdata_df['Position'] >= gene_start - bp_range) &
+            (gdata_df['Position'] <= gene_start)
+
         ]
         snps_downstream = gdata_df[
             (gdata_df['Chromosome'] == gene_chrom) &
-            (gdata_df['Position'] <= gene_start + bp_range)
+            (gdata_df['Position'] <= gene_start + bp_range) &
+            (gdata_df['Position'] > gene_start)
         ]
     else:
         # reverse strand
         snps_upstream = gdata_df[
             (gdata_df['Chromosome'] == gene_chrom) &
-            (gdata_df['Position'] >= gene_start + bp_range)
+            (gdata_df['Position'] <= gene_start + bp_range) &
+            (gdata_df['Position'] >= gene_start)
         ]
         snps_downstream = gdata_df[
             (gdata_df['Chromosome'] == gene_chrom) &
-            (gdata_df['Position'] <= gene_start - bp_range)
+            (gdata_df['Position'] >= gene_start - bp_range) &
+            (gdata_df['Position'] < gene_start)
         ]
 
     # return snps_in_range.index
@@ -252,7 +257,7 @@ def compute_burdens(ddata,
                     max_af=0.05,
                     weight_cols=["DISTANCE", "CADD_PHRED"],
                     annotations_varm="annotations_0",
-                    window_size=100000,
+                    window_size=1000000,
                     DNA_LM_up="",
                     DNA_LM_down="",
                     DNA_LM_mixed="DNA_LM_mixed",
@@ -320,7 +325,7 @@ def compute_burdens(ddata,
         if GENE_TSS_DISTANCE == "":  # if saige is set then tss distance has to be calculated too
             GENE_TSS_DISTANCE = "GENE_TSS_DISTANCE"
 
-    for gene in tqdm(this_ad.var.index[0:500]):  # add subsetting [0:500] for test purposes
+    for gene in tqdm(this_ad.var.index):  # add subsetting [0:500] for test purposes
         gene_chrom = int(this_ad.var.loc[gene, "chromosome"])
         gene_start = int(this_ad.var.loc[gene, "start"])
         gene_end = int(this_ad.var.loc[gene, "end"])

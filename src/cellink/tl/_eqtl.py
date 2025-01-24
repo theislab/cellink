@@ -314,7 +314,9 @@ def _get_pb_data(
         pseudobulk_aggregation_type,
     )
     # filter out genes least expressed genes
-    sc.pp.filter_genes(pbdata, min_cells=min_individuals_threshold)
+    
+    #sc.pp.filter_genes(pbdata, min_cells=min_individuals_threshold)
+    sc.pp.filter_genes(pbdata, min_cells=int(pbdata.shape[1] * 0.1))
     # early return if no genes left
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found in more than {min_individuals_threshold} individuals ({scdata_cell.shape=})")

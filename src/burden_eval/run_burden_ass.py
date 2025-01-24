@@ -33,7 +33,8 @@ if __name__ == "__main__":
     all_res = []
     # get cell_types
     cell_types = data.adata.obs["cell_label"].unique()
-    for target_cell_type in cell_types[0:2]:
+    #cell_types = ["CD8 ET"]
+    for target_cell_type in cell_types:
         print(target_cell_type)
         this_res = burden_test(
                 donor_data=data,
@@ -44,7 +45,7 @@ if __name__ == "__main__":
                 target_genes=all_burdens["Geneid"].unique(),
                 dump_dir=args.dump,
                 # target_genes = target_genes,
-                #transforms_seq=None #  TODO comment this back in to quantile transform phenotype. Commented out to make testing faster
+                transforms_seq=None #  TODO comment this back in to quantile transform phenotype. Commented out to make testing faster
                 )
         all_res.append(this_res[0])
     all_res = pd.concat(all_res)
