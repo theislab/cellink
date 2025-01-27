@@ -1,7 +1,0 @@
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/association/chr22_all_results_test_500_genes.pkl
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/burdens/chr22_all_burdens_test_500_genes.parquet
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/annotations/chr22_data_test_500_genes.pkl
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/association/dump
-/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/annotations/chr22_data_test_500_genes.pkl
-/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08/chr22.dose.filtered.R2_0.8.vcz

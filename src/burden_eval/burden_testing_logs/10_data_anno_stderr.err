@@ -1,4 +1,0 @@
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_normalization.py:234: UserWarning: Some cells have zero counts
-  warn(UserWarning("Some cells have zero counts"))
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_annotate_snps_genotype_data.py:258: DtypeWarning: Columns (15) have mixed types. Specify dtype option on import or set low_memory=False.
-  annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))

@@ -1,30 +1,0 @@
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:317: ImplicitModificationWarning: Setting element `.obsm['X_pca']` of view, initializing view as actual.
-  adata.obsm[key_obsm] = X_pca
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
-  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
-  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:377: FutureWarning: Argument `use_highly_variable` is deprecated, consider using the mask argument. Use_highly_variable=True can be called through mask_var="highly_variable". Use_highly_variable=False can be called through mask_var=None
-  warn(msg, FutureWarning)
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/anndata/_core/aligned_df.py:68: ImplicitModificationWarning: Transforming to str index.
-  warnings.warn("Transforming to str index.", ImplicitModificationWarning)
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:433: ImplicitModificationWarning: Setting element `.layers['transformed_mean']` of view, initializing view as actual.
-  pb_data.adata.layers["transformed_mean"] = Y
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:451: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
-  pb_data.gdata.uns["gene_burdens"] = gene_burdens.query("Geneid in @target_genes")
-  0%|                                                                                                                    | 0/10 [00:00<?, ?it/s] 10%|██████████▊                                                                                                 | 1/10 [00:00<00:00, 17.64it/s]
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:317: ImplicitModificationWarning: Setting element `.obsm['X_pca']` of view, initializing view as actual.
-  adata.obsm[key_obsm] = X_pca
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
-  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_eqtl.py:219: FutureWarning: The default of observed=False is deprecated and will be changed to True in a future version of pandas. Pass observed=False to retain current behavior or observed=True to adopt the future default and silence this warning.
-  reference_data = reference_data.groupby(donor_key_in_scdata).agg(["unique"])
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/scanpy/preprocessing/_pca.py:377: FutureWarning: Argument `use_highly_variable` is deprecated, consider using the mask argument. Use_highly_variable=True can be called through mask_var="highly_variable". Use_highly_variable=False can be called through mask_var=None
-  warn(msg, FutureWarning)
-/data/nasif12/home_if12/l_mai/.conda/envs/mm_scgenetics/lib/python3.10/site-packages/anndata/_core/aligned_df.py:68: ImplicitModificationWarning: Transforming to str index.
-  warnings.warn("Transforming to str index.", ImplicitModificationWarning)
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:433: ImplicitModificationWarning: Setting element `.layers['transformed_mean']` of view, initializing view as actual.
-  pb_data.adata.layers["transformed_mean"] = Y
-/data/nasif12/home_if12/l_mai/sc-genetics/src/cellink/tl/_burden_testing.py:451: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
-  pb_data.gdata.uns["gene_burdens"] = gene_burdens.query("Geneid in @target_genes")
-  0%|                                                                                                                    | 0/10 [00:00<?, ?it/s] 10%|██████████▋                                                                                                | 1/10 [00:00<00:00, 122.08it/s]
