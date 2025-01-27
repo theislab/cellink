@@ -36,10 +36,10 @@ def compute_marker_genes(scdata):
     return scdata
 
 def plots(scdata, out_path):
-    #sc.pl.umap(scdata, color='cell_label', save=f"{out_path}/umap_by_cell_type.png")
-    sc.pl.rank_genes_groups(scdata, n_genes=20, sharey=False, save=f"{out_path}/rank_genes.png")
-    sc.pl.rank_genes_groups_dotplot(scdata, n_genes=5, save=f"{out_path}/dotplot_rank_genes.png")
-    sc.pl.highest_expr_genes(scdata, n_top=20,save=f"{out_path}/highest_expr_genes.png")
+    sc.pl.umap(scdata, color='cell_label', save=f"umap_by_cell_type.png")
+    sc.pl.rank_genes_groups(scdata, n_genes=20, sharey=False, save=f"rank_genes.png")
+    sc.pl.rank_genes_groups_dotplot(scdata, n_genes=5, save=f"dotplot_rank_genes.png")
+    sc.pl.highest_expr_genes(scdata, n_top=20,save=f"highest_expr_genes.png")
         
 
 if __name__ == "__main__":
@@ -68,8 +68,9 @@ if __name__ == "__main__":
     print("saving scdata")
     scdata.write_h5ad(f"{args.output_path}/analysis_adata.h5ad")
 
+    sc.settings.figdir = args.output_path
     print("create plots")
-    plots(scdata, args.output_path)
+    plots(scdata)
 
         
 

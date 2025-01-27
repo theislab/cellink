@@ -4,8 +4,8 @@
 #SBATCH --error=err_data_analysis.txt          # File to write standard error
 #SBATCH --nodes=1                  # Number of nodes
 #SBATCH --ntasks=1                 # Number of tasks
-#SBATCH --cpus-per-task=1          # Number of CPUs per task
-#SBATCH --mem=32GB                   # Memory per node (4 GB)
+#SBATCH --cpus-per-task=8          # Number of CPUs per task
+#SBATCH --mem=256GB                   # Memory per node (4 GB)
 
 
 # sbatch slurm_burden_testing.sh
