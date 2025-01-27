@@ -1,8 +1,8 @@
 import os
 
 # Configurations
-#CHROMOSOMES = list(range(1, 23))  # Chromosomes 1 to 22
-CHROMOSOMES = list(range(22, 23))  # test 22
+CHROMOSOMES = list(range(1, 23))  # Chromosomes 1 to 22
+#CHROMOSOMES = list(range(22, 23))  # test 22
 INPUT_DIR = "/data/ceph/hdd/project/node_09/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/filter_vcf_r08"
 OUTPUT_DIR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output"
 EIGENVECOTOR = "/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/input_data/pcdir/wgs.dose.filtered.R2_0.8.filtered.pruned.eigenvec"

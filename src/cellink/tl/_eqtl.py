@@ -173,6 +173,24 @@ def _register_fixed_effects(
     #import ipdb; ipdb.set_trace()
     # compute expression PCs 
     sc.pp.highly_variable_genes(pbdata, n_top_genes=n_top_genes)
+    max_pcs = min(pbdata.n_obs, pbdata.n_vars)  # min(n_samples, n_features)
+    adjusted_n_sc_comps = min(max_pcs-1, n_sc_comps)
+    
+    if n_sc_comps > adjusted_n_sc_comps:
+        logger.info(f"Not enough valid PCs can be computed due to insufficient data.\
+        pbdata.n_obs: ({pbdata.n_obs}) pbdata.n_vars: ({pbdata.n_vars})")
+        return None
+        
+    # TODO: DECIDE WETHER OR NOT TO USE adjusted_n_sc_comps If >0 but <n_sc_comps
+    # if adjusted_n_sc_comps <= 0:
+    #     logger.info(f"Not enough valid PCs can be computed due to insufficient data. "
+    #                 f"pbdata.n_obs: ({pbdata.n_obs}), pbdata.n_vars: ({pbdata.n_vars})")
+    #     return None
+    
+    # if n_sc_comps > adjusted_n_sc_comps:
+    #     logger.warning(f"Requested n_sc_comps ({n_sc_comps}) exceeds the adjusted limit ({adjusted_n_sc_comps}). "
+    #                    f"Using adjusted_n_sc_comps instead.")
+    n_sc_comps = adjusted_n_sc_comps
     sc.tl.pca(pbdata, use_highly_variable=True, n_comps=n_sc_comps)
     pbdata.obsm["E_dpc"] = _column_normalize(pbdata.obsm["X_pca"])
     # load genetic PCs
@@ -318,6 +336,9 @@ def _get_pb_data(
     #sc.pp.filter_genes(pbdata, min_cells=min_individuals_threshold)
     sc.pp.filter_genes(pbdata, min_cells=int(pbdata.shape[1] * 0.1))
     # early return if no genes left
+    if pbdata.shape[1] == 0:
+        logger.info(f"No genes found in more than {min_individuals_threshold} individuals ({scdata_cell.shape=})")
+        return None
     if scdata_cell.shape[1] == 0:
         logger.info(f"No genes found in more than {min_individuals_threshold} individuals ({scdata_cell.shape=})")
         return None
@@ -332,6 +353,9 @@ def _get_pb_data(
         age_key_in_scdata,
         eigenvector_df
     )
+    if pbdata is None:
+        logger.info(f"pbdata is None")
+        return None
     # synchronizing sc and genetics data using DonorData DS
     data = DonorData(adata=pbdata, gdata=gdata, donor_key_in_sc_adata=donor_key_in_scdata)
     return data

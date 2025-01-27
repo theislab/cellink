@@ -427,6 +427,11 @@ def _burden_test(
         n_cellstate_comps,
         eigenvector_df
     )
+    if pb_data is None:
+        # logging message
+        msg = "pseudo-bulked could not be computed."
+        logger.info(msg)
+        return pd.DataFrame(columns=["burden_gene", "target_gene", "burden_type", "pvalue", "beta"])
     
     for gene in target_genes:
         if gene not in pb_data.adata.var_names:
@@ -460,7 +465,7 @@ def _burden_test(
         # logging message
         msg = "Filtering the pseudo-bulked data retrieved an empty dataset."
         logger.info(msg)
-        return output
+        return pd.DataFrame(columns=["burden_gene", "target_gene", "burden_type", "pvalue", "beta"])
     # defining optional iterator
     iterator = tqdm(range(len(target_genes))) if prog_bar else None
     # iterating over the target genes
