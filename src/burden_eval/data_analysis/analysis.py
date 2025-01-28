@@ -20,27 +20,37 @@ def preprocess_scdata(scdata):
 
 def create_umap(scdata):
     scdata = scdata.copy()
-
-    sc.pp.highly_variable_genes(scdata, n_top_genes=2000)
+    
+    # Identify highly variable genes to reduce memory usage -> subset on these
+    sc.pp.highly_variable_genes(scdata, n_top_genes=2000, inplace=True)
+    scdata = scdata[:, scdata.var['highly_variable']]  # Subset to highly variable genes
+    
+    # Scale the data for PCA
     sc.pp.scale(scdata, max_value=10)
+    
+    # Perform PCA on the reduced dataset
     sc.tl.pca(scdata, svd_solver='arpack', use_highly_variable=True)
-    #sc.pp.neighbors(scdata, n_neighbors=10, n_pcs=5)  
-    sc.pp.neighbors(scdata, n_neighbors=10, n_pcs=50)  
+    
+    # Compute the neighborhood graph with fewer PCs
+    sc.pp.neighbors(scdata, n_neighbors=10, n_pcs=40)
+    
+    # Compute UMAP
     sc.tl.umap(scdata)
+    
     return scdata
 
 def compute_marker_genes(scdata):
     scdata = scdata.copy()
-    sc.tl.rank_genes_groups(scdata, 'cell_label', method='wilcoxon', layer="log1p", use_raw=False) 
-    marker_genes = scdata.uns['rank_genes_groups']
+    sc.tl.rank_genes_groups(scdata, 'cell_label', method='wilcoxon', layer="log1p", use_raw=False)
     return scdata
+    
 
-def plots(scdata, out_path):
-    sc.pl.umap(scdata, color='cell_label', save=f"umap_by_cell_type.png")
-    sc.pl.rank_genes_groups(scdata, n_genes=20, sharey=False, save=f"rank_genes.png")
-    sc.pl.rank_genes_groups_dotplot(scdata, n_genes=5, save=f"dotplot_rank_genes.png")
-    sc.pl.highest_expr_genes(scdata, n_top=20,save=f"highest_expr_genes.png")
-        
+def plots(scdata):
+    sc.pl.umap(scdata, color='cell_label', save="umap_by_cell_type.png")
+    sc.pl.rank_genes_groups(scdata, n_genes=20, sharey=False, save="rank_genes.png")
+    sc.pl.rank_genes_groups_dotplot(scdata, n_genes=5, save="dotplot_rank_genes.png")
+    sc.pl.highest_expr_genes(scdata, n_top=20,save="highest_expr_genes.png")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
