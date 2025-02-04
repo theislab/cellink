@@ -9,6 +9,8 @@ import pandas as pd
 import numpy as np
 from itertools import islice
 from scipy.stats import gaussian_kde
+from matplotlib.ticker import MaxNLocator
+import matplotlib.patches as mpatches
 
 # FDR correction on association results #############
 
@@ -109,7 +111,8 @@ def plot_egenes_seaborn(df_to_plot):
 
 
 def plot_egenes_with_broken_axis(df_to_plot):
-    plt.rcParams.update({'font.size': 14})
+    #plt.rcParams.update({'font.size': 14})
+    plt.rcParams.update({'font.size': 16})
     # Filter out rows where `n` is 0
     df_filtered = df_to_plot[df_to_plot["n"] > 0]
 
@@ -119,9 +122,10 @@ def plot_egenes_with_broken_axis(df_to_plot):
     # Sort the DataFrame by the specified order
     df_filtered = df_filtered.sort_values(by=["celltype", "annotation"])
 
+
     # Create figure and two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(12, 8), gridspec_kw={'height_ratios': [1, 9]})
-
+    
     # Set y-axis limits for the two axes
     upper_limit = 105
     lower_limit = 180
@@ -147,33 +151,50 @@ def plot_egenes_with_broken_axis(df_to_plot):
     ax2.plot((-d, +d), (1 - d, 1 + d), **kwargs)  # Bottom-left diagonal
     ax2.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # Bottom-right diagonal
 
-    # ax2_ticks = ax2.get_yticks()
+    # ax2_ticks = ax2.get_yticks()  
     ax1.set_yticks([180, 190])
     ax2.set_yticks(range(0, 105, 10))
-    # ax1.set_yticks(ax2_ticks + upper_limit)  # Adjust ax1 ticks
-    # ax1.set_yticklabels([int(tick) for tick in ax2_ticks +  upper_limit])  # Label ax1 ticks
+    #ax2.plot([], [], ' ', label="cut y-axis, GENE_TSS_DIST_SAIGE in CD4 NC: 186 eGenes")
+
+    handles, labels = ax2.get_legend_handles_labels()
+
+    # Find the index of "GENE_TSS_DISTANCE_SAIGE" and update its label
+    index_to_update = labels.index("GENE_TSS_DISTANCE_SAIGE")
+    labels[index_to_update] = "GENE_TSS_DISTANCE_SAIGE, \ncut y axis, 186 eGenes in CD4 NC"  # Replace with the new label text
+    
+    # Move "GENE_TSS_DISTANCE_SAIGE" to the bottom
+    handles.append(handles.pop(index_to_update))
+    labels.append(labels.pop(index_to_update))
 
     legend = ax2.legend(
         title="Burden Annotation", 
+        handles=handles, 
+        labels=labels, 
+        #handles=[extra_text] + ax2.legend.legendHandles,  # Add extra text at the top
         loc='upper right',  # Place legend within the box
-        fontsize=14,  # Increase font size
-        title_fontsize=14  # Increase title font size
+        fontsize=15,  # Increase font size
+        title_fontsize=15  # Increase title font size
     )
     legend.set_frame_on(True)  # Add a box around the legend
+    #legend.get_texts()[-1].set_fontsize(12)   # Set a smaller font size for the extra text
+    #legend.get_texts()[-1].set_color("purple")  # Change text color to gray (or any color)
 
     # Add labels and legend
     ax1.set_xlabel("")
     ax2.set_xlabel("")
-    ax2.set_ylabel("Number of E-Genes")
+    ax2.set_ylabel("Number of significant E-Genes", fontsize=18)
     ax1.set_ylabel("")
     #ax1.legend(title="Burden Annotation", bbox_to_anchor=(1.05, 1), loc='upper left')
     ax1.legend_.remove()
     ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45, ha="right")
     ax1.set_title("E-Genes per Cell Type and Burden Type")
+    ax1.set_title("")
 
     # Adjust layout
     plt.tight_layout()
     plt.show()
+
+
 
 
 # QQ plots ##############
@@ -264,7 +285,7 @@ def plotnine_grid2(plots_list, row=2, col=3, figsize=(30, 30)):
 
     fig.tight_layout()
 
-    return fig
+    #return fig
 
 
 # pseudobulk grid scatter plots ##########
@@ -640,4 +661,26 @@ def get_pb_plots(data,
             plot_burden_expre_corr_mai(expression_data, annotation, gene, chrom, save_dir)
 
 
+## upset plots
+from upsetplot import UpSet, from_indicators
+
+def plot_upset(burden_dict, cell_type, fontsize=20):
+    plt.rcParams.update({'font.size': fontsize})  
+    
+    # Create a DataFrame indicating gene presence in each burden_type
+    all_genes = set(gene for genes in burden_dict.values() for gene in genes)
+    data = {gene: [gene in burden_dict[bt] for bt in burden_dict] for gene in all_genes}
+    df = pd.DataFrame.from_dict(data, orient='index', columns=burden_dict.keys())
+
+    # Ensure all values are boolean
+    df = df.astype(bool)
+
+    # Convert to UpSet format
+    upset_data = from_indicators(df.columns, df)
+    #import ipdb; ipdb.set_trace()
+
+    # Create and show UpSet plot
+    UpSet(upset_data).plot()
+    plt.title(cell_type)
+    plt.show()
 
