@@ -11,6 +11,7 @@ from itertools import islice
 from scipy.stats import gaussian_kde
 from matplotlib.ticker import MaxNLocator
 import matplotlib.patches as mpatches
+from upsetplot import UpSet, from_indicators
 
 # FDR correction on association results #############
 
@@ -151,7 +152,7 @@ def plot_egenes_with_broken_axis(df_to_plot):
     ax2.plot((-d, +d), (1 - d, 1 + d), **kwargs)  # Bottom-left diagonal
     ax2.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)  # Bottom-right diagonal
 
-    # ax2_ticks = ax2.get_yticks()  
+    # ax2_ticks = ax2.get_yticks()
     ax1.set_yticks([180, 190])
     ax2.set_yticks(range(0, 105, 10))
     #ax2.plot([], [], ' ', label="cut y-axis, GENE_TSS_DIST_SAIGE in CD4 NC: 186 eGenes")
@@ -161,7 +162,6 @@ def plot_egenes_with_broken_axis(df_to_plot):
     # Find the index of "GENE_TSS_DISTANCE_SAIGE" and update its label
     index_to_update = labels.index("GENE_TSS_DISTANCE_SAIGE")
     labels[index_to_update] = "GENE_TSS_DISTANCE_SAIGE, \ncut y axis, 186 eGenes in CD4 NC"  # Replace with the new label text
-    
     # Move "GENE_TSS_DISTANCE_SAIGE" to the bottom
     handles.append(handles.pop(index_to_update))
     labels.append(labels.pop(index_to_update))
@@ -229,7 +229,7 @@ def QQ_plot_sig_egenes(FDR_corrected_results, burdentype):
     return plot
 
 
-# No clue what this is for #######
+# Plotnine grids #######
 
 
 def _check_plotnine_grid(plots_list, figsize):
@@ -288,7 +288,7 @@ def plotnine_grid2(plots_list, row=2, col=3, figsize=(30, 30)):
     #return fig
 
 
-# pseudobulk grid scatter plots ##########
+# Pseudobulk grid scatter plots (with density coloring)##########
 
 
 def get_pb_data_for_ct_per_gene(data, all_burdens, eigenvec, celltype, target_chrom):
@@ -348,9 +348,10 @@ def burdenscore_with_pb_expression(pb_by_gene_df, geneid, all_burdens, burden_ty
     return burden_type_gene
 
 
-def plot_burden_expre_corr_old(burden_type_gene, burden_type, geneid):
+def plot_burden_expre_corr_originally(burden_type_gene, burden_type, geneid):
     """
     plots the relation between pb expression and the burden score
+    Version from student notebook but slightly adapted.
 
     burden_type_gene:  pd.DataFrame (output, burdenscore_with_pb_expression, 
                             can be concatinated for multiple cell types)
@@ -368,27 +369,6 @@ def plot_burden_expre_corr_old(burden_type_gene, burden_type, geneid):
 
     plot
     return plot
-
-
-def compute_2d_density(df):
-    """
-    Compute KDE density for Gene Score (burden_type) and PB Expression (pb_expr) within each cell_type group.
-    """
-    df = df.dropna(subset=["pb_expr"])
-    if len(df) < 2:  # Skip if too few values
-        return pd.Series(np.nan, index=df.index)
-
-    if df["pb_expr"].nunique() == 1 or df[burden_type].nunique() == 1:  
-        # If all values are the same, assign uniform density
-        return pd.Series(1.0, index=df.index)
-
-    # Fit 2D KDE using both pb_expr and burden_type
-    kde = gaussian_kde(np.vstack([df[burden_type], df["pb_expr"]]))
-
-    # Evaluate KDE at each observed point
-    density_values = kde(np.vstack([df[burden_type], df["pb_expr"]]))
-
-    return pd.Series(density_values, index=df.index)  # Ensure row-wise mapping
 
 
 def plot_burden_expre_corr(burden_type_gene, burden_type, geneid, chrom,save=""):
@@ -424,6 +404,26 @@ def plot_burden_expre_corr(burden_type_gene, burden_type, geneid, chrom,save="")
     if burden_type == "GENE_TSS_DISTANCE":
         axis_text = axis_text/3
 
+    def compute_2d_density(df):
+        """
+        Compute KDE density for Gene Score (burden_type) and PB Expression (pb_expr) within each cell_type group.
+        """
+        df = df.dropna(subset=["pb_expr"])
+        if len(df) < 2:  # Skip if too few values
+            return pd.Series(np.nan, index=df.index)
+
+        if df["pb_expr"].nunique() == 1 or df[burden_type].nunique() == 1:
+            # If all values are the same, assign uniform density
+            return pd.Series(1.0, index=df.index)
+
+        # Fit 2D KDE using both pb_expr and burden_type
+        kde = gaussian_kde(np.vstack([df[burden_type], df["pb_expr"]]))
+
+        # Evaluate KDE at each observed point
+        density_values = kde(np.vstack([df[burden_type], df["pb_expr"]]))
+
+        return pd.Series(density_values, index=df.index)  # Ensure row-wise mapping
+
     # Apply KDE computation per group
     burden_type_gene["density"] = burden_type_gene.groupby("cell_type", group_keys=False).apply(compute_2d_density)
 
@@ -447,7 +447,7 @@ def plot_burden_expre_corr(burden_type_gene, burden_type, geneid, chrom,save="")
             axis_text_x=element_text(size=axis_text),   # Increase x-axis tick labels font size
             axis_text_y=element_text(size=axis_text),    # Increase y-axis tick labels font size)
             strip_text=element_text(size=facet_text)
-        )
+            )
     )
     plot.show()
     if save != "":
@@ -457,7 +457,7 @@ def plot_burden_expre_corr(burden_type_gene, burden_type, geneid, chrom,save="")
 
 def plot_burden_expre_corr_old_mai(burden_type_gene, burden_type, geneid, chrom, save=""):
     """
-    plots the relation between pb expression and the burden score
+    plots the relation between pb expression and the burden score (without density coloring)
 
     burden_type_gene:  pd.DataFrame (output, burdenscore_with_pb_expression, 
                             can be concatinated for multiple cell types)
@@ -493,17 +493,7 @@ def plot_burden_expre_corr_old_mai(burden_type_gene, burden_type, geneid, chrom,
     + labs(x = "Gene score", title=f"Gene: {geneid}, Annotation: {burden_type}")
     + theme_classic()
     + geom_smooth()
-    #+ geom_point()
-    #+ geom_density_2d_filled(alpha=0.5)
-    #+ geom_bin2d(bins=30)
-    #+ stat_density2d(aes(fill=..density..), geom="raster", contour=False)
-    # Density shading in the background
-    + stat_density_2d(aes(fill="..level.."), geom="polygon", contour=True, alpha=0.5)  
-    # Points colored by density
-    + geom_point(aes(color="..density.."), alpha=0.7, size=2, stat="density_2d")
-    # Use the correct color scale
-    + scale_color_cmap(cmap="viridis")
-    + scale_fill_cmap(cmap="viridis")  # Apply the same colormap to fill
+    + geom_point()
     + facet_wrap("cell_type")
     + theme(legend_position="top",
             figure_size=(fig_height,fig_length),
@@ -519,57 +509,19 @@ def plot_burden_expre_corr_old_mai(burden_type_gene, burden_type, geneid, chrom,
     if save != "":
         plot_name = f"{save}/dotplot_grid_{burden_type}_{geneid}_chr{chrom}.png"
         plot.save(plot_name, dpi=300, width=fig_length, height=fig_height)
-        
-
-def plot_burden_expre_corr_mai_fuck_this(burden_type_gene, burden_type, geneid, chrom, save=""):
-    """
-    Plots the relation between pb expression and the burden score.
-
-    burden_type_gene: pd.DataFrame
-        Contains burden score and pb expression data.
-    burden_type: str
-        The column name for the burden score.
-    """
-    # Remove NaN or infinite values
-    burden_type_gene = burden_type_gene.replace([np.inf, -np.inf], np.nan).dropna()
-
-    # Create the FacetGrid
-    g = sns.FacetGrid(burden_type_gene, col="cell_type", col_wrap=3, sharex=True, sharey=True)
-
-    # Function to plot scatter plot with density-based colors
-    def scatter_with_density(data, x, y, ax, **kwargs):
-        # Remove NaNs/Infs
-        data = data.dropna(subset=[x, y])
-
-        # Compute KDE values for color mapping
-        if len(data) > 1:  # Ensure enough data points for KDE
-            values = np.vstack([data[x], data[y]])
-            kernel = gaussian_kde(values)(values)
-        else:
-            kernel = np.zeros(len(data))  # Avoid errors when data is too small
-
-        # Plot scatter with KDE-based color, passing additional kwargs (like color)
-        scatter = ax.scatter(data[x], data[y], c=kernel, cmap="viridis", **kwargs)
-        ax.set_xlabel(burden_type)
-        ax.set_ylabel("pb_expr")
-        plt.colorbar(scatter, ax=ax, label="Density")
-
-    # Apply scatter_with_density to each facet, passing kwargs correctly
-    g.map_dataframe(lambda data, **kwargs: scatter_with_density(data, burden_type, "pb_expr", ax=plt.gca(), **kwargs))
-
-    # Adjust layout
-    g.set_titles(col_template="{col_name}")
-
-    plt.show()
 
 
 def plot_burden_expre_corr_mai(burden_type_gene, burden_type, geneid, chrom, save=""):
     """
     plots the relation between pb expression and the burden score
+    Note: i adated the code so it would work perfectly for our gene of interest, might need adaptations again for code to work for all genes
 
     burden_type_gene:  pd.DataFrame (output, burdenscore_with_pb_expression, 
                             can be concatinated for multiple cell types)
     burden_type: Str
+    geneid: str target gene id
+    chrom: str of target chromosome
+    ax: where to plot this
     """
     # Create the FacetGrid
     g = sns.FacetGrid(burden_type_gene, col="cell_type", col_wrap=3, sharex=True, sharey=True,height=4, aspect=1.5)
@@ -596,18 +548,24 @@ def plot_burden_expre_corr_mai(burden_type_gene, burden_type, geneid, chrom, sav
         sns.regplot(data=data, x=x, y=y, scatter=False, color="blue", line_kws={"color": "black", "lw": 1})
 
     # Apply regression line to each facet
-    g.map(plot_regression, data=burden_type_gene, x=burden_type, y="pb_expr")
+    g.map_dataframe(plot_regression, data=burden_type_gene, x=burden_type, y="pb_expr")
 
     # Adjust layout
-    g.set_axis_labels(burden_type, "pb_expr")
-    g.set_titles(col_template="{col_name}")  
+    g.set_axis_labels("Gene Impairment Score", "Pseudobulk expression", fontweight="bold", fontsize=12)
+    g.set_titles(col_template="{col_name}", fontweight="bold", size=14)
 
     # Add a title for the entire plot
-    plt.suptitle(f"{geneid}", fontsize=14)
+    plt.suptitle(f"{burden_type}", fontsize=16, y=0.98, x=0.33)
+    g.fig.subplots_adjust(top=0.85)  # Adjust the top spacing for the title
 
     # Adjust layout to make room for the main title
-    plt.subplots_adjust(top=0.92)  # Adjust top space for the title to avoid overlap
+    #plt.subplots_adjust(top=1)  # Adjust top space for the title to avoid overlap
+
     plt.show()
+    
+    if save != "":
+        plot_name = f"{save}/densityscatterplot_grid_{burden_type}_{gene}_chr{chrom}.png"
+        plt.save(plot_name, dpi=300)
 
 
 def get_pb_plots(data,
@@ -620,7 +578,7 @@ def get_pb_plots(data,
                  gene_list=[],
                  save_dir=""):
     """
-    plots the relation between pb expression and the burden score per chromosome and cell_type for set number of genes
+    Plots the relation between pb expression and the burden score per chromosome & cell_type for set number of genes
 
     data: GeneAnnoData Object to get pb from
     df_burdens_chrom (pd.DataFrame): burden results
@@ -654,6 +612,8 @@ def get_pb_plots(data,
                             burdens_expr_per_gene[burden][gene] = burdens_expr
                         else:
                             burdens_expr_per_gene[burden][gene] = pd.concat([burdens_expr_per_gene[burden][gene],burdens_expr], ignore_index=True)
+            else:
+                print(f"pb X not calculated for genen {gene} in cell type {cell_type}")
 
     # create plots
     for annotation, genes in burdens_expr_per_gene.items():
@@ -661,12 +621,12 @@ def get_pb_plots(data,
             plot_burden_expre_corr_mai(expression_data, annotation, gene, chrom, save_dir)
 
 
-## upset plots
-from upsetplot import UpSet, from_indicators
+# upset plots ##########
+
 
 def plot_upset(burden_dict, cell_type, fontsize=20):
-    plt.rcParams.update({'font.size': fontsize})  
-    
+    plt.rcParams.update({'font.size': fontsize})
+
     # Create a DataFrame indicating gene presence in each burden_type
     all_genes = set(gene for genes in burden_dict.values() for gene in genes)
     data = {gene: [gene in burden_dict[bt] for bt in burden_dict] for gene in all_genes}
@@ -684,3 +644,54 @@ def plot_upset(burden_dict, cell_type, fontsize=20):
     plt.title(cell_type)
     plt.show()
 
+
+# Beta distribution plots #####################
+
+
+def grouped_boxplot(df):
+
+    sorted_df = df.sort_values(by=['cell_type', 'burden_type'])
+
+    plt.figure(figsize=(15, 8))
+    sns.boxplot(data=sorted_df, x='cell_type', y='beta', hue='burden_type')
+
+    #plt.title('Distribution of Beta Values for Cell Type and Burden Type')
+    plt.ylabel('Beta Values', fontsize = 16)
+
+    plt.xticks(rotation=45, fontsize=14)
+
+
+    plt.yticks(fontsize=14)
+
+
+    plt.legend(title='Burden Annotation',title_fontsize=16, fontsize=14, bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    plt.savefig("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/data_plots/beta_distribution.png")
+    plt.show()
+
+
+def calculate_std(df):
+
+    std_df = df.groupby(['cell_type', 'burden_gene'])['beta'].std().reset_index(name='std_beta')
+
+    df = df.merge(std_df, on=['cell_type', 'burden_gene'])
+
+    return df
+
+
+def grouped_boxplot_sd(df):
+    # Sortieren des DataFrame nach 'cell_type'
+    sorted_df = df.sort_values(by=['cell_type', 'burden_type'])
+
+    plt.figure(figsize=(15, 8))
+    sns.boxplot(data=sorted_df, x='cell_type', y='std_beta', hue='burden_type')
+
+    #plt.title('Distribution of Standard Deviation of Beta Values for Cell Type and Burden Type')
+    plt.ylabel('Standard Deviation of Beta Value', fontsize = 16)
+
+    plt.xticks(rotation=45, fontsize= 14)
+    plt.yticks(fontsize= 14)
+    plt.legend(title='Burden Annotation', title_fontsize=16, fontsize = 14,bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.tight_layout()
+    #plt.savefig("/s/project/sys_gen_students/2024_2025/project04_rare_variant_sc/output/data_plots/std_beta_distribution.png")
+    plt.show()
