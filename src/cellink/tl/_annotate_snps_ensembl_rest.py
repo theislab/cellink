@@ -2,6 +2,8 @@ import pandas as pd
 import requests
 from tqdm.auto import tqdm
 
+from cellink._core.data_fields import VAnn
+
 
 def _split_snp_id(snp_str):
     chrom = snp_str.split(":")[0]
@@ -83,7 +85,7 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
                 entry["clinical_significance"] = ",".join(entry.get("clinical_significance", []))
                 results.append(
                     {
-                        "snp_id": snp,
+                        VAnn.index: snp,
                         "is_in_gene": is_in_gene,
                         "genes": genes,
                         **entry,
@@ -99,7 +101,7 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
 
         return group
 
-    var_df = var_df.groupby("snp_id", sort=False).apply(process_df, include_groups=False)
+    var_df = var_df.groupby(VAnn.index, sort=False).apply(process_df, include_groups=False)
     var_df = var_df.drop_duplicates(subset=var_df.columns.difference(["rs_id"]))
     gene_df = pd.DataFrame(genes_list).set_index("id")
     return var_df, gene_df

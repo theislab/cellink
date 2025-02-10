@@ -190,3 +190,5 @@ software
 *.sqlite
 
 misc
+data
+*.code-workspace
