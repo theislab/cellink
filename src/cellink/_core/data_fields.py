@@ -38,3 +38,4 @@ class VAnn:
     a1: str = "a1"
     maf: str = "maf"
     contig: str = "contig"  # index for contig_id
+    index: str = "snp_id"

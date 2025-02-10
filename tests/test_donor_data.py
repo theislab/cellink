@@ -2,7 +2,7 @@ from pathlib import Path
 
 import mudata as md
 
-from cellink._core.annotation import CAnn, DAnn
+from cellink._core.data_fields import CAnn, DAnn
 from cellink._core.donordata import DonorData
 
 md.set_options(pull_on_update=False)
@@ -140,6 +140,34 @@ def test_ellipsis_indexing(adata, gdata):
     assert isinstance(dd_ellipsis, DonorData)
     # Using ellipsis should return a DonorData with full selection, matching the original shape
     assert dd_ellipsis.shape == dd.shape
+
+
+def test_ellipsis_with_final_index(adata, gdata):
+    """Test __getitem__ with ellipsis at the beginning and a final index.
+
+    This should expand dd[..., 'G1'] into (slice(None), slice(None), slice(None), 'G1'),
+    resulting in a shape with the last dimension being of size 1."""
+    dd = DonorData(G=gdata, C=adata)
+    dd_res = dd[..., "G1"]
+    # Expected shape: (num_donors, num_G_vars, num_cells, 1)
+    num_donors, num_G_vars = gdata.shape
+    num_cells, num_genes = adata.shape
+    expected_shape = (num_donors, num_G_vars, num_cells, 1)
+    assert dd_res.shape == expected_shape
+
+
+def test_ellipsis_middle_indexing(adata, gdata):
+    """Test __getitem__ with ellipsis in the middle.
+
+    For example, dd['D0', ..., 'G1'] should expand to
+    ('D0', slice(None), slice(None), 'G1') and select a single donor and gene."""
+    dd = DonorData(G=gdata, C=adata)
+    dd_res = dd["D0", Ellipsis, "G1"]
+    # Expected shape: (1, num_G_vars, num_cells, 1)
+    _, num_G_vars = gdata.shape
+    num_cells = adata[adata.obs[DAnn.donor] == "D0"].shape[0]
+    expected_shape = (1, num_G_vars, num_cells, 1)
+    assert dd_res.shape == expected_shape
 
 
 if __name__ == "__main__":

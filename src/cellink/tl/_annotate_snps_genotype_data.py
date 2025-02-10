@@ -1,4 +1,3 @@
-import datetime as dt
 import logging
 import os
 import subprocess
@@ -7,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import polars as pl
 import yaml
 
+from cellink._core.data_fields import VAnn
 from cellink.tl.utils import (
     _add_dummy_cols,
     _explode_columns,
@@ -33,7 +32,6 @@ def setup_snpeff():
     of SnpEff from SourceForge, and extracts the contents. It ensures that the
     required tool is available for genome annotation tasks.
     """
-
     os.makedirs("deps", exist_ok=True)
     subprocess.run(
         [
@@ -48,6 +46,7 @@ def setup_snpeff():
     subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
     os.chdir("../")
 
+
 def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
     """
     Runs genome annotation using the SnpEff tool.
@@ -61,7 +60,6 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         genome (str): Genome version to be used for annotation (default: "GRCh37.75").
                       Ensure this genome is supported by SnpEff.
     """
-
     snpeff_path = "./deps/snpEff/snpEff.jar"
 
     subprocess.run(
@@ -69,6 +67,7 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         stdout=open(vcf_output, "w"),
         check=True,
     )
+
 
 def _write_variants_to_vcf(variants, out_file):
     # TODO add check for if file allready exists
@@ -217,10 +216,10 @@ def _change_col_dtype(annos):
     for col in cols_to_replace:
         try:
             annos[col] = annos[col].astype(float)
-        except:
+        except:  # TODO: please catch explicit exception
             try:
                 annos[col] = annos[col].replace(np.nan, "-")
-            except:
+            except:  # TODO: please catch explicit exception
                 logger.warning(f"{col} couldn't be changed")
     return annos
 
@@ -229,7 +228,7 @@ def add_vep_annos_to_gdata(
     vep_anno_file,
     gdata,
     id_col="#Uploaded_variation",
-    id_col_new="snp_id",
+    id_col_new=VAnn.index,
     cols_to_explode=("Consequence",),
     cols_to_dummy=("Consequence",),
 ):
