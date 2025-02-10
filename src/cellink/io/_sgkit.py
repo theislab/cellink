@@ -9,6 +9,8 @@ from anndata import AnnData
 from anndata.utils import asarray
 from sgkit.io import plink as sg_plink
 
+from cellink._core.data_fields import DAnn, VAnn
+
 warnings.filterwarnings(
     "ignore",
     message="The return type of `Dataset.dims` will be changed",
@@ -19,25 +21,13 @@ warnings.filterwarnings(
 def _get_snp_index(var: pd.DataFrame) -> pd.Index:
     df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
     index = df.apply("_".join, axis=1)
-    return pd.Index(index, name="snp_id")
+    return pd.Index(index, name=VAnn.index)
 
 
 def _to_df_only_dim(gdata, dims):
     df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
     df.index = df.index.astype(str)
     return df
-
-
-@dataclass(frozen=True)
-class VAnn:
-    """Variant annotation fields in GenoAnndata"""
-
-    chrom: str = "chrom"
-    pos: str = "pos"
-    a0: str = "a0"
-    a1: str = "a1"
-    maf: str = "maf"
-    contig: str = "contig"  # index for contig_id
 
 
 @dataclass(frozen=True)
@@ -87,6 +77,7 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     obs = obs.rename(columns=obs_rename)
     obs.columns = obs.columns.str.replace("sample_", "")
     obs = obs.set_index("id")
+    obs.index.name = DAnn.donor
 
     var = _to_df_only_dim(sgkit_dataset, SgDims.variants)
     var = var.rename(columns=var_rename)
