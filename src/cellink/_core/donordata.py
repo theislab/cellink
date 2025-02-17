@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from typing import Union
 from anndata import AnnData
+from muon import MuData
 from anndata.utils import asarray
 from pandas import Index
 from rich.console import Console
@@ -21,7 +23,7 @@ class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
     This class allows donor-level, especially genetic, analysis with single-cell datasets.
-    It holds AnnData objects for single-cell (adata) and genetic (gdata) data.
+    It holds AnnData/ MuData objects for single-cell (adata) and genetic (gdata) data.
     The donor key in adata.obs must be a categorical column.
 
     Raises
@@ -34,8 +36,8 @@ class DonorData:
         _type_: DonorData object
     """
 
-    adata: AnnData
-    gdata: AnnData
+    adata: Union[AnnData, MuData] 
+    gdata: AnnData 
     donor_key_in_sc_adata: str
 
     def __post_init__(self):
@@ -55,7 +57,7 @@ class DonorData:
         if not self.adata.obs[self.donor_key_in_sc_adata].dtype.name == "category":
             raise ValueError(f"'{self.donor_key_in_sc_adata}' in adata.obs is not categorical")
 
-    def get_donor_adata(self, donor: str) -> AnnData:
+    def get_donor_adata(self, donor: str) -> Union[AnnData, MuData]:
         """Retrieve single-cell data for a specific donor.
 
         Args:
@@ -67,7 +69,7 @@ class DonorData:
 
         Returns
         -------
-            AnnData: AnnData object containing the donor's single-cell data.
+            Union[AnnData, MuData]: Object containing the donor's single-cell data.
         """
         if donor not in self.adata.obs[self.donor_key_in_sc_adata].cat.categories:
             raise ValueError(f"Donor '{donor}' not found in adata")
