@@ -192,3 +192,7 @@ software
 misc
 data
 *.code-workspace
+
+#############
+#Specific files
+entry_test*.py
