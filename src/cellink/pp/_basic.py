@@ -1,6 +1,106 @@
 import anndata
 import dask.array as da
 import numpy as np
+from .._core import DonorData
+
+def cell_level_obs_filter(
+    dd: DonorData,
+    cell_level_key: str = None,
+    cell_level_values: str | list | np.ndarray = None,
+    *,
+    inplace: bool = True,
+    copy: bool = True,
+) -> DonorData | None:
+    """\
+    Filter DonorData based on cell level observations information.
+
+    Parameters
+    ----------
+    inplace
+        Perform computation inplace or return result.
+
+    Returns
+    -------
+    Depending on `inplace`, returns the following arrays or directly subsets
+    and annotates the data matrix.
+    """
+
+    if type(cell_level_values) == str:
+        dd = dd[..., dd.C.obs[cell_level_key] == cell_level_values, :].copy()
+    elif type(cell_level_values) == list:
+        dd = dd[..., dd.C.obs[cell_level_key].isin(cell_level_values), :].copy()
+    elif type(cell_level_values) == np.ndarray:
+        dd = dd[..., np.isin(dd.C.obs[cell_level_key].values, cell_level_values), :].copy()
+    
+    if inplace:
+        return None
+    return dd.copy() if copy else dd
+
+def donor_level_obs_filter(
+    dd: DonorData,
+    donor_level_key: str = None,
+    donor_level_values: str | list | np.ndarray = None,
+    *,
+    inplace: bool = True,
+    copy: bool = True,
+) -> DonorData | None:
+    """\
+    Filter DonorData based on donor level observations information.
+
+    Parameters
+    ----------
+    inplace
+        Perform computation inplace or return result.
+
+    Returns
+    -------
+    Depending on `inplace`, returns the following arrays or directly subsets
+    and annotates the data matrix.
+    """
+
+    if type(donor_level_values) == str:
+        dd = dd[dd.G.obs[donor_level_key] == donor_level_values, :].copy()
+    elif type(donor_level_values) == list:
+        dd = dd[dd.G.obs[donor_level_key].isin(donor_level_values), :].copy()
+    elif type(donor_level_values) == np.ndarray:
+        dd = dd[np.isin(dd.G.obs[donor_level_key].values, donor_level_values), :].copy()
+    
+    if inplace:
+        return None
+    return dd.copy() if copy else dd
+
+def donor_level_var_filter(
+    dd: DonorData,
+    *,
+    donor_level_key: str = None,
+    donor_level_values: str | list | np.ndarray = None,
+    inplace: bool = True,
+    copy: bool = True,
+) -> DonorData | None:
+    """\
+    Filter DonorData based on cell level variables information.
+
+    Parameters
+    ----------
+    inplace
+        Perform computation inplace or return result.
+
+    Returns
+    -------
+    Depending on `inplace`, returns the following arrays or directly subsets
+    and annotates the data matrix.
+    """
+
+    if type(donor_level_values) == str:
+        dd = dd[:, dd.G.var[donor_level_key] == donor_level_values, :].copy()
+    elif type(donor_level_values) == list:
+        dd = dd[:, dd.C.var[donor_level_key].isin(donor_level_values), :].copy()
+    elif type(donor_level_values) == np.ndarray:
+        dd = dd[:, np.isin(dd.C.var[donor_level_key].values, donor_level_values), :].copy()
+    
+    if inplace:
+        return None
+    return dd.copy() if copy else dd
 
 def low_abundance_filter(
     adata: anndata.AnnData,

@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
+import muon as mu
+from pathlib import Path
 
-if TYPE_CHECKING:
-    from mudata import MuData
+#if TYPE_CHECKING:
+from mudata import MuData
 
 from rich.align import Align
 from rich.console import Console, Group
@@ -98,6 +100,37 @@ class DonorData:
         if self._C.is_view:
             self._C = self._C.copy()
         return self
+
+    def write_donordata_objects(self, path_C: str | Path, path_G: str | Path, **kwargs) -> None:
+        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+
+        Parameters
+        ----------
+        path_C : str | Path
+            Path where the cell-type data (`dd.C`) should be saved. If `dd.C` is a `mu.Dataset`, it is written 
+            using the `mu.write` function.
+        path_G : str
+            Path where the gene expression data (`dd.G`) should be saved. Always saved using `sc.write_h5ad`.
+        dd : cl.DonorData
+            The DonorData object containing:
+            - `G`: Gene expression data (as an `AnnData` object or `mu.Dataset`).
+            - `C`: Cell-type data (as an `AnnData` object).
+        **kwargs : dict, optional
+            Additional keyword arguments passed to the `sc.write_h5ad` or `mu.write` functions when saving data.
+
+        Example
+        -------
+        write_donordata_objects('cell_data.h5mu', 'gene_data.h5ad', dd)
+        """
+
+        if type(self.G) == MuData:
+            self.G.write(path_G.replace(".h5ad", ".h5mu"), **kwargs)
+        else:
+            self.G.write_h5ad(path_G, **kwargs)
+        if type(self.C) == MuData:
+            self.C.write(path_C.replace(".h5ad", ".h5mu"), **kwargs)
+        else:
+            self.C.write_h5ad(path_C.replace(".h5mu", ".h5ad"), **kwargs)   
 
     @property
     def C(self) -> AnnData:

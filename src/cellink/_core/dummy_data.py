@@ -1,11 +1,14 @@
 import anndata as ad
+import muon as mu
 import numpy as np
 import pandas as pd
+from typing import Literal
 
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 
 N_DONORS = 10
 N_GENES = 20
+N_PEAKS = 50
 N_SNPS = 5
 
 
@@ -22,8 +25,22 @@ GENE_PREFIX = "G"
 SNP_PREFIX = "SNP"
 
 
-def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes):
-    X = np.random.randn(n_cells, n_genes)
+def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes, strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn"):
+    if strategy == "randn":
+        X = np.random.randn(n_cells, n_genes)
+    elif strategy == "poisson":
+        X = np.random.poisson(lam=5, size=(n_cells, n_genes))
+    elif strategy == "negative_binomial":
+        mean = 5
+        dispersion = 2
+        r = 1 / dispersion
+        p = mean / (mean + r)
+        X = np.random.negative_binomial(n=r, p=p, size=(n_cells, n_genes))
+    elif strategy == "binomial":
+        p = 0.1
+        X = np.random.binomial(n=1, p=p, size=(n_cells, n_genes))
+    elif strategy == "uniform":
+        X = np.random.uniform(size=(n_cells, n_genes))
     _celltypes = CELLTYPES if has_all_celltypes else CELLTYPES[:-1]
     obs = pd.DataFrame({CAnn.celltype: np.random.choice(_celltypes, size=n_cells)})
     obs.index = [f"{CELL_PREFIX}{i}" for i in range(start_index, start_index + n_cells)]
@@ -41,7 +58,16 @@ def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes):
     return ad.AnnData(X=X, obs=obs, var=var)
 
 
-def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS):
+def sim_adata_muon(n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS):
+    rna = sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="negative_binomial")
+    atac = sim_adata(n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial")
+    adata = mu.MuData({"rna": rna, "atac": atac})
+    adata.obs["celltype"] = adata.obs["rna:celltype"]
+    adata.obs["donor_id"] = adata.obs["rna:donor_id"]
+    return adata
+
+
+def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn"):
     """Simulate an AnnData object with multiple donors.
 
     AnnData object with n_obs × n_vars = 445 × N_GENES
@@ -70,7 +96,7 @@ def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n
     for i in range(n_donors):
         n_cells = np.random.randint(min_n_cells, max_n_cells)
         has_all_celltypes = i != 0  # the first donor misses one celltype
-        adatas.append(_sim_donor(cum_n_cells, n_cells, n_genes, has_all_celltypes))
+        adatas.append(_sim_donor(cum_n_cells, n_cells, n_genes, has_all_celltypes, strategy=strategy))
         cum_n_cells += n_cells
     donors = [f"{DONOR_PREFIX}{i}" for i in range(n_donors)]
     adata = ad.concat(adatas, merge="first", keys=donors, label=DAnn.donor)
