@@ -10,6 +10,24 @@
     :toctree: generated
 
     _core.donordata.DonorData
+    _core.data_fields.GAnn
+    _core.data_fields.DAnn
+    _core.data_fields.CAnn
+    _core.data_fields.VAnn
+```
+
+## Simulation Data
+
+```{eval-rst}
+.. module:: cellink._core
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    _core.dummy_data.sim_adata
+    _core.dummy_data.sim_adata_muon
+    _core.dummy_data.sim_gdata
 ```
 
 ## Input-Output
@@ -24,6 +42,8 @@
     io.from_sgkit_dataset
     io.read_plink
     io.read_sgkit_zarr
+    io.to_plink
+    io.read_donordata_objects
 ```
 
 ## Preprocessing
@@ -36,18 +56,13 @@
     :toctree: generated
 
     pp.variant_qc
-```
-
-## DonorData
-
-```{eval-rst}
-.. module:: cellink._core
-.. currentmodule:: cellink
-
-.. autosummary::
-    :toctree: generated
-
-    _core.DonorData
+    pp.cell_level_obs_filter
+    pp.donor_level_obs_filter
+    pp.donor_level_var_filter
+    pp.low_abundance_filter
+    pp.missing_values_filter
+    pp.log_transform
+    pp.normalize
 ```
 
 ## Tools
@@ -66,6 +81,19 @@
     tl.dosage_per_strand
     tl.simulate_genotype_data_msprime
     tl.simulate_genotype_data_numpy
+```
+
+## Machine Learning
+
+```{eval-rst}
+.. module:: cellink.ml
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    ml.DonorDataModel
+    ml.DonorDataBaseModel
 ```
 
 ## Plotting
