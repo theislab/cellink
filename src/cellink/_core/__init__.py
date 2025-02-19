@@ -1,2 +1,2 @@
-from .data_fields import DAnn, GAnn, VAnn
+from .data_fields import DAnn, CAnn, GAnn, VAnn
 from .donordata import DonorData

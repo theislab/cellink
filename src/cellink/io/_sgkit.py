@@ -77,7 +77,7 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     obs = obs.rename(columns=obs_rename)
     obs.columns = obs.columns.str.replace("sample_", "")
     obs = obs.set_index("id")
-    obs.index.name = DAnn.donor
+    obs.index.name = DAnn.DONOR_ID_KEY
 
     var = _to_df_only_dim(sgkit_dataset, SgDims.variants)
     var = var.rename(columns=var_rename)

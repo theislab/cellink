@@ -21,7 +21,7 @@ def test_slice_donors(adata, gdata):
     dd = DonorData(G=gdata, C=adata)
     keep_donors = ["D0", "D1"]
     dd = dd[keep_donors]
-    sub_adata = adata[adata.obs[DAnn.donor].isin(keep_donors)]
+    sub_adata = adata[adata.obs[DAnn.DONOR_ID_KEY].isin(keep_donors)]
     assert dd.shape[0] == len(keep_donors)
     assert dd.shape[1] == gdata.shape[1]
     assert dd.shape[2] == sub_adata.shape[0]
@@ -42,7 +42,7 @@ def test_slice_cells(adata, gdata):
     dd = DonorData(G=gdata, C=adata)
     keep_cells = ["C0", "C1"]
     dd = dd[:, :, keep_cells]
-    keep_individuals = adata[keep_cells].obs[DAnn.donor].unique()
+    keep_individuals = adata[keep_cells].obs[DAnn.DONOR_ID_KEY].unique()
     assert dd.shape[0] == len(keep_individuals)
     assert dd.shape[1] == gdata.shape[1]
     assert dd.shape[2] == len(keep_cells)
@@ -75,9 +75,9 @@ def test_donordata_aggregate(adata, gdata, dummy_covariates):
     assert "Gex" in dd.G.obsm
     assert dd.C.shape == previous_adata_shape
 
-    for celltype in adata.obs[CAnn.celltype].unique():
+    for celltype in adata.obs[CAnn.CELL_LABELS_KEY].unique():
         celltype_key = f"Gex_{celltype}"
-        dd.aggregate(key_added=celltype_key, filter_key=CAnn.celltype, filter_value=celltype)
+        dd.aggregate(key_added=celltype_key, filter_key=CAnn.CELL_LABELS_KEY, filter_value=celltype)
         assert celltype_key in dd.G.obsm
         assert dd.C.shape == previous_adata_shape
 
@@ -108,7 +108,7 @@ def test_mudata_getitem(adata, gdata):
 
     mu_gdata = md.MuData({"genotype": gdata})
     mu_adata = md.MuData({"RNA": adata, "atac": adata[:, :5].copy()}, axis=-1)
-    mu_adata.obs[DAnn.donor] = mu_adata.mod["RNA"].obs[DAnn.donor]
+    mu_adata.obs[DAnn.DONOR_ID_KEY] = mu_adata.mod["RNA"].obs[DAnn.DONOR_ID_KEY]
     dd = DonorData(G=mu_gdata, C=mu_adata)
 
     # Test tuple indexing with MuData objects
@@ -120,7 +120,7 @@ def test_mudata_sel_dict_indexing(adata, gdata):
     # Also test dictionary indexing with MuData objects
     mu_gdata = md.MuData({"genotype": gdata})
     mu_adata = md.MuData({"RNA": adata, "atac": adata[:, :5].copy()}, axis=-1)
-    mu_adata.obs[DAnn.donor] = mu_adata.mod["RNA"].obs[DAnn.donor]
+    mu_adata.obs[DAnn.DONOR_ID_KEY] = mu_adata.mod["RNA"].obs[DAnn.DONOR_ID_KEY]
     dd = DonorData(G=mu_gdata, C=mu_adata)
 
     idx_dict = {
@@ -168,7 +168,7 @@ def test_ellipsis_middle_indexing(adata, gdata):
     dd_res = dd["D0", Ellipsis, "G1"]
     # Expected shape: (1, num_G_vars, num_cells, 1)
     _, num_G_vars = gdata.shape
-    num_cells = adata[adata.obs[DAnn.donor] == "D0"].shape[0]
+    num_cells = adata[adata.obs[DAnn.DONOR_ID_KEY] == "D0"].shape[0]
     expected_shape = (1, num_G_vars, num_cells, 1)
     assert dd_res.shape == expected_shape
 

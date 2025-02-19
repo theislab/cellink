@@ -50,7 +50,7 @@ class DonorData:
         *,
         G: AnnData | MuData,
         C: AnnData | MuData,
-        donor_id: str = DAnn.donor,
+        donor_id: str = DAnn.DONOR_ID_KEY,
         var_dims_to_sync: list[str] = None,
     ):
         if donor_id not in C.obs.columns:
@@ -59,10 +59,15 @@ class DonorData:
             raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
         if donor_id != G.obs.index.name:
             G.obs = G.obs.set_index(donor_id)
+        if donor_id not in G.obs.columns:
+            G.obs[donor_id] = G.obs.index
 
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
         self._match_donors(G, C)
+        self.uns = {}
+        self.isbacked = True if (G.isbacked and C.isbacked) else False
+        self.n_obs = G.n_obs
 
     def _match_donors(self, G: AnnData | MuData, C: AnnData | MuData) -> None:
         G_idx = G.obs.index

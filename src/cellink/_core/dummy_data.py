@@ -42,7 +42,7 @@ def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes, strategy: Liter
     elif strategy == "uniform":
         X = np.random.uniform(size=(n_cells, n_genes))
     _celltypes = CELLTYPES if has_all_celltypes else CELLTYPES[:-1]
-    obs = pd.DataFrame({CAnn.celltype: np.random.choice(_celltypes, size=n_cells)})
+    obs = pd.DataFrame({CAnn.CELL_LABELS_KEY: np.random.choice(_celltypes, size=n_cells), CAnn.CELL_BATCH_KEY: np.full(n_cells, np.random.randint(0, 5))})
     obs.index = [f"{CELL_PREFIX}{i}" for i in range(start_index, start_index + n_cells)]
     obs[DUMMY_COVARIATES] = np.random.randn(n_cells, len(DUMMY_COVARIATES))
     gene_lengths = np.random.randint(MIN_GENE_LENGTH, MAX_GENE_LENGTH, size=n_genes)
@@ -62,8 +62,9 @@ def sim_adata_muon(n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_ce
     rna = sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="negative_binomial")
     atac = sim_adata(n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial")
     adata = mu.MuData({"rna": rna, "atac": atac})
-    adata.obs["celltype"] = adata.obs["rna:celltype"]
-    adata.obs["donor_id"] = adata.obs["rna:donor_id"]
+    adata.obs[CAnn.CELL_LABELS_KEY] = adata.obs["rna:" + CAnn.CELL_LABELS_KEY]
+    adata.obs[CAnn.CELL_BATCH_KEY] = adata.obs["rna:" + CAnn.CELL_BATCH_KEY]
+    adata.obs[CAnn.CELL_DONOR_KEY] = adata.obs["rna:" + CAnn.CELL_DONOR_KEY]
     return adata
 
 
@@ -99,7 +100,7 @@ def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n
         adatas.append(_sim_donor(cum_n_cells, n_cells, n_genes, has_all_celltypes, strategy=strategy))
         cum_n_cells += n_cells
     donors = [f"{DONOR_PREFIX}{i}" for i in range(n_donors)]
-    adata = ad.concat(adatas, merge="first", keys=donors, label=DAnn.donor)
+    adata = ad.concat(adatas, merge="first", keys=donors, label=DAnn.DONOR_ID_KEY)
     return adata
 
 
@@ -117,7 +118,7 @@ def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
         n_snps = len(pos)
     mafs = np.random.rand(n_snps)
     X = np.random.binomial(n=2, p=mafs, size=(n_donors, n_snps))
-    obs = pd.DataFrame(index="D" + pd.RangeIndex(n_donors, name=DAnn.donor).astype(str))
+    obs = pd.DataFrame(index="D" + pd.RangeIndex(n_donors, name=DAnn.DONOR_ID_KEY).astype(str), data={DAnn.DONOR_LABELS_KEY: np.random.randint(2, size=n_donors)})
 
     var = pd.DataFrame(
         {
