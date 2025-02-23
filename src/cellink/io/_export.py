@@ -3,7 +3,6 @@ import sys
 
 import numpy as np
 import pandas as pd
-import dask.array as da
 
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
@@ -13,11 +12,12 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
 def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
     """
     Generate a BIM DataFrame from genetic data.
 
-    Parameters:
+    Parameters
     ----------
     gdata : object
         A genetic data object with a `var` attribute containing SNP information.
@@ -32,7 +32,7 @@ def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_co
     a2_col : str, optional
         The column name in `gdata.var` representing allele 2. Default is "a2".
 
-    Returns:
+    Returns
     -------
     pd.DataFrame
         A BIM-formatted DataFrame with the following columns:
@@ -43,14 +43,16 @@ def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_co
         - "A1": Allele 1 (default 0 if column is missing).
         - "A2": Allele 2 (default 0 if column is missing).
     """
-    bim_data = pd.DataFrame({
-        "CHR": gdata.var[chrom_col],
-        "SNP": gdata.var.index,
-        "CM": gdata.var.get(cm_col, 0),
-        "BP": gdata.var.get(pos_col, 0),
-        "A1": gdata.var.get(a1_col, 0),
-        "A2": gdata.var.get(a2_col, 0),
-    })
+    bim_data = pd.DataFrame(
+        {
+            "CHR": gdata.var[chrom_col],
+            "SNP": gdata.var.index,
+            "CM": gdata.var.get(cm_col, 0),
+            "BP": gdata.var.get(pos_col, 0),
+            "A1": gdata.var.get(a1_col, 0),
+            "A2": gdata.var.get(a2_col, 0),
+        }
+    )
 
     return bim_data
 
@@ -59,7 +61,7 @@ def _generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col
     """
     Generate a FAM DataFrame from genetic data.
 
-    Parameters:
+    Parameters
     ----------
     gdata : object
         A genetic data object with an `obs` attribute containing individual information.
@@ -74,7 +76,7 @@ def _generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col
     phenotype_col : str, optional
         The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
 
-    Returns:
+    Returns
     -------
     pd.DataFrame
         A FAM-formatted DataFrame with the following columns:
@@ -85,22 +87,41 @@ def _generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col
         - "SEX": Sex (default 0 if column is missing).
         - "PHENOTYPE": Phenotype (default 0 if column is missing).
     """
-    fam_data = pd.DataFrame({
-        "FID": gdata.obs.get(fid_col, 0),
-        "IID": gdata.obs.index,
-        "PID": gdata.obs.get(pid_col, 0),
-        "MID": gdata.obs.get(mid_col, 0),
-        "SEX": gdata.obs.get(sex_col, 0),
-        "PHENOTYPE": gdata.obs.get(phenotype_col, 0),
-    })
+    fam_data = pd.DataFrame(
+        {
+            "FID": gdata.obs.get(fid_col, 0),
+            "IID": gdata.obs.index,
+            "PID": gdata.obs.get(pid_col, 0),
+            "MID": gdata.obs.get(mid_col, 0),
+            "SEX": gdata.obs.get(sex_col, 0),
+            "PHENOTYPE": gdata.obs.get(phenotype_col, 0),
+        }
+    )
 
     return fam_data
 
-def to_plink(gdata, output_prefix, snp_per_byte=4, num_patients_chunk=100, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2", fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
+
+def to_plink(
+    gdata,
+    output_prefix,
+    snp_per_byte=4,
+    num_patients_chunk=100,
+    chrom_col="chrom",
+    cm_col="cm",
+    pos_col="pos",
+    a1_col="a1",
+    a2_col="a2",
+    fid_col="fid",
+    pid_col="pid",
+    mid_col="mid",
+    sex_col="sex",
+    phenotype_col="phenotype",
+):
     """
     Export genotype data in Dask array format to PLINK binary format.
 
-    Parameters:
+    Parameters
+    ----------
     gdata : object
         A genetic data object with an `obs` attribute containing individual information.
     output_prefix: str
@@ -130,7 +151,6 @@ def to_plink(gdata, output_prefix, snp_per_byte=4, num_patients_chunk=100, chrom
     phenotype_col : str, optional
         The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
     """
-
     bim_df = _generate_bim_df(gdata)
     fam_df = _generate_fam_df(gdata)
     dask_genotype_array = gdata.X
@@ -168,13 +188,44 @@ def to_plink(gdata, output_prefix, snp_per_byte=4, num_patients_chunk=100, chrom
                 for row in chunk:
                     packed_row = []
                     for i in range(0, len(row), 4):
-                        genotypes = row[i:i + 4]
+                        genotypes = row[i : i + 4]
                         byte = 0
                         for j, genotype in enumerate(genotypes):
-                            byte |= (genotype << (j * 2))
+                            byte |= genotype << (j * 2)
                         packed_row.append(byte)
                     bed_data.extend(packed_row)
 
                 bed.write(bytearray(bed_data))
 
     logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
+
+
+def _write_variants_to_vcf(variants, out_file):
+    # TODO add check for if file allready exists
+    logger.info(f"Writing variants to {out_file}")
+    with open(out_file, "w") as f:
+        # Write the VCF header
+        f.write("##fileformat=VCFv4.0\n")
+        f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+
+        # Write each variant without ID, QUAL, FILTER, or INFO
+        for row in variants:
+            chrom, pos, ref, alt = row.split("_")
+            vcf_row = f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
+            f.write(vcf_row)
+
+
+def write_variants_to_vcf(gdata, out_file="variants.vcf"):
+    """Write unique variants from gdata to vcf file for annotation
+
+    Parameters
+    ----------
+    gdata : gdata
+        gdata object
+    out_file : str, optional
+        output file. By default "variants.vcf"
+    """
+    all_variants = list(gdata.var.index)
+    logger.info(f"number of variants to annotate: {len(all_variants)}")
+    # TODO allow subsetting of variants
+    _write_variants_to_vcf(all_variants, out_file)
