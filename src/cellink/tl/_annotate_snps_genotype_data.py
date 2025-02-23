@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from cellink._core.annotation import AAnn, VAnn
+from cellink._core.data_fields import VAnn
 from cellink.tl.utils import (
     _get_vep_start_row,
 )
@@ -45,6 +45,7 @@ def setup_snpeff():
     os.chdir("../")
 
 
+
 def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
     """
     Runs genome annotation using the SnpEff tool.
@@ -65,6 +66,7 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         stdout=open(vcf_output, "w"),
         check=True,
     )
+
 
 
 def _write_variants_to_vcf(variants, out_file):
@@ -214,10 +216,10 @@ def _change_col_dtype(annos):
     for col in cols_to_replace:
         try:
             annos[col] = annos[col].astype(float)
-        except:
+        except:  # TODO: please catch explicit exception
             try:
                 annos[col] = annos[col].replace(np.nan, "-")
-            except:
+            except:  # TODO: please catch explicit exception
                 logger.warning(f"{col} couldn't be changed")
     return annos
 
