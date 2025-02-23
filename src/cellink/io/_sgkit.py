@@ -9,7 +9,7 @@ from anndata import AnnData
 from anndata.utils import asarray
 from sgkit.io import plink as sg_plink
 
-from cellink._core.annotation import DAnn, VAnn
+from cellink._core.data_fields import DAnn, VAnn
 
 warnings.filterwarnings(
     "ignore",
@@ -21,7 +21,7 @@ warnings.filterwarnings(
 def _get_snp_index(var: pd.DataFrame) -> pd.Index:
     df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
     index = df.apply("_".join, axis=1)
-    return pd.Index(index, name="snp_id")
+    return pd.Index(index, name=VAnn.index)
 
 
 def _to_df_only_dim(gdata, dims):

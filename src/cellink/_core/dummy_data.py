@@ -2,7 +2,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from cellink._core.annotation import CAnn, DAnn, GAnn, VAnn
+from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 
 N_DONORS = 10
 N_GENES = 20
