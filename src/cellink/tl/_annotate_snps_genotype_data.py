@@ -67,37 +67,6 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
     )
 
 
-def _write_variants_to_vcf(variants, out_file):
-    # TODO add check for if file allready exists
-    logger.info(f"Writing variants to {out_file}")
-    with open(out_file, "w") as f:
-        # Write the VCF header
-        f.write("##fileformat=VCFv4.0\n")
-        f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-
-        # Write each variant without ID, QUAL, FILTER, or INFO
-        for row in variants:
-            chrom, pos, ref, alt = row.split("_")
-            vcf_row = f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
-            f.write(vcf_row)
-
-
-def write_variants_to_vcf(gdata, out_file="variants.vcf"):
-    """Write unique variants from gdata to vcf file for annotation
-
-    Parameters
-    ----------
-    gdata : gdata
-        gdata object
-    out_file : str, optional
-        output file. By default "variants.vcf"
-    """
-    all_variants = list(gdata.var.index)
-    logger.info(f"number of variants to annotate: {len(all_variants)}")
-    # TODO allow subsetting of variants
-    _write_variants_to_vcf(all_variants, out_file)
-
-
 def run_vep(
     config_file,
     input_vcf="variants.vcf",
