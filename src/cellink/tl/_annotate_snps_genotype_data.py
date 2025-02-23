@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from cellink._core.data_fields import VAnn
+from cellink._core.data_fields import AAnn
 from cellink.tl.utils import (
     _get_vep_start_row,
 )
@@ -231,8 +231,7 @@ def _prep_vep_annos(
     cols_to_drop: list = ["Allele", "Feature_type", "Location"],
     dummy_consequence: bool = True,
 ) -> pd.DataFrame:
-    """
-    Prepare VEP annotations by processing and formatting data from the input file.
+    """Add VEP annotations to gdata
 
     Parameters
     ----------
@@ -253,7 +252,7 @@ def _prep_vep_annos(
         A processed DataFrame with formatted VEP annotations.
     """
     # Define the required identifier columns
-    id_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
+    id_cols = [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1]
     unique_identifier_cols = [*id_cols, AAnn.gene_id, AAnn.feature_id]
 
     # Read VEP annotation file
@@ -355,10 +354,10 @@ def combine_annotations(
     gdata,
     keys: list = ["vep"],
     unique_identifier_cols=[
-        VAnn.chrom,
-        VAnn.pos,
-        VAnn.a0,
-        VAnn.a1,
+        AAnn.chrom,
+        AAnn.pos,
+        AAnn.a0,
+        AAnn.a1,
         AAnn.gene_id,
         AAnn.feature_id,
     ],
@@ -375,7 +374,7 @@ def combine_annotations(
         These keys correspond to the annotations stored in `gdata.uns`, with prefixes like `variant_annotation_key}`.
     unique_identifier_cols : list, optional
         List of columns that uniquely identify a variant-context pair, by default
-        [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1, AAnn.gene_id, AAnn.feature_id].
+        [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1, AAnn.gene_id, AAnn.feature_id].
 
     Returns
     -------
@@ -515,25 +514,29 @@ def aggregate_annotations_for_varm(
         # Identify columns to aggregate
         col_order = anno_df.columns
         cols_with_multiple_values = anno_df.reset_index().groupby(AAnn.index).nunique().max().loc[lambda x: x > 1].index
-        logger.info(f"Columns to aggregate: {list(cols_with_multiple_values)}")
+        if len(cols_with_multiple_values) == 0:
+            logger.info("No columns to aggregate")
+            aggregated_df = anno_df
+        else:
+            logger.info(f"Columns to aggregate: {list(cols_with_multiple_values)}")
 
-        # Aggregate columns with differing values
-        aggregated_df = (
-            anno_df[cols_with_multiple_values]
-            .reset_index()
-            .groupby(AAnn.index)
-            .agg(lambda x: custom_agg(x, agg_type=agg_type))
-        )
+            # Aggregate columns with differing values
+            aggregated_df = (
+                anno_df[cols_with_multiple_values]
+                .reset_index()
+                .groupby(AAnn.index)
+                .agg(lambda x: custom_agg(x, agg_type=agg_type))
+            )
 
-        # Keep columns that do not require aggregation
-        cols_to_keep = anno_df.columns.difference(cols_with_multiple_values)
-        unique_cols_df = anno_df[cols_to_keep].drop_duplicates()
+            # Keep columns that do not require aggregation
+            cols_to_keep = anno_df.columns.difference(cols_with_multiple_values)
+            unique_cols_df = anno_df[cols_to_keep].drop_duplicates()
 
-        # Validate and merge results
-        if len(unique_cols_df) != len(aggregated_df):
-            raise ValueError("Mismatch in row counts after aggregation. Check your input data.")
+            # Validate and merge results
+            if len(unique_cols_df) != len(aggregated_df):
+                raise ValueError("Mismatch in row counts after aggregation. Check your input data.")
 
-        aggregated_df = aggregated_df.join(unique_cols_df, how="left", validate="1:1").reindex(columns=col_order)
+            aggregated_df = aggregated_df.join(unique_cols_df, how="left", validate="1:1").reindex(columns=col_order)
 
     aggregated_df = aggregated_df.loc[gdata.var.index]
     gdata.varm[AAnn.name_prefix] = aggregated_df
