@@ -3,8 +3,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from cellink._core.data_fields import AAnn
 from cellink.io import read_sgkit_zarr
-from cellink.tl import add_vep_annos_to_gdata
+from cellink.tl import add_vep_annos_to_gdata, aggregate_annotations_for_varm, combine_annotations
 
 # DATA = Path("tests/data_old")
 DATA = Path("tests/data")
@@ -23,98 +24,51 @@ def sample_vep_annos():
     return vep_file
 
 
-def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos, tmp_path):
-    annotated_gdata = add_vep_annos_to_gdata(
-        str(sample_vep_annos),
-        sample_gdata,
-        id_col="#Uploaded_variation",
-        cols_to_explode=["Consequence"],
-        cols_to_dummy=["Consequence"],
-    )
+def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos):
+    slot_name = f"{AAnn.name_prefix}_{AAnn.vep}"
+    annotated_gdata = add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
 
-    # Check if annotations were added
-    assert "annotations_0" in annotated_gdata.varm
-    assert isinstance(annotated_gdata.varm["annotations_0"], pd.DataFrame)
+    assert slot_name in annotated_gdata.uns
+    assert isinstance(annotated_gdata.uns[slot_name], pd.DataFrame)
 
     # Check for specific columns
     expected_columns = [
-        "Allele",
-        "gnomADe_OTH_AF",
-        "Consequence_stop_gained",
-        "Feature_type",
-        "gnomADe_AMR_AF",
-        "CLIN_SIG",
-        "gnomADe_AF",
-        "FLAGS",
-        "Location",
-        "gnomADe_EAS_AF",
-        "CADD_RAW",
-        "gnomADe_ASJ_AF",
-        "PHENO",
-        "CADD_PHRED",
-        "Consequence_intergenic_variant",
-        "gnomADe_FIN_AF",
-        "SOMATIC",
-        "gnomADe_NFE_AF",
-        "gnomADe_AFR_AF",
-        "Existing_variation",
-        "gnomADe_SAS_AF",
-        "Gene",
-        "Feature",
-        "cDNA_position",
-        "CDS_position",
-        "Protein_position",
-        "Amino_acids",
-        "Codons",
-        "IMPACT",
-        "DISTANCE",
-        "STRAND",
-        "BIOTYPE",
-        "CANONICAL",
-        "ENSP",
-        "SIFT",
-        "PolyPhen",
-        "TSSDistance",
-        "Consequence_3_prime_UTR_variant",
-        "Consequence_5_prime_UTR_variant",
-        "Consequence_downstream_gene_variant",
-        "Consequence_intron_variant",
-        "Consequence_missense_variant",
-        "Consequence_non_coding_transcript_exon_variant",
-        "Consequence_non_coding_transcript_variant",
-        "Consequence_splice_polypyrimidine_tract_variant",
-        "Consequence_splice_region_variant",
-        "Consequence_synonymous_variant",
-        "Consequence_upstream_gene_variant",
+        AAnn.chrom,
+        AAnn.pos,
+        AAnn.a0,
+        AAnn.a1,
+        AAnn.gene_id,
+        AAnn.feature_id,
     ]
     for col in expected_columns:
-        assert col in annotated_gdata.varm["annotations_0"].columns
+        assert col in annotated_gdata.uns[slot_name].columns
 
-    # Check IMPACT values
-    impact_values = annotated_gdata.varm["annotations_0"]["IMPACT"].unique()
-    assert set(impact_values).issubset({"MODIFIER", "LOW", "MODERATE", "HIGH"})
-    assert isinstance(annotated_gdata.varm["annotations_0"], pd.DataFrame)
-    # Save annotated gdata
-    output_file = tmp_path / "annotated_gdata.h5ad"
+    output_file = Path("annotated_gdata.h5ad")
     annotated_gdata.write_h5ad(output_file)
     assert output_file.exists()
 
+    # Clean up the output file after the test
+    output_file.unlink()
+    assert not output_file.exists()
 
-def test_consequence_types(sample_gdata, sample_vep_annos):
-    annotated_gdata = add_vep_annos_to_gdata(
-        str(sample_vep_annos),
-        sample_gdata,
-        id_col="#Uploaded_variation",
-        cols_to_explode=["Consequence"],
-        cols_to_dummy=["Consequence"],
-    )
 
-    # Check for specific consequence types
-    expected_types = ["intron_variant", "missense_variant", "synonymous_variant"]
-    for exp_type in expected_types:
-        column_name = f"Consequence_{exp_type}"
-        assert column_name in annotated_gdata.varm["annotations_0"].columns
-        assert annotated_gdata.varm["annotations_0"][column_name].sum() > 0
+def test_combine_annotations(sample_gdata, sample_vep_annos):
+    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
+
+    combine_annotations(sample_gdata, ["vep"])
+    assert AAnn.name_prefix in sample_gdata.uns
+
+
+def test_aggregate_annotations_for_varm(sample_gdata, sample_vep_annos):
+    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
+
+    for agg_type in ["first", "unique_list_max", "list", "str"]:
+        print(agg_type)
+        res = aggregate_annotations_for_varm(
+            gdata=sample_gdata, annotation_key="variant_annotation_vep", agg_type=agg_type, return_data=True
+        )
+        id_cols = [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1]
+        assert len(res.index.drop_duplicates()) == len(res[id_cols].drop_duplicates())
 
 
 if __name__ == "__main__":
