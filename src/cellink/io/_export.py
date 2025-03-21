@@ -3,6 +3,8 @@ import sys
 
 import numpy as np
 import pandas as pd
+from cellink._core.data_fields import VAnn
+
 
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
@@ -200,19 +202,6 @@ def to_plink(
     logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
 
 
-def _write_variants_to_vcf(variants, out_file):
-    # TODO add check for if file allready exists
-    logger.info(f"Writing variants to {out_file}")
-    with open(out_file, "w") as f:
-        # Write the VCF header
-        f.write("##fileformat=VCFv4.0\n")
-        f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-
-        # Write each variant without ID, QUAL, FILTER, or INFO
-        for row in variants:
-            chrom, pos, ref, alt = row.split("_")
-            vcf_row = f"{chrom}\t{pos}\t.\t{ref}\t{alt}\t.\t.\t.\n"
-            f.write(vcf_row)
 
 
 def write_variants_to_vcf(gdata, out_file="variants.vcf"):
@@ -225,7 +214,12 @@ def write_variants_to_vcf(gdata, out_file="variants.vcf"):
     out_file : str, optional
         output file. By default "variants.vcf"
     """
-    all_variants = list(gdata.var.index)
-    logger.info(f"number of variants to annotate: {len(all_variants)}")
-    # TODO allow subsetting of variants
-    _write_variants_to_vcf(all_variants, out_file)
+    logger.info(f"number of variants to annotate: {len(gdata.var)}")
+    var_df = gdata.var.reset_index()[[VAnn.chrom, VAnn.pos, VAnn.index, VAnn.a0, VAnn.a1]]
+    var_df[["QUAL", "FILTER", "INFO"]] = ". . .".split()
+    logger.info(f"Writing variants to {out_file}")
+    with open(out_file, "w") as f:
+        # Write the VCF header
+        f.write("##fileformat=VCFv4.0\n")
+        f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+        var_df.to_csv(f, sep='\t', index=False, header = False)
