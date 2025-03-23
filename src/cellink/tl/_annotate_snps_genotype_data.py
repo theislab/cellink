@@ -66,7 +66,6 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         check=True,
     )
 
-
 def run_vep(
     config_file,
     input_vcf="variants.vcf",
@@ -219,8 +218,7 @@ def _prep_vep_annos(
         A processed DataFrame with formatted VEP annotations.
     """
     # Define the required identifier columns
-    id_cols = [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1]
-    unique_identifier_cols = [*id_cols, AAnn.gene_id, AAnn.feature_id]
+    unique_identifier_cols = [AAnn.index, AAnn.gene_id, AAnn.feature_id]
 
     # Read VEP annotation file
     logger.info(f"Reading annotation file {vep_anno_file}")
@@ -228,7 +226,7 @@ def _prep_vep_annos(
 
     logger.info("Annotation file loaded")
 
-    annos[id_col_vep] = annos[id_col_vep].str.replace("/", "_")
+    # annos[id_col_vep] = annos[id_col_vep].str.replace("/", "_")
     annos = annos.rename(
         columns={
             id_col_vep: AAnn.index,
@@ -245,11 +243,10 @@ def _prep_vep_annos(
 
     # Replace missing values and split the variant identifier into individual columns
     annos.replace("-", np.nan, inplace=True)
-    annos[id_cols] = annos[AAnn.index].str.split("_", expand=True)
-    annos = annos.set_index(AAnn.index)
 
     # Verify that unique identifier cols are chosen correctly
     assert len(annos[unique_identifier_cols].drop_duplicates()) == len(annos)
+
     # Determine columns to keep
     columns_to_keep = set(unique_identifier_cols).union(set(annos.columns)) - set(cols_to_drop)
     anno_cols = set(columns_to_keep) - set(unique_identifier_cols)
@@ -269,9 +266,10 @@ def _prep_vep_annos(
 
     # Reorder columns and return processed DataFrame
     annos = annos[col_order]
-
     # change dtyps to numeric where possible
     annos = _change_col_dtype(annos)
+        
+
     return annos
 
 
@@ -307,8 +305,11 @@ def add_vep_annos_to_gdata(
     # Process the VEP annotations
     vep_data = _prep_vep_annos(vep_anno_file, gdata, id_col_vep, cols_to_drop, dummy_consequence)
     # Subset annotations to match the variants in gdata
-    vep_data = pd.DataFrame(index=gdata.var.index).join(vep_data, how="left")
-    missing_vars = nan_rows = vep_data[vep_data.isna().all(axis=1)]
+    
+    vep_data = gdata.var.reset_index()[[AAnn.index]].merge(vep_data, how = 'left', on = AAnn.index)
+    vep_data.set_index([AAnn.index, AAnn.gene_id, AAnn.feature_id], inplace = True)
+    assert vep_data.index.is_unique
+    missing_vars = vep_data[vep_data.isna().all(axis=1)]
     if len(missing_vars) > 0:
         logger.warning(f"VEP annotation missing for {len(missing_vars)}")
     # Add processed annotations to gdata
@@ -321,10 +322,7 @@ def combine_annotations(
     gdata,
     keys: list = ["vep"],
     unique_identifier_cols=[
-        AAnn.chrom,
-        AAnn.pos,
-        AAnn.a0,
-        AAnn.a1,
+        AAnn.index,
         AAnn.gene_id,
         AAnn.feature_id,
     ],
@@ -341,7 +339,7 @@ def combine_annotations(
         These keys correspond to the annotations stored in `gdata.uns`, with prefixes like `variant_annotation_key}`.
     unique_identifier_cols : list, optional
         List of columns that uniquely identify a variant-context pair, by default
-        [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1, AAnn.gene_id, AAnn.feature_id].
+        [AAnn.index, AAnn.gene_id, AAnn.feature_id].
 
     Returns
     -------
@@ -376,25 +374,22 @@ def combine_annotations(
     assert set(keys).issubset(allowed_keys)
 
     combined_annotation_cols = []
-    i = 0
-    for key in keys:
-        this_annotations = gdata.uns[f"{AAnn.name_prefix}_{key}"]
-        columns = this_annotations.columns
+    is_first_annotation=True
+    for key in keys:        
+        this_annotations = gdata.uns[f"{AAnn.name_prefix}_{key}"].reset_index().set_index(unique_identifier_cols)
 
-        # check that identifer columns are present
-        assert set(unique_identifier_cols).issubset(columns), f"Missing unique identifiers in {key} annotations."
-
-        annotation_cols = set(columns) - set(unique_identifier_cols)
+        annotation_cols = this_annotations.columns 
         combined_annotation_cols = combined_annotation_cols + list(annotation_cols)
 
         # merge annotations (outer join)
-        if i == 0:
+        if is_first_annotation:
+            is_first_annotation = False
             combined_annotations = this_annotations
-            unique_contexts = this_annotations[unique_identifier_cols]
+            unique_contexts = this_annotations.index    
         else:
-            combined_annotations = combined_annotations.merge(this_annotations, on=unique_identifier_cols, how="outer")
-            unique_contexts = pd.concat([unique_contexts, this_annotations[unique_identifier_cols]])
-        i += 1
+            combined_annotations = combined_annotations.join(this_annotations, on=unique_identifier_cols, how="outer")
+            unique_contexts = pd.concat([unique_contexts, this_annotations.index])
+
     # check that no annotation columns are duplicated in the data frames
     assert len(set(combined_annotation_cols)) == len(combined_annotation_cols), "Duplicate annotation columns detected."
 
@@ -405,19 +400,19 @@ def combine_annotations(
 
     gdata.uns[AAnn.name_prefix] = combined_annotations
 
-
+# return ",".join(x.unique().astype(str))  # Fallba
 def custom_agg(x, agg_type):
     if agg_type == "unique_list_max":
         if x.dtype == "object":  # Check if column is of string type
-            return ",".join([str(i) for i in x.unique()])  # Unique values as comma-separated string
+            return ",".join(x.unique().astype(str))  # Unique values as comma-separated string
         elif pd.api.types.is_numeric_dtype(x):  # Check if column is numeric
             return x.max()  # Aggregate using max value
         else:
-            return ",".join([str(i) for i in x.unique()])  # Fallback for other types
+            return ",".join(x.unique().astype(str))  # Fallback for other types
     elif agg_type == "list":
         return list(x)  # Simply aggregate into a list
     elif agg_type == "str":
-        return ",".join([str(i) for i in x])  # Aggregate into a comma-separated string
+        return ",".join(x.astype(str))  # Aggregate into a comma-separated string
     else:
         raise ValueError(f"Unknown aggregation type: {agg_type}")
 
@@ -464,8 +459,7 @@ def aggregate_annotations_for_varm(
 
     """
     # Extract DataFrame
-    anno_df = gdata.uns[annotation_key]
-
+    anno_df = gdata.uns[annotation_key].reset_index()
     # Validate aggregation type
     allowed_agg_types = ["first", "unique_list_max", "list", "str"]
     if agg_type not in allowed_agg_types:
@@ -475,29 +469,33 @@ def aggregate_annotations_for_varm(
 
     # Handle "first" agg_type
     if agg_type == "first":
-        aggregated_df = anno_df.reset_index().drop_duplicates(subset=AAnn.index, keep="first").set_index(AAnn.index)
+        aggregated_df = anno_df.drop_duplicates(subset=AAnn.index, keep="first").set_index(AAnn.index)
 
     else:
         # Identify columns to aggregate
-        col_order = anno_df.columns
-        cols_with_multiple_values = anno_df.reset_index().groupby(AAnn.index).nunique().max().loc[lambda x: x > 1].index
+        col_order = anno_df.columns.difference([AAnn.index]).tolist()
+        cols_with_multiple_values = anno_df.groupby(AAnn.index).nunique().max().loc[lambda x: x > 1].index
         if len(cols_with_multiple_values) == 0:
             logger.info("No columns to aggregate")
-            aggregated_df = anno_df
+            aggregated_df = anno_df.set_index(AAnn.index)
         else:
             logger.info(f"Columns to aggregate: {list(cols_with_multiple_values)}")
 
             # Aggregate columns with differing values
             aggregated_df = (
-                anno_df[cols_with_multiple_values]
-                .reset_index()
+                anno_df[[AAnn.index, *cols_with_multiple_values]]
                 .groupby(AAnn.index)
                 .agg(lambda x: custom_agg(x, agg_type=agg_type))
+                # .agg(custom_agg, agg_type=agg_type))
             )
 
             # Keep columns that do not require aggregation
-            cols_to_keep = anno_df.columns.difference(cols_with_multiple_values)
-            unique_cols_df = anno_df[cols_to_keep].drop_duplicates()
+            cols_to_keep = [col for col in list(anno_df.columns.difference(cols_with_multiple_values)) if col != AAnn.index]
+            # Keep the first occurrence of each unique AAnn.index in cols_to_keep.
+            # This is necessary because cols_to_keep may contain rows with combinations of [unique_value, NA] for the same AAnn.index.
+            # In such cases, both rows would be kept, but we only want the first one (without NAs).
+            unique_cols_df = anno_df[[AAnn.index, *cols_to_keep]]\
+                .drop_duplicates(subset =AAnn.index, keep = "first").set_index(AAnn.index)
 
             # Validate and merge results
             if len(unique_cols_df) != len(aggregated_df):
