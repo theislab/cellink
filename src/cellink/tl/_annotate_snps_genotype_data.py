@@ -2,7 +2,6 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -66,6 +65,7 @@ def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "G
         check=True,
     )
 
+
 def run_vep(
     config_file,
     input_vcf="variants.vcf",
@@ -92,81 +92,61 @@ def run_vep(
     None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
     # TODO: make VEP options more modular
-    logger.info("using config {config_file}")
+    logger.info(f"using config {config_file}")
     with open(config_file) as f:
         config = yaml.safe_load(f)
 
-    input_fasta = config["input_fasta"]
-    vep_dir = config["vep_dir"]
-    vep_plugin_dir = config.get("vep_plugin_dir", f"{vep_dir}/Plugins/")
-    vep_nfork = config.get("vep_nfork", 5)  # TODO
-
-    genome_assembly = config["genome_assembly"]
-    cadd_dir = config.get("cadd_dir", None)
-
-    if cadd_dir is not None:
-        cadd_dir = Path(cadd_dir) / genome_assembly
-        CADD_WGS_SNV = f"{cadd_dir}/whole_genome_SNVs.tsv.gz"
-        CADD_INDEL = {
-            "GRCh37": f"{cadd_dir}/InDels.tsv.gz",
-            "GRCh38": f"{cadd_dir}/gnomad.genomes.r3.0.indel.tsv.gz",  # TODO check if this was just sth cluster specific
-        }[genome_assembly]
-        cadd_cmd = f"--plugin CADD,{CADD_WGS_SNV},{CADD_INDEL}"
-    else:
-        cadd_cmd = ""
-    params_af = "--af_gnomade"
-    params_offline = "--offline"
-    params_cache = "--cache"
-    params_dir_cache = f"--dir_cache {vep_dir}"
-    species = "homo_sapiens"
     vep_input_format = "vcf"
 
-    cmd = " ".join(
-        [
-            "vep",
-            "--input_file",
-            f"{input_vcf}",
-            "--output_file",
-            f"{output}",
-            "--species",
-            str(species),
-            "--assembly",
-            str(genome_assembly),
-            "--format",
-            str(vep_input_format),
-            f"{params_af}",
-            f"{params_offline}",
-            f"{params_cache}",
-            f"{params_dir_cache}",
-            "--dir_plugins",
-            str(vep_plugin_dir),
-            "--fork",
-            str(vep_nfork),
+    offline = config.get("offline", False)
+
+    base_cmd = [
+        "vep",
+        "--input_file",
+        str(input_vcf),
+        "--output_file",
+        str(output),
+        "--species",
+        config["species"],
+        "--assembly",
+        config["genome_assembly"],
+        "--format",
+        vep_input_format,
+        "--tab",
+        "--fork",
+        str(config.get("vep_nfork", 5)),
+        "--pick_order",
+        config["pick_order"],
+    ]
+
+    additional_flags = config["additional_flags"]
+    base_cmd = base_cmd + additional_flags
+
+    if offline:
+        cache_dir = config["cache_dir"]
+        vep_plugin_dir = config.get("vep_plugin_dir", f"{cache_dir}/Plugins/")
+        params_af = config.get("af_flags", "")  # "--af_gnomade"
+        input_fasta = config["input_fasta"]
+        offline_cmd = [
+            "--offline",
+            params_af,
+            "--cache",
+            "--dir_cache",
+            cache_dir,
             "--fasta",
-            f"{input_fasta}",
-            "--tab",
-            "--total_length",
-            "--no_escape",
-            "--polyphen s",
-            "--sift s",
-            "--canonical",
-            "--protein",
-            "--biotype",
-            "--force_overwrite",
-            "--no_stats",
-            "--per_gene",
-            "--check_existing",
-            f"{cadd_cmd}",
-            "--plugin TSSDistance",
-            "--pick_order biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq",
+            config["input_fasta"],
         ]
-    )
+        cmd = base_cmd + offline_cmd
+    else:
+        online_cmd = ["--database"]
+        cmd = base_cmd + online_cmd
+
+    cmd = " ".join(cmd)
 
     logger.info(f"running VEP command {cmd}")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
-        logger.info("VEP ran successfully!")
-        logger.info("Output:\n", result.stdout)  # Standard output of the command
+        logger.info(f"VEP ran successfully!. Annotated variants are saved to {output}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running VEP: {e}")
         logger.error(f"Error output:\n{e.stderr}")  # Standard error message if command fails
@@ -268,7 +248,6 @@ def _prep_vep_annos(
     annos = annos[col_order]
     # change dtyps to numeric where possible
     annos = _change_col_dtype(annos)
-        
 
     return annos
 
@@ -305,9 +284,9 @@ def add_vep_annos_to_gdata(
     # Process the VEP annotations
     vep_data = _prep_vep_annos(vep_anno_file, gdata, id_col_vep, cols_to_drop, dummy_consequence)
     # Subset annotations to match the variants in gdata
-    
-    vep_data = gdata.var.reset_index()[[AAnn.index]].merge(vep_data, how = 'left', on = AAnn.index)
-    vep_data.set_index([AAnn.index, AAnn.gene_id, AAnn.feature_id], inplace = True)
+
+    vep_data = gdata.var.reset_index()[[AAnn.index]].merge(vep_data, how="left", on=AAnn.index)
+    vep_data.set_index([AAnn.index, AAnn.gene_id, AAnn.feature_id], inplace=True)
     assert vep_data.index.is_unique
     missing_vars = vep_data[vep_data.isna().all(axis=1)]
     if len(missing_vars) > 0:
@@ -374,18 +353,18 @@ def combine_annotations(
     assert set(keys).issubset(allowed_keys)
 
     combined_annotation_cols = []
-    is_first_annotation=True
-    for key in keys:        
+    is_first_annotation = True
+    for key in keys:
         this_annotations = gdata.uns[f"{AAnn.name_prefix}_{key}"].reset_index().set_index(unique_identifier_cols)
 
-        annotation_cols = this_annotations.columns 
+        annotation_cols = this_annotations.columns
         combined_annotation_cols = combined_annotation_cols + list(annotation_cols)
 
         # merge annotations (outer join)
         if is_first_annotation:
             is_first_annotation = False
             combined_annotations = this_annotations
-            unique_contexts = this_annotations.index    
+            unique_contexts = this_annotations.index
         else:
             combined_annotations = combined_annotations.join(this_annotations, on=unique_identifier_cols, how="outer")
             unique_contexts = pd.concat([unique_contexts, this_annotations.index])
@@ -399,6 +378,7 @@ def combine_annotations(
     ), "Mismatch in unique variant-context combinations after merging."
 
     gdata.uns[AAnn.name_prefix] = combined_annotations
+
 
 # return ",".join(x.unique().astype(str))  # Fallba
 def custom_agg(x, agg_type):
@@ -490,12 +470,17 @@ def aggregate_annotations_for_varm(
             )
 
             # Keep columns that do not require aggregation
-            cols_to_keep = [col for col in list(anno_df.columns.difference(cols_with_multiple_values)) if col != AAnn.index]
+            cols_to_keep = [
+                col for col in list(anno_df.columns.difference(cols_with_multiple_values)) if col != AAnn.index
+            ]
             # Keep the first occurrence of each unique AAnn.index in cols_to_keep.
             # This is necessary because cols_to_keep may contain rows with combinations of [unique_value, NA] for the same AAnn.index.
             # In such cases, both rows would be kept, but we only want the first one (without NAs).
-            unique_cols_df = anno_df[[AAnn.index, *cols_to_keep]]\
-                .drop_duplicates(subset =AAnn.index, keep = "first").set_index(AAnn.index)
+            unique_cols_df = (
+                anno_df[[AAnn.index, *cols_to_keep]]
+                .drop_duplicates(subset=AAnn.index, keep="first")
+                .set_index(AAnn.index)
+            )
 
             # Validate and merge results
             if len(unique_cols_df) != len(aggregated_df):
