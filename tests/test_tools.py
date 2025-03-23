@@ -1,74 +1,81 @@
+import shutil
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from cellink._core.data_fields import AAnn
-from cellink.io import read_sgkit_zarr
-from cellink.tl import add_vep_annos_to_gdata, aggregate_annotations_for_varm, combine_annotations
+from cellink._core.dummy_data import sim_gdata
+from cellink.io import write_variants_to_vcf
+from cellink.tl import add_vep_annos_to_gdata, aggregate_annotations_for_varm, combine_annotations, run_vep
 
 # DATA = Path("tests/data_old")
 DATA = Path("tests/data")
+CONFIG = Path("docs/configs")
 
 
 @pytest.fixture
-def sample_gdata():
-    # zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
-    zarr_file_path = DATA / "simulated_genotype_calls.vcz"
-    return read_sgkit_zarr(zarr_file_path)
+def gdata():
+    return sim_gdata()
 
 
 @pytest.fixture
 def sample_vep_annos():
-    vep_file = DATA / "variants_vep_annotated2.txt"
+    vep_file = DATA / "test_variants_vep_annotated.txt"
     return vep_file
 
 
-def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos):
+def test_write_variants_to_vcf(gdata):
+    write_variants_to_vcf(gdata, "variants.vcf")
+    vcf_file = Path("variants.vcf")
+    assert vcf_file.exists()
+    vcf_file.unlink()
+
+
+@pytest.mark.skipif(shutil.which("vep") is None, reason="VEP is not installed in the environment")
+def test_run_vep(gdata):
+    write_variants_to_vcf(gdata, "variants.vcf")
+    run_vep(CONFIG / "vep_config.yaml", "variants.vcf", "variants_annotated.txt")
+    for this_file in ["variants.vcf", "variants_annotated.txt"]:
+        this_file = Path(this_file)
+        assert Path(this_file).exists()
+        this_file.unlink()
+
+
+def test_add_vep_annos_to_gdata(gdata, sample_vep_annos):
     slot_name = f"{AAnn.name_prefix}_{AAnn.vep}"
-    annotated_gdata = add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
+    annotated_gdata = add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=gdata, dummy_consequence=True)
 
     assert slot_name in annotated_gdata.uns
     assert isinstance(annotated_gdata.uns[slot_name], pd.DataFrame)
 
     # Check for specific columns
     expected_columns = [
-        AAnn.chrom,
-        AAnn.pos,
-        AAnn.a0,
-        AAnn.a1,
+        AAnn.index,
         AAnn.gene_id,
         AAnn.feature_id,
     ]
     for col in expected_columns:
-        assert col in annotated_gdata.uns[slot_name].columns
-
-    output_file = Path("annotated_gdata.h5ad")
-    annotated_gdata.write_h5ad(output_file)
-    assert output_file.exists()
-
-    # Clean up the output file after the test
-    output_file.unlink()
-    assert not output_file.exists()
+        assert col in annotated_gdata.uns[slot_name].index.names
 
 
-def test_combine_annotations(sample_gdata, sample_vep_annos):
-    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
+def test_combine_annotations(gdata, sample_vep_annos):
+    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=gdata, dummy_consequence=True)
 
-    combine_annotations(sample_gdata, ["vep"])
-    assert AAnn.name_prefix in sample_gdata.uns
+    combine_annotations(gdata, ["vep"])
+    assert AAnn.name_prefix in gdata.uns
 
 
-def test_aggregate_annotations_for_varm(sample_gdata, sample_vep_annos):
-    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=sample_gdata, dummy_consequence=True)
+def test_aggregate_annotations_for_varm(gdata, sample_vep_annos):
+    add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=gdata, dummy_consequence=True)
 
     for agg_type in ["first", "unique_list_max", "list", "str"]:
         print(agg_type)
         res = aggregate_annotations_for_varm(
-            gdata=sample_gdata, annotation_key="variant_annotation_vep", agg_type=agg_type, return_data=True
+            gdata=gdata, annotation_key="variant_annotation_vep", agg_type=agg_type, return_data=True
         )
-        id_cols = [AAnn.chrom, AAnn.pos, AAnn.a0, AAnn.a1]
-        assert len(res.index.drop_duplicates()) == len(res[id_cols].drop_duplicates())
+        id_cols = [AAnn.index]
+        assert len(gdata.uns["variant_annotation_vep"].reset_index()[id_cols].drop_duplicates()) == len(res.index)
 
 
 if __name__ == "__main__":
