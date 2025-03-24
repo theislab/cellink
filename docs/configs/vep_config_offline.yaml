@@ -1,4 +1,6 @@
 # Example config for running VEP offline (with cached data)
+# the paths `vep` and `vep_data` have to be adapted based on where the VEP cache 
+# and other vep relevant files have been stored
 # See instruction on VEP how to set up the Cache and install plugins
 # https://www.ensembl.org/info/docs/tools/vep/script/vep_cache.html#pre
 offline: true
@@ -20,11 +22,11 @@ additional_flags:
   - "--per_gene"
 
 ## these fields are only needed if offline = true
-input_fasta: /s/genomes/Gencode/Gencode_human/release_40/GRCh38.primary_assembly.genome.fa
-cache_dir: /s/raw/vep/112
-vep_plugin_dir: /s/raw/vep/112/Plugins
+input_fasta: vep_data/genomes/Gencode/Gencode_human/release_40/GRCh38.primary_assembly.genome.fa
+cache_dir: vep/112
+vep_plugin_dir: vep/112/Plugins
 af_flags: --af_gnomad
 
 additional_vep_plugin_cmds:
-  cadd: CADD,/s/raw/cadd/v1.6/GRCh37/whole_genome_SNVs.tsv.gz,/s/raw/cadd/v1.6/GRCh37/InDels.tsv.gz
+  cadd: CADD,vep_data/cadd/v1.6/GRCh37/whole_genome_SNVs.tsv.gz,vep_data/cadd/v1.6/GRCh37/InDels.tsv.gz
   tss_distance: TSSDistance
