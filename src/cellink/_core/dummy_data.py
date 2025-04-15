@@ -79,7 +79,7 @@ def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n
 
 def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
     if adata is None:
-        pos = np.arange(n_snps)
+        pos = np.arange(1, n_snps + 1)
     else:
         # make sure the variants overlap with the genes
         pos = []
@@ -103,5 +103,6 @@ def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
         },
         index=SNP_PREFIX + pd.RangeIndex(n_snps).astype(str),
     )
+    var.index.name = VAnn.index
     gdata = ad.AnnData(X=X, obs=obs, var=var)
     return gdata
