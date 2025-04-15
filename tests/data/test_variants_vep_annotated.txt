@@ -1,0 +1,43 @@
+## ENSEMBL VARIANT EFFECT PREDICTOR v112.0
+## Output produced at 2025-03-23 15:48:12
+## Connected to homo_sapiens_core_112_37 on ensembldb.ensembl.org
+## Using API version 112, DB version 112
+## ensembl version 112.e71cae3
+## ensembl-funcgen version 112.be19ffa
+## ensembl-io version 112.2851b6f
+## ensembl-variation version 112.4113356
+## assembly version GRCh37.p13
+## gencode version GENCODE 19
+## genebuild version 2011-04
+## polyphen version 2.2.2
+## sift version sift5.2.2
+## Column descriptions:
+## Uploaded_variation : Identifier of uploaded variant
+## Location : Location of variant in standard coordinate format (chr:start or chr:start-end)
+## Allele : The variant allele used to calculate the consequence
+## Gene : Stable ID of affected gene
+## Feature : Stable ID of feature
+## Feature_type : Type of feature - Transcript, RegulatoryFeature or MotifFeature
+## Consequence : Consequence type
+## cDNA_position : Relative position of base pair in cDNA sequence
+## CDS_position : Relative position of base pair in coding sequence
+## Protein_position : Relative position of amino acid in protein
+## Amino_acids : Reference and variant amino acids
+## Codons : Reference and variant codon sequence
+## Existing_variation : Identifier(s) of co-located known variants
+## IMPACT : Subjective impact classification of consequence type
+## DISTANCE : Shortest distance from variant to transcript
+## STRAND : Strand of the feature (1/-1)
+## FLAGS : Transcript quality flags
+## BIOTYPE : Biotype of transcript or regulatory feature
+## CANONICAL : Indicates if transcript is canonical for this gene
+## ENSP : Protein identifer
+## SIFT : SIFT prediction and/or score
+## PolyPhen : PolyPhen prediction and/or score
+## VEP command-line: vep --assembly GRCh37 --biotype --canonical --force_overwrite --fork 5 --format vcf --input_file variants.vcf --no_escape --no_stats --output_file variants_annotated.txt --per_gene --pick_order biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq --polyphen s --protein --sift s --tab --total_length
+#Uploaded_variation	Location	Allele	Gene	Feature	Feature_type	Consequence	cDNA_position	CDS_position	Protein_position	Amino_acids	Codons	Existing_variation	IMPACT	DISTANCE	STRAND	FLAGS	BIOTYPE	CANONICAL	ENSP	SIFT	PolyPhen
+SNP0	1:1	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP1	1:2	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP2	1:3	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP3	1:4	G	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP4	1:5	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
