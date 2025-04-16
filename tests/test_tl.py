@@ -2,16 +2,16 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from cellink.io import read_sgkit_zarr
 from cellink.tl import (
+    add_vep_annos_to_gdata,
     dosage_per_strand,
     one_hot_encode_genotypes,
     simulate_genotype_data_msprime,
     simulate_genotype_data_numpy,
-    add_vep_annos_to_gdata
 )
-import pytest
 
 DATA = Path("tests/data")
 
@@ -41,16 +41,19 @@ def test_dosage_per_strand():
     dosage_per_strand_gdata_load = np.load(DATA / "simulated_genotype_calls_dosage_per_strand.npy")
     assert np.allclose(dosage_per_strand_gdata, dosage_per_strand_gdata_load)
 
+
 @pytest.fixture
 def sample_gdata():
     # zarr_file_path = DATA / "chr22.dose.filtered.R2_0.8_test.vcz"
     zarr_file_path = DATA / "simulated_genotype_calls.vcz"
     return read_sgkit_zarr(zarr_file_path)
 
+
 @pytest.fixture
 def sample_vep_annos():
     vep_file = DATA / "variants_vep_annotated2.txt"
     return vep_file
+
 
 def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos, tmp_path):
     annotated_gdata = add_vep_annos_to_gdata(
@@ -128,6 +131,7 @@ def test_add_vep_annos_to_gdata(sample_gdata, sample_vep_annos, tmp_path):
     annotated_gdata.write_h5ad(output_file)
     assert output_file.exists()
 
+
 def test_consequence_types(sample_gdata, sample_vep_annos):
     annotated_gdata = add_vep_annos_to_gdata(
         str(sample_vep_annos),
@@ -143,6 +147,7 @@ def test_consequence_types(sample_gdata, sample_vep_annos):
         column_name = f"Consequence_{exp_type}"
         assert column_name in annotated_gdata.varm["annotations_0"].columns
         assert annotated_gdata.varm["annotations_0"][column_name].sum() > 0
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

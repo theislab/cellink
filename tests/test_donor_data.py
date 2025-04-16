@@ -1,9 +1,8 @@
+import os
+import shutil
 from pathlib import Path
 
 import mudata as md
-import os
-import scanpy as sc
-import shutil
 
 from cellink._core.data_fields import CAnn, DAnn
 from cellink._core.donordata import DonorData
@@ -172,13 +171,14 @@ def test_ellipsis_middle_indexing(adata, gdata):
     expected_shape = (1, num_G_vars, num_cells, 1)
     assert dd_res.shape == expected_shape
 
-def test_write_donordata_objects(adata, gdata):
+
+def test_write_donordata_object(adata, gdata):
     os.makedirs("tests/temp")
     dd = DonorData(G=gdata, C=adata)
-    dd.write_donordata_objects("tests/temp/C.h5ad", "tests/temp/G.h5ad")
-    assert os.path.exists("tests/temp/C.h5ad")
-    assert os.path.exists("tests/temp/G.h5ad")
+    dd.write_donordata_object("tests/temp/donordata.dd.h5")
+    assert os.path.exists("tests/temp/donordata.dd.h5")
     shutil.rmtree("tests/temp")
+
 
 if __name__ == "__main__":
     import pytest

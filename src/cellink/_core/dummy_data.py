@@ -1,8 +1,9 @@
+from typing import Literal
+
 import anndata as ad
 import muon as mu
 import numpy as np
 import pandas as pd
-from typing import Literal
 
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 
@@ -25,7 +26,13 @@ GENE_PREFIX = "G"
 SNP_PREFIX = "SNP"
 
 
-def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes, strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn"):
+def _sim_donor(
+    start_index,
+    n_cells,
+    n_genes,
+    has_all_celltypes,
+    strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn",
+):
     if strategy == "randn":
         X = np.random.randn(n_cells, n_genes)
     elif strategy == "poisson":
@@ -58,16 +65,32 @@ def _sim_donor(start_index, n_cells, n_genes, has_all_celltypes, strategy: Liter
     return ad.AnnData(X=X, obs=obs, var=var)
 
 
-def sim_adata_muon(n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS):
-    rna = sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="negative_binomial")
-    atac = sim_adata(n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial")
+def sim_adata_muon(
+    n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS
+):
+    rna = sim_adata(
+        n_donors=N_DONORS,
+        n_genes=N_GENES,
+        min_n_cells=MIN_N_CELLS,
+        max_n_cells=MAX_N_CELLS,
+        strategy="negative_binomial",
+    )
+    atac = sim_adata(
+        n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial"
+    )
     adata = mu.MuData({"rna": rna, "atac": atac})
     adata.obs["celltype"] = adata.obs["rna:celltype"]
     adata.obs["donor_id"] = adata.obs["rna:donor_id"]
     return adata
 
 
-def sim_adata(n_donors=N_DONORS, n_genes=N_GENES, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn"):
+def sim_adata(
+    n_donors=N_DONORS,
+    n_genes=N_GENES,
+    min_n_cells=MIN_N_CELLS,
+    max_n_cells=MAX_N_CELLS,
+    strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn",
+):
     """Simulate an AnnData object with multiple donors.
 
     AnnData object with n_obs × n_vars = 445 × N_GENES
