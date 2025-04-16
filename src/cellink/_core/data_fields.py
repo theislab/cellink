@@ -39,3 +39,19 @@ class VAnn:
     maf: str = "maf"
     contig: str = "contig"  # index for contig_id
     index: str = "snp_id"
+
+
+@dataclass(frozen=True)
+class AAnn:
+    """Variant annotation fields in GenoAnndata Annotations"""
+
+    chrom: str = VAnn.chrom
+    pos: str = VAnn.pos
+    a0: str = VAnn.a0
+    a1: str = VAnn.a1
+    index: str = VAnn.index
+    gene_id: str = "gene_id"
+    feature_id: str = "transcript_id"
+    name_prefix: str = "variant_annotation"
+    vep: str = "vep"
+    snpeff: str = "snpeff"
