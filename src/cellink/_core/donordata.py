@@ -3,17 +3,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
 
+import h5py
+import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
-import muon as mu
-from pathlib import Path
-
-#if TYPE_CHECKING:
+from anndata._io.specs.registry import write_elem
 from mudata import MuData
-
 from rich.align import Align
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -52,6 +50,7 @@ class DonorData:
         C: AnnData | MuData,
         donor_id: str = DAnn.donor,
         var_dims_to_sync: list[str] = None,
+        uns: dict = {},
     ):
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
@@ -63,6 +62,7 @@ class DonorData:
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
         self._match_donors(G, C)
+        self.uns = uns
 
     def _match_donors(self, G: AnnData | MuData, C: AnnData | MuData) -> None:
         G_idx = G.obs.index
@@ -101,36 +101,42 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-    def write_donordata_objects(self, path_C: str | Path, path_G: str | Path, **kwargs) -> None:
+    def write_donordata_object(self, path: str | Path) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
         ----------
-        path_C : str | Path
-            Path where the cell-type data (`dd.C`) should be saved. If `dd.C` is a `mu.Dataset`, it is written 
-            using the `mu.write` function.
-        path_G : str
-            Path where the gene expression data (`dd.G`) should be saved. Always saved using `sc.write_h5ad`.
-        dd : cl.DonorData
-            The DonorData object containing:
-            - `G`: Gene expression data (as an `AnnData` object or `mu.Dataset`).
-            - `C`: Cell-type data (as an `AnnData` object).
-        **kwargs : dict, optional
-            Additional keyword arguments passed to the `sc.write_h5ad` or `mu.write` functions when saving data.
+        path : str | Path
+            Path where the donor-data object should be saved.
 
         Example
         -------
-        write_donordata_objects('cell_data.h5mu', 'gene_data.h5ad', dd)
+        write_donordata_objects('path/to/donor_data.dd.h5')
         """
+        with h5py.File(path, "w") as f:
+            if isinstance(self.G, MuData):  #
+                g_group = f.create_group("G")
+                for key in self.G.mod_names:
+                    write_elem(g_group.create_group(key), key, self.G[key])
+                write_elem(g_group.create_group("obs"), "obs", self.G.obs)
+                write_elem(g_group.create_group("uns"), "uns", self.G.uns)
+            else:
+                write_elem(f.create_group("G"), "G", self.G)
+            if isinstance(self.C, MuData):
+                c_group = f.create_group("C")
+                for key in self.C.mod_names:
+                    write_elem(c_group.create_group(key), key, self.C[key])
+                write_elem(c_group.create_group("obs"), "obs", self.C.obs)
+                write_elem(c_group.create_group("uns"), "uns", self.C.uns)
+            else:
+                write_elem(f.create_group("C"), "C", self.C)
+            f.attrs["encoding-type"] = "donordata"
 
-        if type(self.G) == MuData:
-            self.G.write(path_G.replace(".h5ad", ".h5mu"), **kwargs)
-        else:
-            self.G.write_h5ad(path_G, **kwargs)
-        if type(self.C) == MuData:
-            self.C.write(path_C.replace(".h5ad", ".h5mu"), **kwargs)
-        else:
-            self.C.write_h5ad(path_C.replace(".h5mu", ".h5ad"), **kwargs)   
+            f.attrs["donor_id"] = self.donor_id
+            f.attrs["var_dims_to_sync"] = np.array(self._var_dims_to_sync, dtype="S")
+
+            for key, value in self.uns.items():
+                f.create_dataset(f"uns/{key}", data=value)
 
     @property
     def C(self) -> AnnData:

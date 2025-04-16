@@ -1,7 +1,9 @@
 import anndata
 import dask.array as da
 import numpy as np
+
 from .._core import DonorData
+
 
 def cell_level_obs_filter(
     dd: DonorData,
@@ -24,17 +26,17 @@ def cell_level_obs_filter(
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
     """
+    if isinstance(cell_level_values, str):
+        dd = dd.sel(C_obs=dd.C.obs[cell_level_key] == cell_level_values)
+    elif isinstance(cell_level_values, list):
+        dd = dd.sel(C_obs=dd.C.obs[cell_level_key].isin(cell_level_values))
+    elif isinstance(cell_level_values, np.ndarray):
+        dd = dd.sel(C_obs=np.isin(dd.C.obs[cell_level_key].values, cell_level_values))
 
-    if type(cell_level_values) == str:
-        dd = dd[..., dd.C.obs[cell_level_key] == cell_level_values, :].copy()
-    elif type(cell_level_values) == list:
-        dd = dd[..., dd.C.obs[cell_level_key].isin(cell_level_values), :].copy()
-    elif type(cell_level_values) == np.ndarray:
-        dd = dd[..., np.isin(dd.C.obs[cell_level_key].values, cell_level_values), :].copy()
-    
     if inplace:
         return None
     return dd.copy() if copy else dd
+
 
 def donor_level_obs_filter(
     dd: DonorData,
@@ -57,17 +59,17 @@ def donor_level_obs_filter(
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
     """
+    if isinstance(donor_level_values, str):
+        dd = dd.sel(G_obs=dd.G.obs[donor_level_key] == donor_level_values)
+    elif isinstance(donor_level_values, list):
+        dd = dd.sel(G_obs=dd.G.obs[donor_level_key].isin(donor_level_values))
+    elif isinstance(donor_level_values, np.ndarray):
+        dd = dd.sel(G_obs=np.isin(dd.G.obs[donor_level_key].values, donor_level_values))
 
-    if type(donor_level_values) == str:
-        dd = dd[dd.G.obs[donor_level_key] == donor_level_values, :].copy()
-    elif type(donor_level_values) == list:
-        dd = dd[dd.G.obs[donor_level_key].isin(donor_level_values), :].copy()
-    elif type(donor_level_values) == np.ndarray:
-        dd = dd[np.isin(dd.G.obs[donor_level_key].values, donor_level_values), :].copy()
-    
     if inplace:
         return None
     return dd.copy() if copy else dd
+
 
 def donor_level_var_filter(
     dd: DonorData,
@@ -90,17 +92,17 @@ def donor_level_var_filter(
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
     """
+    if isinstance(donor_level_values, str):
+        dd = dd.sel(G_var=dd.G.obs[donor_level_key] == donor_level_values)
+    elif isinstance(donor_level_values, list):
+        dd = dd.sel(G_var=dd.G.obs[donor_level_key].isin(donor_level_values))
+    elif isinstance(donor_level_values, np.ndarray):
+        dd = dd.sel(G_var=np.isin(dd.G.obs[donor_level_key].values, donor_level_values))
 
-    if type(donor_level_values) == str:
-        dd = dd[:, dd.G.var[donor_level_key] == donor_level_values, :].copy()
-    elif type(donor_level_values) == list:
-        dd = dd[:, dd.C.var[donor_level_key].isin(donor_level_values), :].copy()
-    elif type(donor_level_values) == np.ndarray:
-        dd = dd[:, np.isin(dd.C.var[donor_level_key].values, donor_level_values), :].copy()
-    
     if inplace:
         return None
     return dd.copy() if copy else dd
+
 
 def low_abundance_filter(
     adata: anndata.AnnData,
@@ -157,6 +159,7 @@ def low_abundance_filter(
         return None
     return adata.copy() if copy else adata
 
+
 def missing_values_filter(
     adata: anndata.AnnData,
     *,
@@ -191,7 +194,7 @@ def missing_values_filter(
     is_missing = da.isnan(X) if isinstance(X, da.Array) else np.isnan(X)
     missing_ratio = da.mean(is_missing, axis=0) if isinstance(X, da.Array) else np.mean(is_missing, axis=0)
 
-    valid_features = (missing_ratio <= max_missing_ratio)
+    valid_features = missing_ratio <= max_missing_ratio
     valid_features = valid_features.compute() if isinstance(valid_features, da.Array) else valid_features
 
     adata = adata[:, valid_features]
@@ -200,6 +203,7 @@ def missing_values_filter(
         adata.X = adata.X
         return None
     return adata.copy() if copy else adata
+
 
 def log_transform(
     adata: anndata.AnnData,

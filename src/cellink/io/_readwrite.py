@@ -1,15 +1,11 @@
 import warnings
-from dataclasses import dataclass
 from pathlib import Path
 
-import pandas as pd
-from anndata import AnnData
-import muon as mu
-import scanpy as sc
-from anndata.utils import asarray
-from typing import Literal
+import h5py
+from anndata._io.specs.registry import read_elem
+from mudata import MuData
 
-import cellink as cl
+from .._core import DonorData
 
 warnings.filterwarnings(
     "ignore",
@@ -17,23 +13,17 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-def read_donordata_objects(path_C: str | Path, path_G: str, *, backed_C: Literal["r", "r+"] | bool | None = None, backed_G: Literal["r", "r+"] | bool | None = None, **kwargs) -> AnnData:
-    """    Read donor data from specified file paths for both the gene expression data (G) and cell-type data (C),
+
+def read_donordata_object(
+    path: str | Path,
+) -> DonorData:
+    """Read donor data from specified file paths for both the gene expression data (G) and cell-type data (C),
     and return a DonorData object containing these two datasets.
 
     Parameters
     ----------
-    path_C : str | Path
-        Path to the cell-type data file, which can either be in `.h5ad` or `.h5mu` format.
-    path_G : str
-        Path to the gene expression data file, expected to be in `.h5ad` format.
-    backed_C : Literal["r", "r+"] | bool | None, optional
-        If the file at `path_C` is to be read in backed mode (if it's too large to load into memory). Can be `'r'` 
-        (read-only) or `'r+'` (read-write), or a boolean indicating whether to back the file.
-    backed_G : Literal["r", "r+"] | bool | None, optional
-        Same as `backed_C`, but for the gene expression data file at `path_G`.
-    **kwargs : dict, optional
-        Additional keyword arguments passed directly to the `sc.read_h5ad` or `mu.read` functions when reading data.
+    path : str | Path
+        Path to the DonorData data file.
 
     Returns
     -------
@@ -44,18 +34,37 @@ def read_donordata_objects(path_C: str | Path, path_G: str, *, backed_C: Literal
 
     Example
     -------
-    dd = read_donordata_objects('cell_data.h5mu', 'gene_data.h5ad')
+    dd = read_donordata_object('path/to/donor_data.dd.h5')
     """
+    with h5py.File(path, "r") as f:
+        G = read_elem(f["G"])
+        C = read_elem(f["C"])
+        if len(G.keys()) > 1:
+            obs = G["obs"]["obs"]
+            uns = G["uns"]["uns"]
+            G = MuData({key: G[key][key] for key in G.keys() if key not in ["obs", "uns"]})
+            G.obs = obs
+            G.uns = uns
+        else:
+            G = G["G"]
+        if len(C.keys()) > 1:
+            obs = C["obs"]["obs"]
+            uns = C["uns"]["uns"]
+            C = MuData({key: C[key][key] for key in C.keys() if key not in ["obs", "uns"]})
+            C.obs = obs
+            C.uns = uns
+        else:
+            C = C["C"]
 
-    if path_C.endswith(".h5mu"):
-        gdata = mu.read(path_G, backed=backed_G, **kwargs)
-    else:
-        gdata = sc.read_h5ad(path_G, backed=backed_G, **kwargs)
-    if path_C.endswith(".h5mu"):
-        adata = mu.read(path_C, backed=backed_C, **kwargs)
-    else:
-        adata = sc.read_h5ad(path_C, backed=backed_C, **kwargs)
-    
-    dd = cl.DonorData(G=gdata, C=adata, **kwargs).copy()
+        donor_id = f.attrs.get("donor_id", "donor")
+        var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
+
+        uns = {}
+        uns_group = f.get("uns")
+        if uns_group:
+            for key in uns_group:
+                uns[key] = uns_group[key][()]
+
+    dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns).copy()
 
     return dd
