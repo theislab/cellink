@@ -1,0 +1,19 @@
+# Config for running VEP online.
+# Works as-is if VEP is installed
+offline: false
+vep_nfork: 5
+genome_assembly: GRCh37
+species: homo_sapiens
+pick_order: "biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq"
+additional_flags:
+  - "--polyphen s"
+  - "--sift s"
+  - "--total_length"
+  - "--total_length"
+  - "--no_escape"
+  - "--canonical"
+  - "--protein"
+  - "--biotype"
+  - "--force_overwrite"
+  - "--no_stats"
+  - "--per_gene"
