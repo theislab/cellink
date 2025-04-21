@@ -1,0 +1,2 @@
+snpeff_command: snpeff #If you choose to install Snpeff via conda, this should be snpeff; If you choose to install Snpeff via java .ar download, this should be the path to the snpeff jar file, e.g. java -Xmx8g -jar /opt/miniconda3/envs/ENV_NAME/share/snpeff-5.2-1/snpEff.jar
+genome_assembly: GRCh37.75
