@@ -1,5 +1,6 @@
 # Config for running VEP online.
 # Works as-is if VEP is installed
+vep_command: docker run -v /Users/larnoldt:/Users/larnoldt -t ensemblorg/ensembl-vep vep
 offline: false
 vep_nfork: 5
 genome_assembly: GRCh37

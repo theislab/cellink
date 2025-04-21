@@ -1,11 +1,11 @@
 import warnings
 from pathlib import Path
-from typing import Literal
 
-from mudata import MuData
-from .._core import DonorData
-from anndata._io.specs.registry import read_elem
 import h5py
+from anndata._io.specs.registry import read_elem
+from mudata import MuData
+
+from .._core import DonorData
 
 warnings.filterwarnings(
     "ignore",
@@ -36,7 +36,6 @@ def read_donordata_object(
     -------
     dd = read_donordata_object('path/to/donor_data.dd.h5')
     """
-
     with h5py.File(path, "r") as f:
         G = read_elem(f["G"])
         C = read_elem(f["C"])
@@ -56,7 +55,7 @@ def read_donordata_object(
             C.uns = uns
         else:
             C = C["C"]
-        
+
         donor_id = f.attrs.get("donor_id", "donor")
         var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
 
@@ -65,7 +64,7 @@ def read_donordata_object(
         if uns_group:
             for key in uns_group:
                 uns[key] = uns_group[key][()]
-    
+
     dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns).copy()
 
     return dd

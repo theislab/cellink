@@ -1,10 +1,14 @@
+import glob
 import logging
 import os
 import subprocess
 import sys
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+import polars as pl
+import regex as re
 import yaml
 
 from cellink._core.data_fields import AAnn
@@ -20,50 +24,284 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
-def setup_snpeff():
-    """
-    Downloads and sets up the SnpEff tool in the 'deps' directory.
+import sys
 
-    This function creates a directory called 'deps', downloads the latest version
-    of SnpEff from SourceForge, and extracts the contents. It ensures that the
-    required tool is available for genome annotation tasks.
+
+def run_snpeff(
+    config_file="../docs/configs/snpeff_config.yaml",
+    input_vcf="variants.vcf",
+    output="variant_vep_annotated.txt",
+    return_annos=False,
+    **kwargs,
+):
     """
-    os.makedirs("deps", exist_ok=True)
-    subprocess.run(
-        [
-            "wget",
-            "http://sourceforge.net/projects/snpeff/files/snpEff_latest_core.zip",
-            "-O",
-            "deps/snpEff_latest_core.zip",
-        ],
-        check=True,
+    Annotates variants using the SnpEff command-line tool.
+
+    Requires SnpEff to be installed and a valid genome database to be specified in the config.
+
+    Parameters
+    ----------
+    config_file : str, optional
+        Path to YAML config file specifying SnpEff settings, including genome assembly
+        and path to the SnpEff executable. Defaults to "../docs/configs/snpeff_config.yaml".
+    input_vcf : str, optional
+        Path to the input VCF file containing variants to annotate. Defaults to "variants.vcf".
+    output : str, optional
+        Path to the file where the annotated variants will be written. Defaults to "variant_vep_annotated.txt".
+    return_annos : bool, optional
+        Whether to return the annotations as a Pandas DataFrame after writing them to disk.
+        Defaults to False.
+    **kwargs : dict
+        Additional keyword arguments to be passed as command-line options to SnpEff.
+        These are formatted as --key value.
+
+    Returns
+    -------
+    None or pandas.DataFrame
+        Returns None if return_annos is False.
+        If True, returns a DataFrame of the annotations loaded from the output file.
+    """
+    logger.info(f"using config {config_file}")
+    with open(config_file) as f:
+        config = yaml.safe_load(f)
+
+    genome_assembly = config["genome_assembly"]
+    snpeff_command = config["snpeff_command"]
+
+    env = os.environ.copy()
+    env["_JAVA_OPTIONS"] = "-Xmx8g"
+
+    cmd = [snpeff_command, genome_assembly, input_vcf]
+
+    for key, value in kwargs.items():
+        cmd.extend([f"--{key}", str(value)])
+
+    subprocess.run(cmd, stdout=open(output.replace(".txt", ".vcf"), "w"), env=env)
+    annos = pd.read_csv(output.replace(".txt", ".vcf"), delimiter="\t", skiprows=6)
+    annos["INFO"] = annos["INFO"].apply(lambda x: x.split("|"))
+
+    def chunk_info(info_list):
+        if not isinstance(info_list, list):
+            return [[np.nan] * 15]
+
+        chunks = [info_list[i : i + 15] for i in range(0, len(info_list), 15) if len(info_list[i : i + 15]) == 15]
+        if not chunks:
+            return [[np.nan] * 15]
+
+        cleaned_chunks = []
+        for chunk in chunks:
+            cleaned_chunk = []
+            for i, val in enumerate(chunk):
+                if i == 0 and val.startswith("ANN="):
+                    cleaned_chunk.append(val[4:])
+                elif val.startswith(","):
+                    cleaned_chunk.append(val[1:])
+                else:
+                    cleaned_chunk.append(val)
+            cleaned_chunks.append(cleaned_chunk)
+        return cleaned_chunks
+
+    annos = annos.rename(columns={"ID": "snp_id"})
+    annos = annos[["snp_id", "INFO"]]
+    annos["info_chunks"] = annos["INFO"].apply(chunk_info)
+
+    annos_exploded = annos.explode("info_chunks", ignore_index=True)
+
+    # See https://pcingola.github.io/SnpEff/adds/VCFannotationformat_v1.0.pdf
+    columns = [
+        "ALT",
+        "consequence",
+        "putative_impact",
+        "gene_name",
+        "ensembl_gene_id",
+        "feature_type",
+        "ensembl_transcript_id",
+        "transcript_biotype",
+        "exon_intron_rank",
+        "hgvs_c",
+        "hgvs_p",
+        "cdna_position",
+        "cds_position",
+        "protein_position",
+        "distance_to_feature",
+    ]
+    info_df = pd.DataFrame(annos_exploded["info_chunks"].tolist(), columns=[columns[i] for i in range(15)])
+
+    annos = pd.concat([annos_exploded[["snp_id"]].reset_index(drop=True), info_df], axis=1)
+
+    annos.to_csv(output)
+
+    if return_annos:
+        return annos
+
+
+def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None):
+    URL = URLs.loc[URLs["chr"] == chromosome, "URL"].values[0]
+
+    subprocess.Popen(["wget", "--progress=bar:force:noscroll", URL], stdout=sys.stdout, stderr=sys.stderr)
+    file_id = re.search(r"(\d+)", URL).group(1)
+    subprocess.Popen(["tar", "-xvf", file_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def download_favor_essential(chromosome: Chromosome | list[Chromosome] | None = None):
+    URLs = pd.DataFrame(
+        {
+            "chr": list(range(1, 23)),
+            "URL": [
+                "https://dataverse.harvard.edu/api/access/datafile/6170506",
+                "https://dataverse.harvard.edu/api/access/datafile/6170501",
+                "https://dataverse.harvard.edu/api/access/datafile/6170502",
+                "https://dataverse.harvard.edu/api/access/datafile/6170521",
+                "https://dataverse.harvard.edu/api/access/datafile/6170511",
+                "https://dataverse.harvard.edu/api/access/datafile/6170516",
+                "https://dataverse.harvard.edu/api/access/datafile/6170505",
+                "https://dataverse.harvard.edu/api/access/datafile/6170513",
+                "https://dataverse.harvard.edu/api/access/datafile/6165867",
+                "https://dataverse.harvard.edu/api/access/datafile/6170507",
+                "https://dataverse.harvard.edu/api/access/datafile/6170517",
+                "https://dataverse.harvard.edu/api/access/datafile/6170520",
+                "https://dataverse.harvard.edu/api/access/datafile/6170503",
+                "https://dataverse.harvard.edu/api/access/datafile/6170509",
+                "https://dataverse.harvard.edu/api/access/datafile/6170515",
+                "https://dataverse.harvard.edu/api/access/datafile/6170518",
+                "https://dataverse.harvard.edu/api/access/datafile/6170510",
+                "https://dataverse.harvard.edu/api/access/datafile/6170508",
+                "https://dataverse.harvard.edu/api/access/datafile/6170514",
+                "https://dataverse.harvard.edu/api/access/datafile/6170512",
+                "https://dataverse.harvard.edu/api/access/datafile/6170519",
+                "https://dataverse.harvard.edu/api/access/datafile/6170504",
+            ],
+        }
     )
-    os.chdir("deps")
-    subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
-    os.chdir("../")
+
+    _download_favor(URLs=URLs, chromosome=chromosome)
 
 
-def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
-    """
-    Runs genome annotation using the SnpEff tool.
-
-    This function uses the SnpEff tool to annotate a given VCF file with the specified
-    genome database. The annotated output is saved to the specified output file.
-
-    Args:
-        vcf_input (str): Path to the input VCF file to be annotated.
-        vcf_output (str): Path to the output file where the annotated VCF will be saved.
-        genome (str): Genome version to be used for annotation (default: "GRCh37.75").
-                      Ensure this genome is supported by SnpEff.
-    """
-    snpeff_path = "./deps/snpEff/snpEff.jar"
-
-    subprocess.run(
-        ["java", "-Xmx8g", "-jar", snpeff_path, genome, vcf_input],
-        stdout=open(vcf_output, "w"),
-        check=True,
+def download_favor_full(chromosome: Chromosome | list[Chromosome] | None = None):
+    URLs = pd.DataFrame(
+        {
+            "chr": list(range(1, 23)),
+            "URL": [
+                "https://dataverse.harvard.edu/api/access/datafile/6380374",
+                "https://dataverse.harvard.edu/api/access/datafile/6380471",
+                "https://dataverse.harvard.edu/api/access/datafile/6380732",
+                "https://dataverse.harvard.edu/api/access/datafile/6381512",
+                "https://dataverse.harvard.edu/api/access/datafile/6381457",
+                "https://dataverse.harvard.edu/api/access/datafile/6381327",
+                "https://dataverse.harvard.edu/api/access/datafile/6384125",
+                "https://dataverse.harvard.edu/api/access/datafile/6382573",
+                "https://dataverse.harvard.edu/api/access/datafile/6384268",
+                "https://dataverse.harvard.edu/api/access/datafile/6380273",
+                "https://dataverse.harvard.edu/api/access/datafile/6384154",
+                "https://dataverse.harvard.edu/api/access/datafile/6384198",
+                "https://dataverse.harvard.edu/api/access/datafile/6388366",
+                "https://dataverse.harvard.edu/api/access/datafile/6388406",
+                "https://dataverse.harvard.edu/api/access/datafile/6388427",
+                "https://dataverse.harvard.edu/api/access/datafile/6388551",
+                "https://dataverse.harvard.edu/api/access/datafile/6388894",
+                "https://dataverse.harvard.edu/api/access/datafile/6376523",
+                "https://dataverse.harvard.edu/api/access/datafile/6376522",
+                "https://dataverse.harvard.edu/api/access/datafile/6376521",
+                "https://dataverse.harvard.edu/api/access/datafile/6358305",
+                "https://dataverse.harvard.edu/api/access/datafile/6358299",
+            ],
+        }
     )
+
+    _download_favor(URLs=URLs, chromosome=chromosome)
+
+
+def download_favor(
+    version: Literal["essential", "full"] = "essential", chromosome: Chromosome | list[Chromosome] | None = None
+):
+    # chromosome = 22  # change as needed (1 to 22)
+    # version = "essential"
+
+    if version == "essential":
+        download_favor_essential(chromosome=chromosome)
+    elif version == "full":
+        download_favor_full(chromosome=chromosome)
+
+
+def run_favor(
+    config_file="../docs/configs/favor_config.yaml",
+    G=None,
+    output="variant_vep_annotated.txt",
+    return_annos=False,
+):
+    """
+    Annotates variants using the FAVOR database from within Python
+
+    Requires access to FAVOR CSV databases either locally or via automatic download.
+
+    Parameters
+    ----------
+    config_file : str, optional
+        Path to YAML config file specifying FAVOR settings and database location.
+        Defaults to "../docs/configs/favor_config_offline.yaml".
+    G : anndata.AnnData, optional
+        AnnData object with a .var DataFrame containing variant information, including
+        'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
+    output : str, optional
+        File where annotated variants will be saved. Defaults to "variant_vep_annotated.txt".
+    return_annos : bool, optional
+        Whether to return the annotations as a Pandas DataFrame after writing them to disk.
+        Defaults to False.
+
+    Returns
+    -------
+    None or pandas.DataFrame
+        Returns None if return_annos is False.
+        If True, returns a DataFrame of annotations loaded from the output file.
+    """
+    logger.info(f"using config {config_file}")
+    with open(config_file) as f:
+        config = yaml.safe_load(f)
+
+    favor_database_dir = config.get("favor_database_dir", None)
+    if favor_database_dir is None:
+        favor_database_dir = os.path.join(os.getcwd(), "./n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB/")
+
+    ####
+    # chromosome = 22
+    # input_vcf = '/Users/larnoldt/sc-genetics/tests/data/variants.vcf'
+    ###
+
+    annos = []
+    for chromosome in np.unique(G.var["chrom"]):
+        if len(glob.glob(os.path.join(favor_database_dir, f"chr{chromosome}_*.csv"))) == 0:
+            logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
+            download_favor(version=config["favor_version"], chromosome=chromosome)
+        else:
+            G_var_chrom = G.var[G.var["chrom"] == chromosome]
+
+            database = pl.concat(
+                [pl.read_csv(path) for path in glob.glob(f"{favor_database_dir}/chr{chromosome}_*.csv")]
+            )
+            exclude = {"chromosome", "position", "ref_vcf", "alt_vcf"}
+            database = database.select([col for col in database.columns if col not in exclude])
+
+            snp_df = pl.DataFrame(
+                {
+                    "variant_vcf": G_var_chrom["chrom"]
+                    .astype(str)
+                    .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
+                }
+            )
+
+            result_chrom = snp_df.join(database, on="variant_vcf", how="left")
+            annos.append(result_chrom)
+
+    annos = pl.concat(annos)
+    annos = annos.rename({"variant_vcf": "snp_id"})
+    annos["snp_id"].apply(lambda x: x.replace("-", "_"))
+    annos = annos.with_columns(pl.col("snp_id").str.replace_all("-", "_").alias("snp_id"))
+    annos.to_csv(output)
+
+    if return_annos:
+        return annos
 
 
 def run_vep(
@@ -71,6 +309,7 @@ def run_vep(
     input_vcf="variants.vcf",
     output="variant_vep_annotated.txt",
     return_annos=False,
+    **kwargs,
 ):
     """Calls the VEP command line tool from within python
 
@@ -101,7 +340,7 @@ def run_vep(
     offline = config.get("offline", False)
 
     base_cmd = [
-        "vep",
+        config["vep_command"],
         "--input_file",
         str(input_vcf),
         "--output_file",
@@ -142,6 +381,8 @@ def run_vep(
         cmd = base_cmd + online_cmd
 
     cmd = " ".join(cmd)
+    for key, value in kwargs.items():
+        cmd += f" --{key} {value}"
 
     logger.info(f"running VEP command {cmd}")
     try:
