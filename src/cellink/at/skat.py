@@ -1,37 +1,105 @@
-import scipy
-import numpy as np
+import logging
 
-def custom_getattr(name):
+import anndata
+import numpy as np
+import numpy.linalg as la
+import pandas as pd
+import scipy
+import scipy.stats as st
+from limix_core.covar import FreeFormCov
+from limix_core.gp import GP2KronSumLR
+
+from cellink._core import DonorData
+from cellink.at.utils import (
+    ArrayLike,
+    DataContainer,
+    DotPath,
+    davies_pvalue,
+    xgower_factor_,
+)
+
+
+def custom_getattr(name):  # noqa: D103
     if name in scipy.__dict__:
         return getattr(scipy, name)
     return getattr(np, name)
 
+
 scipy.__getattr__ = custom_getattr
 
-import scipy.stats as st
-from cellink.at.utils import xgower_factor_,skat_test
-import pandas as pd
-from typing import Union, List, Optional
-import numpy as np
-import pandas as pd
-import anndata
-from cellink._core import DonorData
 
-#To handle multiple data types
-ArrayLike = Union[np.ndarray, pd.Series, pd.DataFrame, List[float], List[int]]
-DotPath = Union[str, List[str]]
+logger = logging.getLogger(__name__)
 
-DataContainer = Union[
-    None,                 # If passing Y and X directly
-    pd.DataFrame,         # If Y and X are in a DataFrame
-    anndata.AnnData,      # If Y and X are in AnnData
-    DonorData             # If Y and X are in DonorData
-]
+
+def skat_test(y, X, F=None, return_info=False) -> tuple[float, dict] | float:
+    """
+    Performs SKAT test for association between y and X.
+
+    Parameters
+    ----------
+    y : np.array
+        Phenotype data
+    X : np.array
+        Genotype data
+    F : np.array, optional
+        Covariates data. If not specified, an intercept is assumed.
+
+    Returns
+    -------
+    float
+        p-value of the SKAT test
+    dict
+        additional information about the fit of the null model
+
+    Notes
+    -----
+    This method uses a Gaussian process to fit the null model and compute the skat test statistic.
+    """
+    # fit exact null model
+    E = np.ones([X.shape[0], 1])
+    if F is None:
+        F = np.ones([X.shape[0], 1])
+    gp = GP2KronSumLR(Y=y, Cn=FreeFormCov(1), G=E, F=F, A=np.ones((1, 1)))
+    gp.covar.Cr.setCovariance(1e-9 * np.ones((1, 1)))
+    gp.covar.Cn.setCovariance(np.ones((1, 1)))
+    info_opt = gp.optimize(verbose=False)
+
+    def _P(X, gp):
+        """
+        Computes the projection matrix P.
+
+        For mathematical details, see the supplementary method of the paper (Lippert et al. 2014):
+        https://doi.org/10.1093/bioinformatics/btu504
+        """
+        KiX = gp.covar.solve(X)
+        FtKiX = gp.mean.W.T.dot(KiX)
+        Areml_inv = la.inv(gp.mean.W.T.dot(gp.covar.solve(gp.mean.W)))
+        KiFAiFtKiX = gp.covar.solve(gp.mean.W.dot(Areml_inv.dot(FtKiX)))
+        out = KiX - KiFAiFtKiX
+        return out
+
+    # make interaction test
+    PY = _P(y, gp)
+    # score statistics
+    XPY = X.T.dot(PY)
+    Q = (XPY**2).sum()
+
+    # eigenvalues
+    PX = _P(X, gp)
+    Lambda = X.T.dot(PX)
+    lambdas = la.eigvalsh(Lambda)
+    if return_info:
+        return davies_pvalue(Q, lambdas), info_opt
+    return davies_pvalue(Q, lambdas)
+
 
 class Skat:
+    """SKAT test for association between Y and X."""
+
     def __init__(self, a=1, b=25, min_threshold=10, max_threshold=5000):
         """
         SKAT test for association between Y and X.
+
         Parameters
         ----------
         a : float (default=1)
@@ -39,32 +107,36 @@ class Skat:
         b : float  (default=25)
             Parameter beta of Beta distribution
         min_threshold : int (default=10)
-            Minimum number of variants to perform the test 
+            Minimum number of variants to perform the test
         max_threshold : int (default=5000)
             Maximum number of variants to perform the test
-        Values for a, b are chosen accordingly to the SKAT original paper ( 10.1016/j.ajhg.2011.05.029)
+        Values for a, b are chosen accordingly to the SKAT original paper (https://doi.org/10.1016/j.ajhg.2011.05.029)
         While values for min_threshold and max_threshold follow Clarke,Holthamp et al. (https://doi.org/10.1038/s41588-024-01919-z)
         """
-        assert a>0, 'Parameter alpha of Beta distribution must be > 0'
-        assert b>0, 'Parameter beta of Beta distribution must be > 0'
+        assert a > 0, "Parameter alpha of Beta distribution must be > 0"
+        assert b > 0, "Parameter beta of Beta distribution must be > 0"
         self.a = a
         self.b = b
         self.min_threshold = min_threshold
         self.max_threshold = max_threshold
 
-    def run_skat(self,
+    def run_test(
+        self,
         data: DataContainer = None,
-        Y: Optional[Union[ArrayLike, DotPath]] = None,
-        X: Optional[Union[ArrayLike, DotPath]] = None
-        ) -> float:
+        Y: ArrayLike | DotPath | None = None,
+        X: ArrayLike | DotPath | None = None,
+    ) -> float:
+        """Run SKAT test for association between Y and X."""
         if data is None:
-            assert isinstance(Y,np.ndarray), "If data is None, Y must be provided and be a numpy array"
-            assert isinstance(X,np.ndarray), "If data is None, X must be provided and be a numpy array"
+            assert isinstance(Y, np.ndarray), "If data is None, Y must be provided and be a numpy array"
+            assert isinstance(X, np.ndarray), "If data is None, X must be provided and be a numpy array"
             return self._run_skat(Y=Y, X=X)
         else:
-            assert isinstance(data, (pd.DataFrame, anndata.AnnData, DonorData)), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
+            assert isinstance(
+                data, pd.DataFrame | anndata.AnnData | DonorData
+            ), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
             assert isinstance(Y, str), "Y must be a string or a list of strings"
-            assert isinstance(X, (str,List[str])), "X must be a string or a list of strings" 
+            assert isinstance(X, str | list[str]), "X must be a string or a list of strings"
             if isinstance(X, str):
                 X = [X]
             if isinstance(data, pd.DataFrame):
@@ -82,41 +154,38 @@ class Skat:
                 assert X in data.donor_data.obs.columns, "X must be a column in the DonorData object."
                 Y = data.donor_data[Y].values
                 X = data.donor_data[X].values
-            return self._run_skat(Y=Y, X=X)
+            return self._run_test(Y=Y, X=X)
 
-    def _run_skat(self, Y:np.ndarray=None, X:np.ndarray=None)-> float:
+    def _run_test(self, Y: np.ndarray = None, X: np.ndarray = None) -> float:
         """
-        Method to perform SKAT test. Variants with a Minor Allele Count (MAC) <10 are collapsed together.
+        Method to perform SKAT test.
+
+        Variants with a Minor Allele Count (MAC) < 10 are collapsed together.
         If the number of variants is < 10, it returns NaN.
         It also returns NaN if the number of variants is > 5000.
         Same approach as Clarke,Holtkamp, et al. (https://doi.org/10.1038/s41588-024-01919-z)
+
         Parameters
         ----------
         Y : np.array
             Phenotype data
         X : np.array
             Genotype data
-        a : float (default=1)
-            Parameter alpha of Beta distribution
-        b : float  (default=25)
-            Parameter beta of Beta distribution
-        min_threshold : int (default=10)
-            Minimum number of variants to perform the test 
-        max_threshold : int (default=5000)
-            Maximum number of variants to perform the test
-        
+
         Returns
         -------
         float
-            p-value of the SKAT test 
+            p-value of the SKAT test
         """
         Ilow = X.sum(0) < self.min_threshold
         if (~Ilow).sum() == 0:
+            logger.warning("No variants with MAC > 10. Returning NaN.")
             return np.nan
         else:
             _xlow = X[:, Ilow].sum(1)[:, None]
             _Xskat = np.concatenate([X[:, ~Ilow], _xlow], axis=1)
             if _Xskat.shape[1] > self.max_threshold:
+                logger.warning("Number of variants > 5000. Returning NaN.")
                 return np.nan
             else:
                 maf = 0.5 * _Xskat.mean(0)
@@ -125,6 +194,3 @@ class Skat:
                 _Xskat = (_Xskat - _Xskat.mean(0)) * np.sqrt(_weights)
                 _Xskat = _Xskat / xgower_factor_(_Xskat)
         return skat_test(Y, _Xskat)
-
-
-    
