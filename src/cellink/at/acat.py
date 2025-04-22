@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.stats as st
+from src.cellink.at.utils import ensure_float64_array
 
 
 def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> float:
@@ -29,11 +30,17 @@ def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray
         The ACAT-combined p-value.
 
     """
+    # preparing the input
     if weights is None:
-        weights = [1 / len(pvalues) for i in pvalues]
+        weights = np.ndarray([1 / len(pvalues) for i in pvalues])
 
+    # sanity checks
     assert len(weights) == len(pvalues), "Length of weights and p-values differs."
     assert weights.all() > 0, "All weights must be positive."
+
+    # type casting
+    pvalues = ensure_float64_array(pvalues)
+    weights = ensure_float64_array(weights)
 
     if not any(pvalues < tolerance):
         cct_stat = sum(weights * np.tan((0.5 - pvalues) * np.pi))

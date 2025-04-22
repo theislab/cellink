@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
+from src.cellink.at.utils import ensure_float64_array
 
 
 class GWAS:
@@ -27,6 +28,7 @@ class GWAS:
                 * F has two dimensions (either a column vector to model intercept or a matrix with covariates)
                 * F has the same number of rows as Y
         """
+        # sanity checks
         assert isinstance(Y, np.ndarray), "Y must be a numpy array"
         assert Y.ndim == 2, "Y must be a 2D numpy array"
 
@@ -36,6 +38,10 @@ class GWAS:
         assert isinstance(F, np.ndarray), "F must be a numpy array"
         assert F.ndim == 2, "F must be a 2D numpy array"
         assert Y.shape[0] == F.shape[0], "Y and F must have the same number of rows"
+
+        # type casting
+        Y = ensure_float64_array(Y)
+        F = ensure_float64_array(F)
 
         self.Y = Y
         self.F = F
@@ -80,6 +86,9 @@ class GWAS:
         G : (`N`, `S`) ndarray
             inputs
         """
+        # type casting
+        G = ensure_float64_array(G)
+
         # precompute products
         GY = np.dot(G.T, self.Y)
         GG = np.einsum("ij,ij->j", G, G)

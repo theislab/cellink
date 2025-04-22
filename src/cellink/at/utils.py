@@ -74,3 +74,20 @@ def davies_pvalue(tstats: np.array, weights: np.array, return_info=False) -> tup
     if return_info:
         return re["p_value"][0], re
     return re["p_value"][0]
+
+
+def ensure_float64_array(arr: np.ndarray) -> np.ndarray:
+    """
+    Ensure that the input array is of type float64.
+
+    Parameters
+    ----------
+    arr : ArrayLike
+        Input array-like object (e.g., list, numpy array, pandas Series, DataFrame).
+
+    Returns
+    -------
+    np.ndarray
+        A numpy array of type float64.
+    """
+    return np.asarray(arr, dtype=np.float64)

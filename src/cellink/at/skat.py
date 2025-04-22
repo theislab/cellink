@@ -15,6 +15,7 @@ from cellink.at.utils import (
     DataContainer,
     DotPath,
     davies_pvalue,
+    ensure_float64_array,
     xgower_factor_,
 )
 
@@ -59,6 +60,12 @@ def skat_test(y, X, F=None, return_info=False) -> tuple[float, dict] | float:
     E = np.ones([X.shape[0], 1])
     if F is None:
         F = np.ones([X.shape[0], 1])
+    
+    # type casting
+    y = ensure_float64_array(y)
+    X = ensure_float64_array(X)
+    F = ensure_float64_array(F)
+
     gp = GP2KronSumLR(Y=y, Cn=FreeFormCov(1), G=E, F=F, A=np.ones((1, 1)))
     gp.covar.Cr.setCovariance(1e-9 * np.ones((1, 1)))
     gp.covar.Cn.setCovariance(np.ones((1, 1)))
