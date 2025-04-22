@@ -79,6 +79,7 @@ class GWAS:
         .. math::
             LRT = -df * log( marginal likelihood under H1 / marginal likelihood under H0 )
         where s2 is the variance of the residuals of the model with the covariate and s20 is the variance of the residuals of the null model.
+        Uses the Woodbury Matrix Identity to invert the matrix in the LRT statistic.
         Fit genotypes one-by-one.
 
         Parameters
