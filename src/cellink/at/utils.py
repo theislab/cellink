@@ -1,26 +1,64 @@
+from __future__ import annotations
 
-from typing import Union
+import anndata
 import numpy as np
-from numpy import asarray, atleast_1d
+import pandas as pd
+import scipy.stats as st
 from chiscore._davies import _pvalue_lambda
-from limix_core.covar import FreeFormCov
-from limix_core.gp import GP2KronSumLR
-import numpy.linalg as la
+from numpy import asarray, atleast_1d
+
+from cellink._core import DonorData
+
+# To handle multiple data types
+ArrayLike = np.ndarray | pd.Series | pd.DataFrame | list[float] | list[int]
+DotPath = str | list[str]
+# If passing Y and X directly | If Y and X are in a DataFrame |   If Y and X are in AnnData | If Y and X are in DonorData
+DataContainer = None | pd.DataFrame | anndata.AnnData | DonorData
+
 
 def xgower_factor_(X):
+    """
+    Computes a scaling factor based on the extended Gower's centered similarity matrix.
+
+    This function calculates a scalar that is useful in standardizing kernel-based similarity
+    or distance matrices derived from the input matrix `X`. It is often used to scale genetic
+    similarity matrices or relatedness matrices in genome-wide association studies (GWAS) or
+    kernel machine methods.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        A 2D array of shape (n_samples, n_features), where each row is a sample and
+        each column is a feature (e.g., SNP dosage or genotype encoding).
+
+    Returns
+    -------
+    float
+        The scaling factor derived from the variance structure of `X`, computed as:
+
+        sqrt( (sum(X^2) - sum(X)^T * sum(X) / n) / (n - 1) )
+
+    Notes
+    -----
+    This is related to the trace of the Gower-centered Gram matrix and can be used to
+    normalize kernels or similarity matrices when comparing across datasets or models.
+    """
     a = np.power(X, 2).sum()
     b = X.dot(X.sum(0)).sum()
     return np.sqrt((a - b / X.shape[0]) / (X.shape[0] - 1))
 
-def davies_pvalue(tstats:np.array, weights:np.array, return_info=False) -> Union[tuple[np.ndarray, dict], np.ndarray]:
+
+def davies_pvalue(tstats: np.array, weights: np.array, return_info=False) -> tuple[np.ndarray, dict] | np.ndarray:
     """
     Joint significance of statistics derived from chi2-squared distributions.
+
     Parameters
     ----------
     tstats : float
         Test statistics.
     weights : array_like
         Weights of the linear combination.
+
     Returns
     -------
     float, dict
@@ -38,56 +76,105 @@ def davies_pvalue(tstats:np.array, weights:np.array, return_info=False) -> Union
         return re["p_value"][0], re
     return re["p_value"][0]
 
-def skat_test(y, X, F=None,return_info=False)-> Union[tuple[float, dict], float]:
-        """
-        Performs SKAT test for association between y and X.
-        Parameters
-        ----------      
-        y : np.array
-            Phenotype data
-        X : np.array
-            Genotype data
-        F : np.array, optional
-            Covariates data. If not specified, an intercept is assumed.
-        Returns
-        -------
-        float
-            p-value of the SKAT test
-        dict
-            additional information about the fit of the null model
-        """
-        # fit exact null model
-        E = np.ones([X.shape[0], 1])
-        if F is None:
-            F = np.ones([X.shape[0], 1])
-        gp = GP2KronSumLR(Y=y, Cn=FreeFormCov(1), G=E, F=F, A=np.ones((1, 1)))
-        gp.covar.Cr.setCovariance(1e-9 * np.ones((1, 1)))
-        gp.covar.Cn.setCovariance(np.ones((1, 1)))
-        info_opt = gp.optimize(verbose=False)
 
-        def _P(X, gp):
-            """
-            Computes the projection matrix P = I - F (F'F)^-1 F'
-            """
-            # P = I - F (F'F)^-1 F'
-            KiX = gp.covar.solve(X)
-            FtKiX = gp.mean.W.T.dot(KiX)
-            Areml_inv = la.inv(gp.mean.W.T.dot(gp.covar.solve(gp.mean.W)))
-            KiFAiFtKiX = gp.covar.solve(gp.mean.W.dot(Areml_inv.dot(FtKiX)))
-            out = KiX - KiFAiFtKiX
-            return out
+def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> float:
+    """
+    Perform the Aggregated Cauchy Association Test (ACAT) to combine p-values.
 
-        # make interaction test
-        PY = _P(y,gp)
-        # score statistics
-        XPY = X.T.dot(PY)
-        Q = (XPY**2).sum()
+    ACAT is a fast and robust method for combining possibly dependent p-values,
+    using properties of the Cauchy distribution. It is especially effective when
+    only a subset of the input p-values are small.
+    Inspired by: https://github.com/yaowuliu/ACAT/blob/master/R/ACAT.R
 
-        # eigenvalues
-        PX = _P(X,gp)
-        Lambda = X.T.dot(PX)
-        lambdas = la.eigvalsh(Lambda)
-        if return_info:
-            return davies_pvalue(Q, lambdas), info_opt
-        return davies_pvalue(Q, lambdas)
-        
+    Parameters
+    ----------
+    pvalues : np.ndarray or list of float
+        The p-values to combine. Must be in the range [0, 1]. NaN values are ignored.
+
+    tolerance : float, optional
+        A lower bound for p-values to ensure numerical stability. Values below this threshold
+        are clipped to `tolerance`. Default is 1e-16.
+
+    weights : np.ndarray or list of float, optional
+        Non-negative weights for each p-value. If None, equal weights are used.
+
+    Returns
+    -------
+    float
+        The ACAT-combined p-value.
+
+    """
+    if weights is None:
+        weights = [1 / len(pvalues) for i in pvalues]
+
+    assert len(weights) == len(pvalues), "Length of weights and p-values differs."
+    assert weights.all() > 0, "All weights must be positive."
+
+    if not any(pvalues < tolerance):
+        cct_stat = sum(weights * np.tan((0.5 - pvalues) * np.pi))
+    else:
+        is_small = [i < (tolerance) for i in pvalues]
+        is_large = [i >= (tolerance) for i in pvalues]
+        cct_stat = sum((weights[is_small] / pvalues[is_small]) / np.pi)
+        cct_stat += sum(weights[is_large] * np.tan((0.5 - pvalues[is_large]) * np.pi))
+    if cct_stat > 1e15:
+        pval = (1 / cct_stat) / np.pi
+    else:
+        pval = 1 - st.cauchy.cdf(cct_stat)
+    return pval
+
+
+def compute_acat(pvs: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> np.ndarray:
+    """
+    Aggregate p-values using the Cauchy combination method (ACAT).
+
+    This function performs p-value aggregation using the ACAT (Aggregated Cauchy Association Test) method,
+    which is particularly powerful and robust for combining dependent and sparse p-values. It supports
+    missing values (NaNs) and optional weighting.
+
+    Parameters
+    ----------
+    pvs : np.ndarray
+        A 2D array of shape (n_different_tests, n_tests_to_integrate), where each row contains
+        the p-values to be aggregated into a single meta p-value. Values must be in the range [0, 1].
+        NaNs are allowed and will be ignored during aggregation.
+
+    tolerance : float, optional
+        A small threshold to avoid issues with extremely small p-values. Values below `tolerance`
+        are capped at `tolerance` to maintain numerical stability. Default is 1e-16.
+
+    weights : np.ndarray, optional
+        A 1D array of non-negative weights with shape (n_tests_to_integrate,). If provided,
+        it should sum to 1 or will be internally normalized. If None, equal weights are used.
+
+    Returns
+    -------
+    np.ndarray
+        A 1D array of aggregated p-values, one for each row of the input `pvs`.
+
+    Notes
+    -----
+    The ACAT method transforms each p-value `p` using the tangent function:
+        T = sum_i w_i * tan[(0.5 - p_i) * pi]
+    Then the aggregated p-value is computed using the Cauchy distribution:
+        p_combined = 0.5 - arctan(T) / pi
+
+    References
+    ----------
+    Liu, et al (2019).
+    ACAT: A Fast and Powerful p Value Combination Method for Rare-Variant Analysis in Sequencing Studies
+    The American Journal of Human Genetics, 104(3), 410–421.
+    https://doi.org/10.1016/j.ajhg.2019.01.002
+    """
+    RV = np.ones(pvs.shape[0])
+    for i in range(pvs.shape[0]):
+        _pvs = pvs[i]
+        is_nan = np.isnan(_pvs)
+        if is_nan.all():
+            RV[i] = np.nan
+        else:
+            _pvs = _pvs[~is_nan]
+            _pvs[_pvs == 0] = tolerance
+            _pvs[_pvs == 1] = 1 - tolerance
+            RV[i] = acat_test(_pvs, tolerance=tolerance, weights=weights)
+    return RV
