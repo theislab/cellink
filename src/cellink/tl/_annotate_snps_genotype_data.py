@@ -91,7 +91,6 @@ def run_vep(
     -------
     None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
-    # TODO: make VEP options more modular
     logger.info(f"using config {config_file}")
     with open(config_file) as f:
         config = yaml.safe_load(f)
@@ -181,7 +180,7 @@ def _prep_vep_annos(
     vep_anno_file: str,
     gdata,
     id_col_vep: str = "#Uploaded_variation",
-    cols_to_drop=None,  # TODO replace with None
+    cols_to_drop=None,
     dummy_consequence: bool = True,
 ) -> pd.DataFrame:
     """Add VEP annotations to gdata
