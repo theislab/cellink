@@ -322,8 +322,8 @@ class DonorData:
         min_n_cells = n_cells_per_donor.min()
         max_n_cells = n_cells_per_donor.max()
         header_line = (
-            f"    DonorData({n_donors} x "
-            f"n_donors={self.G.shape[1]:,}, n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
+            f"    DonorData(n_donors={n_donors:,}, "
+            f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
             f"donor_id = '{self.donor_id}')"
         )
         spanning_header = Panel(Text(header_line, style=HIGHLIGHT_COLOR, justify="center"), width=100)
