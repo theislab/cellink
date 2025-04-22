@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
+from scipy.stats import beta
 
-from cellink.tl.gwas import GWAS
+from cellink.at.gwas import GWAS
+from cellink.at.skat import skat_test
 
 
 def _get_burden(G, var_scores, burden_agg_fct):
@@ -22,7 +24,26 @@ def _get_burden(G, var_scores, burden_agg_fct):
     return burdens
 
 
-def burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lrt=True):
+def beta_weighting(values, beta_weights=(1, 25)):
+    """
+    Apply beta weighting to a set of values using the Beta probability density function. This is the standard weighting of variants
+
+    Parameters
+    ----------
+    values (array-like): The input values to be weighted. These should be in the range [0, 1].
+    beta_weights (tuple, optional): A tuple of two positive numbers representing the alpha and beta
+                                     parameters of the Beta distribution. Defaults to (1, 25).
+
+    Returns
+    -------
+    array-like: The weighted values computed using the Beta probability density function.
+    """
+    weighted = beta.pdf(values, beta_weights[0], beta_weights[1])
+
+    return weighted
+
+
+def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lrt=True):
     """
     Perform a burden test for genetic association analysis.
 
@@ -54,7 +75,7 @@ def burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lrt=Tr
         following columns:
         - "burden_gene": The gene name whose burden was used.
         - "egene": The gene name that was tested (expression, Y).
-        - "burden_type": The annotation columns used for the burden test.
+        - "weight_col": The annotation columns used for the burden test.
         - "burden_agg_fct": The aggregation function used.
         - "pv": P-values from the GWAS analysis.
         - "beta": Effect sizes from the GWAS analysis.
@@ -71,14 +92,25 @@ def burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lrt=Tr
         {
             "burden_gene": gene,
             "egene": gene,
-            "burden_type": annotation_cols,
+            "weight_col": annotation_cols,
             "burden_agg_fct": burden_agg_fct,
-            "pv": list(gwas.getPv().reshape(-1)),
-            "beta": list(gwas.getBetaSNP().reshape(-1)),
-            "betaste": list(gwas.getBetaSNPste().reshape(-1)),
+            "pv": list(gwas.getPv().ravel()),
+            "beta": list(gwas.getBetaSNP().ravel()),
+            "betaste": list(gwas.getBetaSNPste().ravel()),
+            "lrt": list(gwas.getLRT().ravel()),
         }
     )
-    if run_lrt:
-        rdf["lrt"] = list(gwas.getLRT().reshape(-1))
 
     return rdf
+
+
+def run_skat_test(G, Y, F, gene):
+    # TODO implement alternative weights once skat_test supports this
+    skat = skat_test(Y, G.X, F)
+    rdict = {
+        "burden_gene": gene,
+        "egene": gene,
+        "weight_col": "maf_beta",  # TODO change once alternative weighting is implemented
+        "pv": skat,
+    }
+    return rdict
