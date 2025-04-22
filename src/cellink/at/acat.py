@@ -30,7 +30,7 @@ def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray
 
     """
     if weights is None:
-        weights = [1 / len(pvalues) for i in pvalues]
+        weights = np.array([1 / len(pvalues) for i in pvalues])
 
     assert len(weights) == len(pvalues), "Length of weights and p-values differs."
     assert weights.all() > 0, "All weights must be positive."
