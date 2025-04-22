@@ -1,4 +1,5 @@
 
+from typing import Union
 import numpy as np
 from numpy import asarray, atleast_1d
 from chiscore._davies import _pvalue_lambda
@@ -11,7 +12,7 @@ def xgower_factor_(X):
     b = X.dot(X.sum(0)).sum()
     return np.sqrt((a - b / X.shape[0]) / (X.shape[0] - 1))
 
-def davies_pvalue(tstats:np.array, weights:np.array, return_info=False) -> tuple[np.array, dict] | np.array:
+def davies_pvalue(tstats:np.array, weights:np.array, return_info=False) -> Union[tuple[np.ndarray, dict], np.ndarray]:
     """
     Joint significance of statistics derived from chi2-squared distributions.
     Parameters
@@ -37,7 +38,7 @@ def davies_pvalue(tstats:np.array, weights:np.array, return_info=False) -> tuple
         return re["p_value"][0], re
     return re["p_value"][0]
 
-def skat_test(y, X, F=None,return_info=False)-> tuple[float, dict] | float:
+def skat_test(y, X, F=None,return_info=False)-> Union[tuple[float, dict], float]:
         """
         Performs SKAT test for association between y and X.
         Parameters
