@@ -29,10 +29,12 @@ def custom_getattr(name):  # noqa: D103
 scipy.__getattr__ = custom_getattr
 
 
+__all__ = ["Skat"]
+
 logger = logging.getLogger(__name__)
 
 
-def skat_test(
+def _skat_test(
     y: np.ndarray,
     X: np.ndarray,
     F: np.ndarray | None = None,
@@ -221,4 +223,4 @@ class Skat:
                 _weights = st.beta.pdf(maf, self.a, self.b)
                 _Xskat = (_Xskat - _Xskat.mean(0)) * np.sqrt(_weights)
                 _Xskat = _Xskat / xgower_factor_(_Xskat)
-        return skat_test(Y, _Xskat)
+        return _skat_test(Y, _Xskat)

@@ -3,6 +3,8 @@ import scipy.linalg as la
 import scipy.stats as st
 from src.cellink.at.utils import ensure_float64_array
 
+__all__ = ["GWAS"]
+
 
 class GWAS:
     """Linear model for univariate association testing between `1` phenotypes and `S` inputs (`1`x`S` tests)"""
