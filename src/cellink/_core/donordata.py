@@ -249,7 +249,6 @@ class DonorData:
         if obs is not None:
             columns = obs if isinstance(obs, list) else [obs]
             aggres = adata.obs.groupby(self.donor_id, observed=True)[columns].agg(func)
-            dtype = aggres.dtypes.iloc[0]
             target = "obs" if add_to_obs else "obsm"
         else:
             aggdata = sc.get.aggregate(adata, by=self.donor_id, func=func, layer=layer, obsm=obsm)
@@ -260,8 +259,6 @@ class DonorData:
                 columns = adata.var_names
                 if sync_var:
                     self._var_dims_to_sync.append(key_added)
-
-            dtype = aggdata.layers[func].dtype
             # Convert the aggregated layer to a DataFrame.
             aggres = pd.DataFrame(aggdata.layers[func], index=aggdata.obs_names)
             target = "obsm"
@@ -269,14 +266,17 @@ class DonorData:
         if verbose:
             logger.info(f"Aggregated {slot} to {key_added}")
             logger.info("Observation found for %s donors.", aggres.shape[0])
-        data = pd.DataFrame(index=self.G.obs_names, columns=columns, dtype=dtype)
+        data = pd.DataFrame(index=self.G.obs_names, columns=columns)
         data.loc[aggres.index] = aggres
 
         if self.G.is_view:  # because we will write to self.G
             self.G = self.G.copy()
 
         if target == "obs":
-            self.G.obs.loc[data.index, columns] = data
+            for col in columns:
+                if data[col].dtype == "category":
+                    self.G.obs[col] = pd.Categorical(categories=data[col].cat.categories)
+                self.G.obs.loc[data.index, col] = data[col]
         else:
             self.G.obsm[key_added] = data
 
