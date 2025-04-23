@@ -7,23 +7,15 @@ from limix_lmm import LMM
 from tqdm import tqdm
 import scipy.linalg as la
 
-from cellink.at.utils import davies_pvalue, ensure_float64_array
+from cellink.at.utils import davies_pvalue, ensure_float64_array, compute_eigenvals
 
+
+__all__ = ["StructLMM"]
 
 logger = logging.getLogger(__name__)
 
 
-# util function to compute eigenvalues using numpy
-def compute_eigenvals(
-        Lambda: np.ndarray,
-    ) -> np.ndarray:
-    """Compute eigenvalues of a matrix."""
-    Lambdat = Lambda.astype(np.float32)
-    lambdas = np.linalg.eigvalsh(Lambdat)
-    return lambdas.astype(np.float64)
-
-
-class OurStructLMM:
+class StructLMM:
     """Faster version of StructLMM."""
 
     def __init__(
@@ -33,7 +25,18 @@ class OurStructLMM:
         F: np.ndarray,
         verbose: bool = False
     ) -> None:
-        """Initialize the OurStructLMM class."""
+        """Initialize the OurStructLMM class.
+        
+        parameters
+        ---------- 
+        y : np.ndarray
+            Phenotype data.
+        E : np.ndarray
+            Covariance matrix of the variants.
+        F : np.ndarray
+            Covariates data. If not specified, an intercept is assumed.
+        verbose: bool, optional
+        """
 
         # type casting
         y = ensure_float64_array(y)
@@ -51,7 +54,15 @@ class OurStructLMM:
         G: np.ndarray,
         exact: bool = False,
     ) -> np.ndarray:
-        """"""
+        """Perform the interaction test for association between y and G.
+        
+        parameters
+        ----------
+        G : np.ndarray
+            Genotype data.
+        exact : bool, optional
+            If True, perform the exact test. If False, perform the approximate test using GPs.
+        """
         # type casting
         G = ensure_float64_array(G)
 
@@ -111,6 +122,13 @@ class OurStructLMM:
     ) -> np.ndarray:
         """
         Compute the projection of X onto the null space of the mean model.
+
+        parameters
+        ----------
+        X : np.ndarray
+            Input data to project.
+        gp : GP2KronSumLR
+            Gaussian process model.
         """
         # type casting
         X = ensure_float64_array(X)
@@ -127,7 +145,13 @@ class OurStructLMM:
             self,
             g: np.ndarray,
         ) -> np.ndarray:
-        """Single interaction test."""
+        """Single interaction test.
+        
+        parameters
+        ----------
+        g : np.ndarray
+            Genotype data for a single variant.
+        """
         # type casting
         g = ensure_float64_array(g)
 

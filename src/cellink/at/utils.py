@@ -15,6 +15,7 @@ __all__ = [
     "xgower_factor_",
     "davies_pvalue",
     "ensure_float64_array",
+    "compute_eigenvals",
 ]
 
 # To handle multiple data types
@@ -100,3 +101,25 @@ def ensure_float64_array(arr: np.ndarray) -> np.ndarray:
         A numpy array of type float64.
     """
     return np.asarray(arr, dtype=np.float64)
+
+
+# util function to compute eigenvalues using numpy
+def compute_eigenvals(
+        Lambda: np.ndarray,
+    ) -> np.ndarray:
+    """Computes eigenvalues of a matrix.
+    
+    Parameters
+    ----------
+    Lambda : np.array
+        Matrix to compute eigenvalues for.
+    
+        
+    Returns
+    -------
+    np.array
+        Eigenvalues of the matrix.
+    """
+    Lambdat = Lambda.astype(np.float32)
+    lambdas = np.linalg.eigvalsh(Lambdat)
+    return lambdas.astype(np.float64)
