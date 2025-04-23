@@ -2,8 +2,17 @@ import numpy as np
 import scipy.stats as st
 from src.cellink.at.utils import ensure_float64_array
 
+__all__ = [
+    "acat_test",
+    "compute_acat",
+]
 
-def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> float:
+
+def acat_test(
+    pvalues: np.ndarray,
+    tolerance: float = 1e-16,
+    weights: np.ndarray = None,
+) -> float:
     """
     Perform the Aggregated Cauchy Association Test (ACAT) to combine p-values.
 
@@ -56,7 +65,11 @@ def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray
     return pval
 
 
-def compute_acat(pvs: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> np.ndarray:
+def compute_acat(
+    pvs: np.ndarray,
+    tolerance: float = 1e-16,
+    weights: np.ndarray = None,
+) -> np.ndarray:
     """
     Aggregate p-values using the Cauchy combination method (ACAT).
 

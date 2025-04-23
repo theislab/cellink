@@ -7,7 +7,11 @@ from src.cellink.at.utils import ensure_float64_array
 class GWAS:
     """Linear model for univariate association testing between `1` phenotypes and `S` inputs (`1`x`S` tests)"""
 
-    def __init__(self, Y: np.ndarray, F: np.ndarray = None):
+    def __init__(
+        self,
+        Y: np.ndarray,
+        F: np.ndarray = None
+    ) -> None:
         """
         Initialize the GWAS class.
 
@@ -50,7 +54,9 @@ class GWAS:
 
         self._fit_null()  # fit the null model
 
-    def _fit_null(self):
+    def _fit_null(
+        self,
+    ) -> None:
         """Internal functon.
 
         Fits the null model (i.e. the model without the covariate for which we want to test the association).
@@ -70,7 +76,10 @@ class GWAS:
         self.beta_F0 = np.dot(self.A0i, self.FY)
         self.s20 = (self.YY - np.einsum("kp,kp->p", self.FY, self.beta_F0)) / self.df
 
-    def test_association(self, G: np.ndarray):
+    def test_association(
+        self,
+        G: np.ndarray
+    ) -> None:
         """Test association between phenotype and genotype matrix.
 
         Each column of G is tested independently from the others.
@@ -116,7 +125,9 @@ class GWAS:
         self.lrt = -self.df * np.log(self.s2 / self.s20)
         self.pv = st.chi2(1).sf(self.lrt)
 
-    def getPv(self):
+    def getPv(
+        self,
+    ) -> np.ndarray:
         """
         Get pvalues
 
@@ -126,7 +137,9 @@ class GWAS:
         """
         return self.pv
 
-    def getBetaSNP(self):
+    def getBetaSNP(
+        self,
+    ) -> np.ndarray:
         """
         get effect size SNPs
 
@@ -136,7 +149,9 @@ class GWAS:
         """
         return self.beta_g
 
-    def getLRT(self):
+    def getLRT(
+        self,
+    ) -> np.ndarray:
         """
         get lik ratio test statistics
 
@@ -146,7 +161,9 @@ class GWAS:
         """
         return self.lrt
 
-    def getBetaSNPste(self):
+    def getBetaSNPste(
+        self,
+    ) -> np.ndarray:
         """
         get standard errors on betas
 

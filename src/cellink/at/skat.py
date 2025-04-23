@@ -32,7 +32,12 @@ scipy.__getattr__ = custom_getattr
 logger = logging.getLogger(__name__)
 
 
-def skat_test(y, X, F=None, return_info=False) -> tuple[float, dict] | float:
+def skat_test(
+    y: np.ndarray,
+    X: np.ndarray,
+    F: np.ndarray | None = None,
+    return_info: bool = False,
+) -> tuple[float, dict] | float:
     """
     Performs SKAT test for association between y and X.
 
@@ -71,7 +76,10 @@ def skat_test(y, X, F=None, return_info=False) -> tuple[float, dict] | float:
     gp.covar.Cn.setCovariance(np.ones((1, 1)))
     info_opt = gp.optimize(verbose=False)
 
-    def _P(X, gp):
+    def _P(
+            X: np.ndarray,
+            gp: np.ndarray,
+        ) -> np.ndarray:
         """
         Computes the projection matrix P.
 
@@ -103,7 +111,13 @@ def skat_test(y, X, F=None, return_info=False) -> tuple[float, dict] | float:
 class Skat:
     """SKAT test for association between Y and X."""
 
-    def __init__(self, a=1, b=25, min_threshold=10, max_threshold=5000):
+    def __init__(
+        self,
+        a: int = 1,
+        b: int = 25,
+        min_threshold: int = 10,
+        max_threshold: int = 5000
+    ) -> None:
         """
         SKAT test for association between Y and X.
 
@@ -134,10 +148,13 @@ class Skat:
         X: ArrayLike | DotPath | None = None,
     ) -> float:
         """Run SKAT test for association between Y and X."""
+        # when data is None, Y and X must be provided as numpy arrays
         if data is None:
             assert isinstance(Y, np.ndarray), "If data is None, Y must be provided and be a numpy array"
             assert isinstance(X, np.ndarray), "If data is None, X must be provided and be a numpy array"
             return self._run_skat(Y=Y, X=X)
+        # when data is provided, Y and X must be provided as strings or lists of strings
+        # and must be columns in the data
         else:
             assert isinstance(
                 data, pd.DataFrame | anndata.AnnData | DonorData
@@ -161,9 +178,13 @@ class Skat:
                 assert X in data.donor_data.obs.columns, "X must be a column in the DonorData object."
                 Y = data.donor_data[Y].values
                 X = data.donor_data[X].values
-            return self._run_test(Y=Y, X=X)
+            return self._run_test(Y, X)
 
-    def _run_test(self, Y: np.ndarray = None, X: np.ndarray = None) -> float:
+    def _run_test(
+        self,
+        Y: np.ndarray,
+        X: np.ndarray,
+    ) -> float:
         """
         Method to perform SKAT test.
 
