@@ -8,15 +8,14 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
-
-if TYPE_CHECKING:
-    from mudata import MuData
-
-from rich.align import Align
-from rich.console import Console, Group
+from rich.box import DOUBLE
+from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+if TYPE_CHECKING:
+    from mudata import MuData
 
 from cellink._core.data_fields import DAnn
 
@@ -250,7 +249,6 @@ class DonorData:
         if obs is not None:
             columns = obs if isinstance(obs, list) else [obs]
             aggres = adata.obs.groupby(self.donor_id, observed=True)[columns].agg(func)
-            dtype = aggres.dtypes.iloc[0]
             target = "obs" if add_to_obs else "obsm"
         else:
             aggdata = sc.get.aggregate(adata, by=self.donor_id, func=func, layer=layer, obsm=obsm)
@@ -261,8 +259,6 @@ class DonorData:
                 columns = adata.var_names
                 if sync_var:
                     self._var_dims_to_sync.append(key_added)
-
-            dtype = aggdata.layers[func].dtype
             # Convert the aggregated layer to a DataFrame.
             aggres = pd.DataFrame(aggdata.layers[func], index=aggdata.obs_names)
             target = "obsm"
@@ -270,14 +266,17 @@ class DonorData:
         if verbose:
             logger.info(f"Aggregated {slot} to {key_added}")
             logger.info("Observation found for %s donors.", aggres.shape[0])
-        data = pd.DataFrame(index=self.G.obs_names, columns=columns, dtype=dtype)
+        data = pd.DataFrame(index=self.G.obs_names, columns=columns)
         data.loc[aggres.index] = aggres
 
         if self.G.is_view:  # because we will write to self.G
             self.G = self.G.copy()
 
         if target == "obs":
-            self.G.obs.loc[data.index, columns] = data
+            for col in columns:
+                if data[col].dtype == "category":
+                    self.G.obs[col] = pd.Categorical(categories=data[col].cat.categories)
+                self.G.obs.loc[data.index, col] = data[col]
         else:
             self.G.obsm[key_added] = data
 
@@ -317,19 +316,23 @@ class DonorData:
         for gdata_line, adata_line in zip(G_lines, C_lines, strict=True):
             table.add_row(gdata_line, adata_line)
 
-        n_donors = self.G.shape[0]
+        # Create title and surrounding panel
         n_cells_per_donor = self.C.obs[self.donor_id].value_counts()
-        min_n_cells = n_cells_per_donor.min()
-        max_n_cells = n_cells_per_donor.max()
-        header_line = (
-            f"    DonorData(n_donors={n_donors:,}, "
+        min_n_cells, max_n_cells = n_cells_per_donor.min(), n_cells_per_donor.max()
+        header_line = Text(
+            f"DonorData(n_donors={self.G.shape[0]:,}, "
             f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
-            f"donor_id = '{self.donor_id}')"
+            f"donor_id='{self.donor_id}')",
+            style=HIGHLIGHT_COLOR,
         )
-        spanning_header = Panel(Text(header_line, style=HIGHLIGHT_COLOR, justify="center"), width=100)
-        spanning_header = Align.center(spanning_header)
-
-        return Group(spanning_header, table)
+        panel = Panel(
+            table,
+            title=header_line,
+            title_align="left",  # left, center, right
+            box=DOUBLE,  # DOUBLE, HEAVY, MINIMAL, etc.
+            expand=False,
+        )
+        return panel
 
     def __repr__(self) -> str:
         table = self.prep_repr()
@@ -373,3 +376,12 @@ def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
             lines.append(line)
             highlight.append(line_highlight)
     return lines, highlight
+
+
+if __name__ == "__main__":
+    from cellink._core.dummy_data import sim_adata, sim_gdata
+
+    adata = sim_adata()
+    gdata = sim_gdata(adata=adata)
+    dd = DonorData(G=gdata, C=adata)
+    print(dd)
