@@ -82,6 +82,14 @@ def test_donordata_aggregate(adata, gdata, dummy_covariates):
     assert all(col in dd.G.obs.columns for col in dummy_covariates)
 
 
+def test_donordata_aggregate_first_add_to_obs(adata, gdata, dummy_covariates):
+    dd = DonorData(G=gdata, C=adata).copy()
+
+    dd.C.obs[dummy_covariates[0]] = dd.C.obs[dummy_covariates[0]].astype("category")
+    dd.C.obs[dummy_covariates[1]] = dd.C.obs[dummy_covariates[1]].astype("category").cat.codes
+    dd.aggregate(obs=dummy_covariates, func="first", add_to_obs=True)
+
+
 def test_sel_dict_indexing(adata, gdata):
     """Test the __getitem__ method using dictionary indexing."""
     dd = DonorData(G=gdata, C=adata)
