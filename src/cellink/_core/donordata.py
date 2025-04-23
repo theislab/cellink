@@ -8,15 +8,14 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
-
-if TYPE_CHECKING:
-    from mudata import MuData
-
-from rich.align import Align
-from rich.console import Console, Group
+from rich.box import DOUBLE
+from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+if TYPE_CHECKING:
+    from mudata import MuData
 
 from cellink._core.data_fields import DAnn
 
@@ -317,19 +316,23 @@ class DonorData:
         for gdata_line, adata_line in zip(G_lines, C_lines, strict=True):
             table.add_row(gdata_line, adata_line)
 
-        n_donors = self.G.shape[0]
+        # Create title and surrounding panel
         n_cells_per_donor = self.C.obs[self.donor_id].value_counts()
-        min_n_cells = n_cells_per_donor.min()
-        max_n_cells = n_cells_per_donor.max()
-        header_line = (
-            f"    DonorData(n_donors={n_donors:,}, "
+        min_n_cells, max_n_cells = n_cells_per_donor.min(), n_cells_per_donor.max()
+        header_line = Text(
+            f"DonorData(n_donors={self.G.shape[0]:,}, "
             f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
-            f"donor_id = '{self.donor_id}')"
+            f"donor_id='{self.donor_id}')",
+            style=HIGHLIGHT_COLOR,
         )
-        spanning_header = Panel(Text(header_line, style=HIGHLIGHT_COLOR, justify="center"), width=100)
-        spanning_header = Align.center(spanning_header)
-
-        return Group(spanning_header, table)
+        panel = Panel(
+            table,
+            title=header_line,
+            title_align="left",  # left, center, right
+            box=DOUBLE,  # DOUBLE, HEAVY, MINIMAL, etc.
+            expand=False,
+        )
+        return panel
 
     def __repr__(self) -> str:
         table = self.prep_repr()
@@ -373,3 +376,12 @@ def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
             lines.append(line)
             highlight.append(line_highlight)
     return lines, highlight
+
+
+if __name__ == "__main__":
+    from cellink._core.dummy_data import sim_adata, sim_gdata
+
+    adata = sim_adata()
+    gdata = sim_gdata(adata=adata)
+    dd = DonorData(G=gdata, C=adata)
+    print(dd)
