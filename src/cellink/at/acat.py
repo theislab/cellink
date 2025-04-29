@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.stats as st
-from src.cellink.at.utils import ensure_float64_array
+from cellink.at.utils import ensure_float64_array
 
 __all__ = [
     "acat_test",
