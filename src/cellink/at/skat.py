@@ -105,9 +105,10 @@ def _skat_test(
     PX = _P(X, gp)
     Lambda = X.T.dot(PX)
     lambdas = la.eigvalsh(Lambda)
+    pv = davies_pvalue(Q, lambdas)
     if return_info:
-        return davies_pvalue(Q, lambdas), info_opt
-    return davies_pvalue(Q, lambdas)
+        return np.array([[pv]]), info_opt
+    return np.array([[pv]])
 
 
 class Skat:

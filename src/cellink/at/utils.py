@@ -160,8 +160,11 @@ def generate_phenotype(
 
     # Generate phenotype
     Yg = X @ betas
+    Yg = Yg - np.mean(Yg, axis=0)
+    Yg = Yg / xgower_factor_(Yg)
+
     Yg = np.sqrt(vg) * Yg
-    Yg = xgower_factor_(Yg)
+
     Yn = np.sqrt(1 - vg) * np.random.normal(size=(X.shape[0], 1))
     Y = Yg + Yn
     Y = (Y - np.mean(Y, axis=0)) / np.std(Y, axis=0)

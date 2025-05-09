@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.stats as st
+
 from cellink.at.utils import ensure_float64_array
 
 __all__ = [
@@ -41,7 +42,7 @@ def acat_test(
     """
     # preparing the input
     if weights is None:
-        weights = np.ndarray([1 / len(pvalues) for i in pvalues])
+        weights = np.ones_like(pvalues) / pvalues.shape[0]
 
     # sanity checks
     assert len(weights) == len(pvalues), "Length of weights and p-values differs."
