@@ -16,6 +16,7 @@ __all__ = [
     "davies_pvalue",
     "ensure_float64_array",
     "compute_eigenvals",
+    "generate_phenotype",
 ]
 
 # To handle multiple data types
@@ -105,16 +106,15 @@ def ensure_float64_array(arr: np.ndarray) -> np.ndarray:
 
 # util function to compute eigenvalues using numpy
 def compute_eigenvals(
-        Lambda: np.ndarray,
-    ) -> np.ndarray:
+    Lambda: np.ndarray,
+) -> np.ndarray:
     """Computes eigenvalues of a matrix.
-    
+
     Parameters
     ----------
     Lambda : np.array
         Matrix to compute eigenvalues for.
-    
-        
+
     Returns
     -------
     np.array
@@ -123,3 +123,34 @@ def compute_eigenvals(
     Lambdat = Lambda.astype(np.float32)
     lambdas = np.linalg.eigvalsh(Lambdat)
     return lambdas.astype(np.float64)
+
+
+def generate_phenotype(X: np.array, vg: float, number_causal_variants: int = 10) -> tuple[np.array, np.array]:
+    """
+    Generate a phenotype vector based on the genotype matrix.
+
+    The phenotype is generated as a linear combination of the genotype matrix
+    and a random noise term.
+    The noise term is generated from a normal distribution with mean 0 and variance 1-vg.
+    Y = Yg + Yn
+    Yg ~ N(X @ beta, vg)
+    Yn ~ N(0, 1-vg)
+    where beta is a vector of coefficients and e is a random noise term.
+    The phenotype is further normalized to have mean 0 and variance 1.
+    """
+    # Generate random coefficients
+    betas = np.random.normal(size=(X.shape[1], number_causal_variants))
+    betas = np.zeros((X.shape[1], 1))
+
+    idx = np.random.choice(X.shape[1], number_causal_variants, replace=False)
+
+    betas[idx] = np.random.normal(size=(number_causal_variants, 1))
+
+    # Generate phenotype
+    Yg = X @ betas
+    Yg = np.sqrt(vg) * Yg
+    Yg = xgower_factor_(Yg)
+    Yn = np.sqrt(1 - vg) * np.random.normal(size=(X.shape[0], 1))
+    Y = Yg + Yn
+    Y = (Y - np.mean(Y, axis=0)) / np.std(Y, axis=0)
+    return Y, betas
