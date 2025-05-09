@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import numpy as np
-import pandas_plink as pdp
 
 from cellink.at import utils
+from cellink.at.gwas import GWAS
+from cellink.at.skat import Skat
 
-DATA = Path("tests/data")
+DATA = Path("/Users/antonio.nappi/Desktop/sc-genetics/tests/data")
 
 
 def test_generate_phenotype_data():
@@ -51,6 +52,7 @@ def test_generate_phenotype_data():
         atol=1e-2,
         err_msg="Generated Yg data variance is incorrect",
     )
+
     np.testing.assert_allclose(
         Yg.mean(0),
         0,
@@ -66,6 +68,7 @@ def test_generate_phenotype_data():
         atol=1e-2,
         err_msg="Generated Yn data variance is incorrect",
     )
+
     np.testing.assert_allclose(
         Yn.mean(0),
         0,
@@ -76,25 +79,62 @@ def test_generate_phenotype_data():
 
 
 def test_burden_testing():
-    _, _, bed = pdp.read_plink(DATA / "simulated_genotype_calls", verbose=False)
-    X = bed.compute().T
-    X = utils.ensure_float64_array(X)
-    X = utils.xgower_factor_(X)
+    """Test the burden testing function."""
+    N = 100000  # number of individuals
+    S = 10  # number of variants
+    number_causal_variants = 3  # number of causal variants
+    vg = 0.3  # variance explained by the causal variants
 
-    Y, betas = utils.generate_phenotype(X, vg=0.3, number_causal_variants=10)
+    X = np.random.choice([0, 1, 2], size=(N, S), p=[0.99, 0.005, 0.005])
+    X = np.asarray(X, dtype=np.float64)
 
-    gwas = utils.GWAS(Y)
-    g = np.sum(X, axis=1)  # define the burden as the sum of the variants (arbitrary)
+    X = (X - X.mean(axis=0)) / X.std(axis=0)
+
+    Y, *_ = utils.generate_phenotype(X, vg=vg, number_causal_variants=number_causal_variants)
+
+    gwas = GWAS(Y)
+    g = np.sum(X, axis=1, keepdims=True)  # define the burden as the sum of the variants (arbitrary)
+
     g = utils.ensure_float64_array(g)
-    pv = gwas.process(g)
+    gwas.test_association(g)
+    pv = gwas.getPv()
     assert pv is not None, "P-value is None"
-    Y = np.permutation(Y)
-    gwas = utils.GWAS(Y)
-    gwas.process(g)
-    pvp = gwas.process(g)  # pv permutated
+    Y = np.random.permutation(Y)
+    gwas = GWAS(Y)
+    gwas.test_association(g)
+    pvp = gwas.getPv()  # pv permutated
+
     assert pv < pvp, "P-value is not smaller than permutated p-value"
+
+
+def test_skat_testing():
+    """Test the burden testing function."""
+    N = 100000  # number of individuals
+    S = 1000  # number of variants
+    number_causal_variants = 3  # number of causal variants
+    vg = 0.3  # variance explained by the causal variants
+
+    X = np.random.choice([0, 1, 2], size=(N, S), p=[0.99, 0.005, 0.005])
+    X = np.asarray(X, dtype=np.float64)
+    print(f"number of variants: {X.sum(1)}")
+    Y, *_ = utils.generate_phenotype(X, vg=vg, number_causal_variants=number_causal_variants)
+
+    skat = Skat(min_threshold=1)
+    pv = skat.run_test(Y=Y, X=X)
+    assert pv is not None, "P-value is None"
+
+    Y = np.random.permutation(Y)
+    pvp = skat.run_test(Y=Y, X=X)  # pv permutated
+    print(f"pv: {pv}, pvp: {pvp}")
+    print(f"number of variants: {X.sum(1)}")
+    assert pv < pvp, "P-value is not smaller than permutated p-value"
+
+
+def test_acat_testing():
+    pass
 
 
 if __name__ == "__main__":
     # test_generate_phenotype_data()
-    test_burden_testing()
+    # test_burden_testing()
+    test_skat_testing()

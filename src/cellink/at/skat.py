@@ -20,7 +20,7 @@ from cellink.at.utils import (
 )
 
 
-def custom_getattr(name):  # noqa: D103
+def custom_getattr(name):
     if name in scipy.__dict__:
         return getattr(scipy, name)
     return getattr(np, name)
@@ -67,7 +67,7 @@ def _skat_test(
     E = np.ones([X.shape[0], 1])
     if F is None:
         F = np.ones([X.shape[0], 1])
-    
+
     # type casting
     y = ensure_float64_array(y)
     X = ensure_float64_array(X)
@@ -79,9 +79,9 @@ def _skat_test(
     info_opt = gp.optimize(verbose=False)
 
     def _P(
-            X: np.ndarray,
-            gp: np.ndarray,
-        ) -> np.ndarray:
+        X: np.ndarray,
+        gp: np.ndarray,
+    ) -> np.ndarray:
         """
         Computes the projection matrix P.
 
@@ -113,13 +113,7 @@ def _skat_test(
 class Skat:
     """SKAT test for association between Y and X."""
 
-    def __init__(
-        self,
-        a: int = 1,
-        b: int = 25,
-        min_threshold: int = 10,
-        max_threshold: int = 5000
-    ) -> None:
+    def __init__(self, a: int = 1, b: int = 25, min_threshold: int = 10, max_threshold: int = 5000) -> None:
         """
         SKAT test for association between Y and X.
 
@@ -154,7 +148,7 @@ class Skat:
         if data is None:
             assert isinstance(Y, np.ndarray), "If data is None, Y must be provided and be a numpy array"
             assert isinstance(X, np.ndarray), "If data is None, X must be provided and be a numpy array"
-            return self._run_skat(Y=Y, X=X)
+            return self._run_test(Y=Y, X=X)
         # when data is provided, Y and X must be provided as strings or lists of strings
         # and must be columns in the data
         else:
@@ -208,18 +202,26 @@ class Skat:
             p-value of the SKAT test
         """
         Ilow = X.sum(0) < self.min_threshold
+
         if (~Ilow).sum() == 0:
-            logger.warning("No variants with MAC > 10. Returning NaN.")
+            logger.warning(f"No variants with MAC > {self.min_threshold}. Returning NaN.")
             return np.nan
         else:
             _xlow = X[:, Ilow].sum(1)[:, None]
-            _Xskat = np.concatenate([X[:, ~Ilow], _xlow], axis=1)
+
+            if np.all(_xlow == 0):
+                logger.warning(f"There are no variants with a MAC < {self.min_threshold}.")
+                _Xskat = X[:, ~Ilow]
+                maf = 0.5 * _Xskat.mean(0)
+            else:
+                _Xskat = np.concatenate([X[:, ~Ilow], _xlow], axis=1)
+                maf = 0.5 * _Xskat.mean(0)
+                maf[-1] = 0.5 * X[:, Ilow].mean()
+
             if _Xskat.shape[1] > self.max_threshold:
-                logger.warning("Number of variants > 5000. Returning NaN.")
+                logger.warning(f"Number of variants > {self.max_threshold}. Returning NaN.")
                 return np.nan
             else:
-                maf = 0.5 * _Xskat.mean(0)
-                maf[-1] = 0.5 * X[:, Ilow].mean()  # adjusts maf of aggregate burden
                 _weights = st.beta.pdf(maf, self.a, self.b)
                 _Xskat = (_Xskat - _Xskat.mean(0)) * np.sqrt(_weights)
                 _Xskat = _Xskat / xgower_factor_(_Xskat)
