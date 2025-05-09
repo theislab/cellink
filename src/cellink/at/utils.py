@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
+
 import anndata
 import numpy as np
 import pandas as pd
+import scipy as sp
 from chiscore._davies import _pvalue_lambda
 from numpy import asarray, atleast_1d
 
@@ -18,6 +21,8 @@ __all__ = [
     "compute_eigenvals",
     "generate_phenotype",
 ]
+
+logger = logging.getLogger(__name__)
 
 # To handle multiple data types
 ArrayLike = np.ndarray | pd.Series | pd.DataFrame | list[float] | list[int]
@@ -121,11 +126,18 @@ def compute_eigenvals(
         Eigenvalues of the matrix.
     """
     Lambdat = Lambda.astype(np.float32)
-    lambdas = np.linalg.eigvalsh(Lambdat)
+    try:
+        lambdas = np.linalg.eigvalsh(Lambdat)
+    except np.linalg.LinAlgError:
+        # If the matrix is not symmetric, use scipy's function to compute eigenvalues
+        logging.warning("Switching to scipy for eigenvalue computation due to LinAlgError.")
+        lambdas = sp.linalg.eigvalsh(Lambdat)
     return lambdas.astype(np.float64)
 
 
-def generate_phenotype(X: np.array, vg: float, number_causal_variants: int = 10) -> tuple[np.array, np.array]:
+def generate_phenotype(
+    X: np.array, vg: float, number_causal_variants: int = 10
+) -> tuple[np.array, np.array, np.array, np.array]:
     """
     Generate a phenotype vector based on the genotype matrix.
 
@@ -153,4 +165,4 @@ def generate_phenotype(X: np.array, vg: float, number_causal_variants: int = 10)
     Yn = np.sqrt(1 - vg) * np.random.normal(size=(X.shape[0], 1))
     Y = Yg + Yn
     Y = (Y - np.mean(Y, axis=0)) / np.std(Y, axis=0)
-    return Y, betas
+    return Y, betas, Yg, Yn
