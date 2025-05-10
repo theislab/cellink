@@ -36,8 +36,10 @@
 ## PolyPhen : PolyPhen prediction and/or score
 ## VEP command-line: vep --assembly GRCh37 --biotype --canonical --force_overwrite --fork 5 --format vcf --input_file variants.vcf --no_escape --no_stats --output_file variants_annotated.txt --per_gene --pick_order biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq --polyphen s --protein --sift s --tab --total_length
 #Uploaded_variation	Location	Allele	Gene	Feature	Feature_type	Consequence	cDNA_position	CDS_position	Protein_position	Amino_acids	Codons	Existing_variation	IMPACT	DISTANCE	STRAND	FLAGS	BIOTYPE	CANONICAL	ENSP	SIFT	PolyPhen
-SNP0	1:1	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
-SNP1	1:2	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP0	1:1	C	ENSG1	ENST1	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	0.8
+SNP0	1:1	C	ENSG1	ENST2	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	0.9
+SNP1	1:2	C	ENSG2	ENST3	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
+SNP1	1:2	C	ENSG2	ENST4	-	missense_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
 SNP2	1:3	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
 SNP3	1:4	G	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
 SNP4	1:5	C	-	-	-	intergenic_variant	-	-	-	-	-	-	MODIFIER	-	-	-	-	-	-	-	-
