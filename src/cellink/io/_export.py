@@ -14,7 +14,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
 def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
     """
     Generate a BIM DataFrame from genetic data.
@@ -200,9 +199,6 @@ def to_plink(
                 bed.write(bytearray(bed_data))
 
     logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
-
-
-
 
 def write_variants_to_vcf(gdata, out_file="variants.vcf"):
     """Write unique variants from gdata to vcf file for annotation
