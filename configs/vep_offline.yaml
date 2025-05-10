@@ -3,7 +3,8 @@
 # and other vep relevant files have been stored
 # See instruction on VEP how to set up the Cache and install plugins
 # https://www.ensembl.org/info/docs/tools/vep/script/vep_cache.html#pre
-vep_command: docker run -v /Users/larnoldt:/Users/larnoldt -t ensemblorg/ensembl-vep vep
+# Using docker the vep_command would like this: docker run -v <base_path>:<base_path> -t ensemblorg/ensembl-vep vep
+vep_command: vep
 offline: true
 vep_nfork: 5
 genome_assembly: GRCh37

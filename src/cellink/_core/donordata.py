@@ -3,17 +3,17 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 import h5py
-import numpy as np
 import pandas as pd
 import scanpy as sc
+import zarr
 from anndata import AnnData
-from anndata._io.specs.registry import write_elem
+from anndata.io import write_elem
 from mudata import MuData
-from rich.align import Align
-from rich.console import Console, Group
+from mudata._core.io import _write_h5mu
+from rich.box import DOUBLE
+from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -101,7 +101,41 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-    def write_donordata_object(self, path: str | Path) -> None:
+    def _write_dd(self, f: h5py.File, dd: DonorData):
+        if isinstance(dd.G, MuData):
+            g_group = f.create_group("G")
+            _write_h5mu(g_group, dd.G)
+        else:
+            write_elem(f, "G", dd.G)
+        if isinstance(dd.C, MuData):
+            c_group = f.create_group("C")
+            _write_h5mu(c_group, dd.C)
+        else:
+            write_elem(f, "C", dd.C)
+        f.attrs["encoding-type"] = "donordata"
+
+        f.attrs["donor_id"] = dd.donor_id
+        f.attrs["var_dims_to_sync"] = dd._var_dims_to_sync
+
+        for key, value in dd.uns.items():
+            f.create_dataset(f"uns/{key}", data=value)
+
+    def write_h5_dd(self, path: str, dd: DonorData) -> None:
+        """Write the DonorData object to the specified file path.
+
+        Parameters
+        ----------
+        path : str | Path
+            Path where the donor-data object should be saved.
+
+        Example
+        -------
+        write_dd('path/to/donor_data.dd.h5')
+        """
+        with h5py.File(path, "w") as f:
+            self._write_dd(f, dd)
+
+    def write_zarr_dd(self, path: str, dd: DonorData) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
@@ -111,32 +145,48 @@ class DonorData:
 
         Example
         -------
-        write_donordata_objects('path/to/donor_data.dd.h5')
+        write_dd('path/to/donor_data.dd.zarr')
         """
-        with h5py.File(path, "w") as f:
-            if isinstance(self.G, MuData):  #
-                g_group = f.create_group("G")
-                for key in self.G.mod_names:
-                    write_elem(g_group.create_group(key), key, self.G[key])
-                write_elem(g_group.create_group("obs"), "obs", self.G.obs)
-                write_elem(g_group.create_group("uns"), "uns", self.G.uns)
-            else:
-                write_elem(f.create_group("G"), "G", self.G)
-            if isinstance(self.C, MuData):
-                c_group = f.create_group("C")
-                for key in self.C.mod_names:
-                    write_elem(c_group.create_group(key), key, self.C[key])
-                write_elem(c_group.create_group("obs"), "obs", self.C.obs)
-                write_elem(c_group.create_group("uns"), "uns", self.C.uns)
-            else:
-                write_elem(f.create_group("C"), "C", self.C)
-            f.attrs["encoding-type"] = "donordata"
+        for m in [dd.G, dd.C]:
+            if isinstance(m, MuData):
+                raise NotImplementedError("MuData not supported for zarr write")
+        with zarr.open(path, mode="w") as f:
+            self._write_dd(f, dd)
 
-            f.attrs["donor_id"] = self.donor_id
-            f.attrs["var_dims_to_sync"] = np.array(self._var_dims_to_sync, dtype="S")
+    def _ensure_extension(self, path: str, ext: str) -> str:
+        """Ensure the given path ends with the desired extension."""
+        if not path.endswith(ext):
+            path += ext
+        return path
 
-            for key, value in self.uns.items():
-                f.create_dataset(f"uns/{key}", data=value)
+    def write_dd(self, path: str, dd: DonorData, fmt: str = None) -> None:
+        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+
+        Parameters
+        ----------
+        path : str | Path
+            Path where the donor-data object should be saved.
+
+        Example
+        -------
+        write_dd('path/to/donor_data.dd.h5')
+        """
+        if fmt is None:
+            if path.endswith(".h5") or path.endswith(".dd.h5"):
+                fmt = "h5"
+            elif path.endswith(".zarr") or path.endswith(".dd.zarr"):
+                fmt = "zarr"
+            else:
+                raise ValueError("Cannot detect format from file extension. Provide `fmt` as 'h5' or 'zarr'.")
+
+        if fmt == "h5":
+            path = self._ensure_extension(path, ".dd.h5")
+            self.write_h5_dd(path, dd)
+        elif fmt == "zarr":
+            path = self._ensure_extension(path, ".dd.zarr")
+            self.write_zarr_dd(path, dd)
+        else:
+            raise ValueError("Unknown format: use 'h5' or 'zarr'.")
 
     @property
     def C(self) -> AnnData:
@@ -289,7 +339,6 @@ class DonorData:
         if obs is not None:
             columns = obs if isinstance(obs, list) else [obs]
             aggres = adata.obs.groupby(self.donor_id, observed=True)[columns].agg(func)
-            dtype = aggres.dtypes.iloc[0]
             target = "obs" if add_to_obs else "obsm"
         else:
             aggdata = sc.get.aggregate(adata, by=self.donor_id, func=func, layer=layer, obsm=obsm)
@@ -300,8 +349,6 @@ class DonorData:
                 columns = adata.var_names
                 if sync_var:
                     self._var_dims_to_sync.append(key_added)
-
-            dtype = aggdata.layers[func].dtype
             # Convert the aggregated layer to a DataFrame.
             aggres = pd.DataFrame(aggdata.layers[func], index=aggdata.obs_names)
             target = "obsm"
@@ -309,14 +356,17 @@ class DonorData:
         if verbose:
             logger.info(f"Aggregated {slot} to {key_added}")
             logger.info("Observation found for %s donors.", aggres.shape[0])
-        data = pd.DataFrame(index=self.G.obs_names, columns=columns, dtype=dtype)
+        data = pd.DataFrame(index=self.G.obs_names, columns=columns)
         data.loc[aggres.index] = aggres
 
         if self.G.is_view:  # because we will write to self.G
             self.G = self.G.copy()
 
         if target == "obs":
-            self.G.obs.loc[data.index, columns] = data
+            for col in columns:
+                if data[col].dtype == "category":
+                    self.G.obs[col] = pd.Categorical(categories=data[col].cat.categories)
+                self.G.obs.loc[data.index, col] = data[col]
         else:
             self.G.obsm[key_added] = data
 
@@ -356,19 +406,23 @@ class DonorData:
         for gdata_line, adata_line in zip(G_lines, C_lines, strict=True):
             table.add_row(gdata_line, adata_line)
 
-        n_donors = self.G.shape[0]
+        # Create title and surrounding panel
         n_cells_per_donor = self.C.obs[self.donor_id].value_counts()
-        min_n_cells = n_cells_per_donor.min()
-        max_n_cells = n_cells_per_donor.max()
-        header_line = (
-            f"    DonorData({n_donors} x "
-            f"n_donors={self.G.shape[1]:,}, n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
-            f"donor_id = '{self.donor_id}')"
+        min_n_cells, max_n_cells = n_cells_per_donor.min(), n_cells_per_donor.max()
+        header_line = Text(
+            f"DonorData(n_donors={self.G.shape[0]:,}, "
+            f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
+            f"donor_id='{self.donor_id}')",
+            style=HIGHLIGHT_COLOR,
         )
-        spanning_header = Panel(Text(header_line, style=HIGHLIGHT_COLOR, justify="center"), width=100)
-        spanning_header = Align.center(spanning_header)
-
-        return Group(spanning_header, table)
+        panel = Panel(
+            table,
+            title=header_line,
+            title_align="left",  # left, center, right
+            box=DOUBLE,  # DOUBLE, HEAVY, MINIMAL, etc.
+            expand=False,
+        )
+        return panel
 
     def __repr__(self) -> str:
         table = self.prep_repr()
@@ -412,3 +466,12 @@ def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
             lines.append(line)
             highlight.append(line_highlight)
     return lines, highlight
+
+
+if __name__ == "__main__":
+    from cellink._core.dummy_data import sim_adata, sim_gdata
+
+    adata = sim_adata()
+    gdata = sim_gdata(adata=adata)
+    dd = DonorData(G=gdata, C=adata)
+    print(dd)
