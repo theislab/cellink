@@ -23,12 +23,20 @@ classifiers = [
 ]
 dependencies = [
   "anndata",
+  "bed-reader",
+  "dask",
+  "muon",
   "pandas",
-  "polars",  # for variant annotation
+  "polars",     # for variant annotation
+  "regex",
+  "requests",
+  "rich",
+  "scanpy",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit",
+  "sgkit[plink]",
 ]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -48,11 +56,14 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.ensembl-vep = [
+  "ensembl-vep",
+]
 optional-dependencies.msprime = [
   "msprime",
 ]
-optional-dependencies.mudata = [
-  "mudata",
+optional-dependencies.snpeff = [
+  "snpeff",
 ]
 optional-dependencies.test = [
   "coverage",
