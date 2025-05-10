@@ -32,20 +32,20 @@ def _sim_donor(
     n_genes,
     has_all_celltypes,
     strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn",
+    mean_nb: int = 5,
+    dispersion_nb: int = 2,
+    p_binomial: float = 0.1,
 ):
     if strategy == "randn":
         X = np.random.randn(n_cells, n_genes)
     elif strategy == "poisson":
         X = np.random.poisson(lam=5, size=(n_cells, n_genes))
     elif strategy == "negative_binomial":
-        mean = 5
-        dispersion = 2
-        r = 1 / dispersion
-        p = mean / (mean + r)
+        r = 1 / dispersion_nb
+        p = mean_nb / (mean_nb + r)
         X = np.random.negative_binomial(n=r, p=p, size=(n_cells, n_genes))
     elif strategy == "binomial":
-        p = 0.1
-        X = np.random.binomial(n=1, p=p, size=(n_cells, n_genes))
+        X = np.random.binomial(n=1, p=p_binomial, size=(n_cells, n_genes))
     elif strategy == "uniform":
         X = np.random.uniform(size=(n_cells, n_genes))
     _celltypes = CELLTYPES if has_all_celltypes else CELLTYPES[:-1]
@@ -65,7 +65,7 @@ def _sim_donor(
     return ad.AnnData(X=X, obs=obs, var=var)
 
 
-def sim_adata_muon(
+def sim_mudata(
     n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS
 ):
     rna = sim_adata(
