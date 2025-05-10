@@ -91,7 +91,6 @@ def run_vep(
     -------
     None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
-    # TODO: make VEP options more modular
     logger.info(f"using config {config_file}")
     with open(config_file) as f:
         config = yaml.safe_load(f)
@@ -126,7 +125,6 @@ def run_vep(
         cache_dir = config["cache_dir"]
         vep_plugin_dir = config.get("vep_plugin_dir", f"{cache_dir}/Plugins/")
         params_af = config.get("af_flags", "")  # "--af_gnomade"
-        input_fasta = config["input_fasta"]
         offline_cmd = [
             "--offline",
             params_af,
@@ -135,17 +133,25 @@ def run_vep(
             cache_dir,
             "--fasta",
             config["input_fasta"],
+            "--dir_plugins",
+            vep_plugin_dir,
         ]
+
         cmd = base_cmd + offline_cmd
     else:
         online_cmd = ["--database"]
         cmd = base_cmd + online_cmd
 
+    plugin_config = config.get("additional_vep_plugin_cmds", None)
+    if plugin_config:
+        for plugin in plugin_config.values():
+            cmd.append(f"--plugin {plugin}")
+
     cmd = " ".join(cmd)
 
     logger.info(f"running VEP command {cmd}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
+        subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
         logger.info(f"VEP ran successfully!. Annotated variants are saved to {output}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running VEP: {e}")
@@ -165,7 +171,7 @@ def _change_col_dtype(annos):
         except ValueError:  # Catch explicit exception for type conversion
             try:
                 annos[col] = annos[col].replace(np.nan, "-")
-            except Exception as e:  # Catch any other exceptions
+            except (TypeError, ValueError) as e:  # Catch specific exceptions
                 logger.warning(f"{col} couldn't be changed: {e}")
     return annos
 
@@ -174,7 +180,7 @@ def _prep_vep_annos(
     vep_anno_file: str,
     gdata,
     id_col_vep: str = "#Uploaded_variation",
-    cols_to_drop: list = ["Allele", "Feature_type", "Location"],
+    cols_to_drop=None,
     dummy_consequence: bool = True,
 ) -> pd.DataFrame:
     """Add VEP annotations to gdata
@@ -198,6 +204,8 @@ def _prep_vep_annos(
         A processed DataFrame with formatted VEP annotations.
     """
     # Define the required identifier columns
+    if cols_to_drop is None:
+        cols_to_drop = ["Allele", "Feature_type", "Location"]
     unique_identifier_cols = [AAnn.index, AAnn.gene_id, AAnn.feature_id]
 
     # Read VEP annotation file
@@ -256,7 +264,7 @@ def add_vep_annos_to_gdata(
     vep_anno_file: str,
     gdata,
     id_col_vep: str = "#Uploaded_variation",
-    cols_to_drop: list = ["Allele", "Feature_type", "Location"],
+    cols_to_drop=None,
     dummy_consequence: bool = True,
 ) -> object:
     """
@@ -280,6 +288,8 @@ def add_vep_annos_to_gdata(
     object
         The updated gdata object with VEP annotations added as `uns["annotation_vep"]`.
     """
+    if cols_to_drop is None:
+        cols_to_drop = ["Allele", "Feature_type", "Location"]
     logger.info("Preparing VEP annotations for addition to gdata")
     # Process the VEP annotations
     vep_data = _prep_vep_annos(vep_anno_file, gdata, id_col_vep, cols_to_drop, dummy_consequence)
@@ -299,12 +309,8 @@ def add_vep_annos_to_gdata(
 
 def combine_annotations(
     gdata,
-    keys: list = ["vep"],
-    unique_identifier_cols=[
-        AAnn.index,
-        AAnn.gene_id,
-        AAnn.feature_id,
-    ],
+    keys=None,
+    unique_identifier_cols=None,
 ):
     """
     Combine multiple annotation datasets into a single unified dataset.
@@ -347,6 +353,10 @@ def combine_annotations(
     >>> print(gdata["variant_annotation"])
     # Outputs the combined annotations stored in gdata under the `variant_annotation` key.
     """
+    if unique_identifier_cols is None:
+        unique_identifier_cols = [AAnn.index, AAnn.gene_id, AAnn.feature_id]
+    if keys is None:
+        keys = ["VEP"]
     logger.warning("Function still under development until it can be tested with other annotations")
 
     allowed_keys = [AAnn.vep]  # update once snpeff and favor are implemented as well
@@ -404,8 +414,7 @@ def aggregate_annotations_for_varm(
     return_data: bool = False,
 ):
     """
-    Aggregates a DataFrame containing variant annotations based on the specified aggregation type such
-    that there is only row per variant id. This means that annotations are aggregated across different gene/transcript contexts
+    Aggregates a DataFrame containing variant annotations based on the specified aggregation type such that there is only row per variant id. This means that annotations are aggregated across different gene/transcript contexts
 
     Parameters
     ----------
