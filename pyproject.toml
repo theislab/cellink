@@ -34,7 +34,7 @@ dependencies = [
   "scanpy",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit",
+  "sgkit[plink]",
 ]
 
 optional-dependencies.dev = [
