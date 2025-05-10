@@ -1,20 +1,17 @@
 import warnings
-from pathlib import Path
-from typing import Literal
 
-from mudata import MuData
-from .._core import DonorData
-from anndata.io import read_elem
 import h5py
-from anndata.io import read_elem
-from anndata._types import StorageType
 import zarr
-from mudata._core.mudata import ModDict, MuData
-from mudata._core.io import _read_h5mu_mod
-from anndata.compat import _read_attr
-from mudata._core.io import _write_h5mu
+from anndata._io.specs.registry import read_elem
 from anndata._io.zarr import read_dataframe
-from anndata.io import write_elem
+from anndata._types import StorageType
+from anndata.compat import _read_attr
+from anndata.io import read_elem
+from mudata import MuData
+from mudata._core.io import _read_h5mu_mod
+from mudata._core.mudata import ModDict, MuData
+
+from .._core import DonorData
 
 warnings.filterwarnings(
     "ignore",
@@ -27,8 +24,7 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     """
     Adapted from mudata._core.io.read_h5mu (https://github.com/scverse/mudata/blob/main/src/mudata/_core/io.py#L419).
     """
-
-    #with h5py.File("test.h5mu", "r") as f:
+    # with h5py.File("test.h5mu", "r") as f:
 
     d = {}
     for k in group.keys():
@@ -38,7 +34,7 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
             mods = ModDict()
             gmods = group[k]
             for m in gmods.keys():
-                ad = _read_h5mu_mod(gmods[m], None, True) 
+                ad = _read_h5mu_mod(gmods[m], None, True)
                 mods[m] = ad
 
             mod_order = None
@@ -57,8 +53,8 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     mu = MuData._init_from_dict_(**d)
     return mu
 
+
 def _read_dd(f: h5py.File) -> DonorData:
-        
     if f["G"].attrs.get("encoding-type") == "MuData":
         G = _read_mudata(group=f["G"])
     elif f["G"].attrs.get("encoding-type") == "anndata":
@@ -82,18 +78,21 @@ def _read_dd(f: h5py.File) -> DonorData:
         for key in uns_group:
             uns[key] = uns_group[key][()]
 
-    dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns) 
+    dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns)
 
     return dd
+
 
 def read_h5_dd(path: str) -> DonorData:
     with h5py.File(path, "r") as f:
         return _read_dd(f)
 
+
 def read_zarr_dd(path: str) -> DonorData:
     with zarr.open(path, mode="r") as f:
         return _read_dd(f)
-        
+
+
 def read_dd(path: str, fmt: str = None) -> DonorData:
     """Read donor data from specified file paths for both the gene expression data (G) and cell-type data (C),
     and return a DonorData object containing these two datasets.
@@ -128,4 +127,3 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
         return read_zarr_dd(path)
     else:
         raise ValueError("Unknown format: use 'h5' or 'zarr'.")
-        

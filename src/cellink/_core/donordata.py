@@ -3,13 +3,15 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 
 import h5py
-import numpy as np
 import pandas as pd
 import scanpy as sc
+import zarr
 from anndata import AnnData
+from anndata.io import write_elem
+from mudata import MuData
+from mudata._core.io import _write_h5mu
 from rich.box import DOUBLE
 from rich.console import Console
 from rich.panel import Panel
@@ -19,6 +21,7 @@ import zarr
 from anndata.io import write_elem
 from mudata._core.io import _write_h5mu
 from mudata import MuData
+
 
 from cellink._core.data_fields import DAnn
 
@@ -103,7 +106,6 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-
     def _write_dd(self, f: h5py.File):
         
         if isinstance(self.G, MuData):
@@ -118,6 +120,7 @@ class DonorData:
             write_elem(f, "C", self.C)
         f.attrs["encoding-type"] = "donordata"
 
+
         f.attrs["donor_id"] = self.donor_id
         f.attrs["var_dims_to_sync"] = self._var_dims_to_sync
         
@@ -125,7 +128,7 @@ class DonorData:
             f.create_dataset(f"uns/{key}", data=value)
 
     def write_h5_dd(self, path: str) -> None:
-        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+        """Write the DonorData object to the specified file path.
 
         Parameters
         ----------
