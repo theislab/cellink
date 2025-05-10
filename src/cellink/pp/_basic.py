@@ -25,6 +25,12 @@ def cell_level_obs_filter(
     -------
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
+
+    Example
+    -------
+    >>> celltype_key = "celltype"
+    >>> cell_type = "CD8"
+    >>> cl.pp.cell_level_obs_filter(dd, celltype_key, cell_type, inplace=False, copy=True)
     """
     if isinstance(cell_level_values, str):
         dd = dd.sel(C_obs=dd.C.obs[cell_level_key] == cell_level_values)
@@ -58,6 +64,12 @@ def donor_level_obs_filter(
     -------
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
+
+    Example
+    -------
+    >>> donor_key = "disease_state"
+    >>> disease_key = "COVID-19"
+    >>> cl.pp.cell_level_obs_filter(dd, donor_key, disease_key, inplace=False, copy=True)
     """
     if isinstance(donor_level_values, str):
         dd = dd.sel(G_obs=dd.G.obs[donor_level_key] == donor_level_values)
@@ -91,13 +103,19 @@ def donor_level_var_filter(
     -------
     Depending on `inplace`, returns the following arrays or directly subsets
     and annotates the data matrix.
+
+    Example
+    -------
+    >>> chromosome_key = "chromosome"
+    >>> chromosome_value = 2
+    >>> cl.pp.cell_level_obs_filter(dd, chromosome_key, chromosome_value, inplace=False, copy=True)
     """
     if isinstance(donor_level_values, str):
-        dd = dd.sel(G_var=dd.G.obs[donor_level_key] == donor_level_values)
+        dd = dd.sel(G_var=dd.G.var[donor_level_key] == donor_level_values)
     elif isinstance(donor_level_values, list):
-        dd = dd.sel(G_var=dd.G.obs[donor_level_key].isin(donor_level_values))
+        dd = dd.sel(G_var=dd.G.var[donor_level_key].isin(donor_level_values))
     elif isinstance(donor_level_values, np.ndarray):
-        dd = dd.sel(G_var=np.isin(dd.G.obs[donor_level_key].values, donor_level_values))
+        dd = dd.sel(G_var=np.isin(dd.G.var[donor_level_key].values, donor_level_values))
 
     if inplace:
         return None

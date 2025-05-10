@@ -28,21 +28,21 @@ def test_from_sgkit_dataset():
 
 
 @pytest.mark.slow
-def test_export():
+def test_export(tmp_path):
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata = gdata[:, :1996]
-    # gdata.obs = gdata.obs.set_index("id")
-    os.makedirs("tests/temp")
-    to_plink(gdata, output_prefix="tests/temp", num_patients_chunk=100)
-    shutil.rmtree("tests/temp")
+
+    to_plink(gdata, output_prefix=str(tmp_path), num_patients_chunk=100)
 
 
 @pytest.mark.slow
-def test_read_donordata_object(adata, gdata):
-    os.makedirs("tests/temp")
+def test_read_donordata_object(tmp_path, adata, gdata):
+    output_path = tmp_path / "donordata.dd.h5"
+
     dd = DonorData(G=gdata, C=adata)
-    dd.write_donordata_object("tests/temp/donordata.dd.h5")
-    dd_loaded = read_donordata_object("tests/temp/donordata.dd.h5")
-    assert dd.C.shape == dd.C.shape
-    assert dd.G.shape == dd.G.shape
-    shutil.rmtree("tests/temp")
+    dd.write_donordata_object(str(output_path))
+
+    dd_loaded = read_donordata_object(str(output_path))
+
+    assert dd_loaded.C.shape == dd.C.shape
+    assert dd_loaded.G.shape == dd.G.shape

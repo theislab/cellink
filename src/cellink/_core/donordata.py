@@ -10,13 +10,15 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata import AnnData
-from anndata._io.specs.registry import write_elem
 from mudata import MuData
 from rich.align import Align
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+import zarr
+from anndata.io import write_elem
+from mudata._core.io import _write_h5mu
 
 from cellink._core.data_fields import DAnn
 
@@ -101,7 +103,28 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-    def write_donordata_object(self, path: str | Path) -> None:
+
+    def _write_dd(self, f: h5py.File, dd: DonorData):
+        
+        if isinstance(dd.G, MuData):
+            g_group = f.create_group("G")
+            _write_h5mu(g_group, dd.G)
+        else:
+            write_elem(f, "G", dd.G)
+        if isinstance(dd.C, MuData):
+            c_group = f.create_group("C")
+            _write_h5mu(c_group, dd.C)
+        else:
+            write_elem(f, "C", dd.C)
+        f.attrs["encoding-type"] = "donordata"
+
+        f.attrs["donor_id"] = dd.donor_id
+        f.attrs["var_dims_to_sync"] = dd._var_dims_to_sync
+        
+        for key, value in dd.uns.items():
+            f.create_dataset(f"uns/{key}", data=value)
+
+    def write_h5_dd(self, path: str, dd: DonorData) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
@@ -111,32 +134,63 @@ class DonorData:
 
         Example
         -------
-        write_donordata_objects('path/to/donor_data.dd.h5')
+        write_dd('path/to/donor_data.dd.h5')
         """
         with h5py.File(path, "w") as f:
-            if isinstance(self.G, MuData):  #
-                g_group = f.create_group("G")
-                for key in self.G.mod_names:
-                    write_elem(g_group.create_group(key), key, self.G[key])
-                write_elem(g_group.create_group("obs"), "obs", self.G.obs)
-                write_elem(g_group.create_group("uns"), "uns", self.G.uns)
-            else:
-                write_elem(f.create_group("G"), "G", self.G)
-            if isinstance(self.C, MuData):
-                c_group = f.create_group("C")
-                for key in self.C.mod_names:
-                    write_elem(c_group.create_group(key), key, self.C[key])
-                write_elem(c_group.create_group("obs"), "obs", self.C.obs)
-                write_elem(c_group.create_group("uns"), "uns", self.C.uns)
-            else:
-                write_elem(f.create_group("C"), "C", self.C)
-            f.attrs["encoding-type"] = "donordata"
+            self._write_dd(f, dd)
 
-            f.attrs["donor_id"] = self.donor_id
-            f.attrs["var_dims_to_sync"] = np.array(self._var_dims_to_sync, dtype="S")
+    def write_zarr_dd(self, path: str, dd: DonorData) -> None:
+        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
-            for key, value in self.uns.items():
-                f.create_dataset(f"uns/{key}", data=value)
+        Parameters
+        ----------
+        path : str | Path
+            Path where the donor-data object should be saved.
+
+        Example
+        -------
+        write_dd('path/to/donor_data.dd.zarr')
+        """
+        for m in [dd.G, dd.C]:
+            if isinstance(m, MuData):
+                raise NotImplementedError("MuData not supported for zarr write")
+        with zarr.open(path, mode="w") as f:
+            self._write_dd(f, dd)
+
+    def _ensure_extension(self, path: str, ext: str) -> str:
+        """Ensure the given path ends with the desired extension."""
+        if not path.endswith(ext):
+            path += ext
+        return path
+
+    def write_dd(self, path: str, dd: DonorData, fmt: str = None) -> None:
+        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+
+        Parameters
+        ----------
+        path : str | Path
+            Path where the donor-data object should be saved.
+
+        Example
+        -------
+        write_dd('path/to/donor_data.dd.h5')
+        """
+        if fmt is None:
+            if path.endswith(".h5") or path.endswith(".dd.h5"):
+                fmt = "h5"
+            elif path.endswith(".zarr") or path.endswith(".dd.zarr"):
+                fmt = "zarr"
+            else:
+                raise ValueError("Cannot detect format from file extension. Provide `fmt` as 'h5' or 'zarr'.")
+
+        if fmt == "h5":
+            path = self._ensure_extension(path, ".dd.h5")
+            self.write_h5_dd(path, dd)
+        elif fmt == "zarr":
+            path = self._ensure_extension(path, ".dd.zarr")
+            self.write_zarr_dd(path, dd)
+        else:
+            raise ValueError("Unknown format: use 'h5' or 'zarr'.")
 
     @property
     def C(self) -> AnnData:
