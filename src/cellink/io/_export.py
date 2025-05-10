@@ -3,8 +3,8 @@ import sys
 
 import numpy as np
 import pandas as pd
-from cellink._core.data_fields import VAnn
 
+from cellink._core.data_fields import VAnn
 
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
@@ -13,6 +13,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
 
 def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
     """
@@ -200,6 +201,7 @@ def to_plink(
 
     logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
 
+
 def write_variants_to_vcf(gdata, out_file="variants.vcf"):
     """Write unique variants from gdata to vcf file for annotation
 
@@ -218,4 +220,4 @@ def write_variants_to_vcf(gdata, out_file="variants.vcf"):
         # Write the VCF header
         f.write("##fileformat=VCFv4.0\n")
         f.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
-        var_df.to_csv(f, sep='\t', index=False, header = False)
+        var_df.to_csv(f, sep="\t", index=False, header=False)
