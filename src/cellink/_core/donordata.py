@@ -17,6 +17,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+import zarr
+from anndata.io import write_elem
+from mudata._core.io import _write_h5mu
+from mudata import MuData
+
 
 from cellink._core.data_fields import DAnn
 
@@ -101,26 +106,28 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-    def _write_dd(self, f: h5py.File, dd: DonorData):
-        if isinstance(dd.G, MuData):
+    def _write_dd(self, f: h5py.File):
+        
+        if isinstance(self.G, MuData):
             g_group = f.create_group("G")
-            _write_h5mu(g_group, dd.G)
+            _write_h5mu(g_group, self.G)
         else:
-            write_elem(f, "G", dd.G)
-        if isinstance(dd.C, MuData):
+            write_elem(f, "G", self.G)
+        if isinstance(self.C, MuData):
             c_group = f.create_group("C")
-            _write_h5mu(c_group, dd.C)
+            _write_h5mu(c_group, self.C)
         else:
-            write_elem(f, "C", dd.C)
+            write_elem(f, "C", self.C)
         f.attrs["encoding-type"] = "donordata"
 
-        f.attrs["donor_id"] = dd.donor_id
-        f.attrs["var_dims_to_sync"] = dd._var_dims_to_sync
 
-        for key, value in dd.uns.items():
+        f.attrs["donor_id"] = self.donor_id
+        f.attrs["var_dims_to_sync"] = self._var_dims_to_sync
+        
+        for key, value in self.uns.items():
             f.create_dataset(f"uns/{key}", data=value)
 
-    def write_h5_dd(self, path: str, dd: DonorData) -> None:
+    def write_h5_dd(self, path: str) -> None:
         """Write the DonorData object to the specified file path.
 
         Parameters
@@ -133,9 +140,9 @@ class DonorData:
         write_dd('path/to/donor_data.dd.h5')
         """
         with h5py.File(path, "w") as f:
-            self._write_dd(f, dd)
+            self._write_dd(f)
 
-    def write_zarr_dd(self, path: str, dd: DonorData) -> None:
+    def write_zarr_dd(self, path: str) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
@@ -147,11 +154,11 @@ class DonorData:
         -------
         write_dd('path/to/donor_data.dd.zarr')
         """
-        for m in [dd.G, dd.C]:
+        for m in [self.G, self.C]:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")
         with zarr.open(path, mode="w") as f:
-            self._write_dd(f, dd)
+            self._write_dd(f)
 
     def _ensure_extension(self, path: str, ext: str) -> str:
         """Ensure the given path ends with the desired extension."""
