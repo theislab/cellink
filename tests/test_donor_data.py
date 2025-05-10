@@ -1,4 +1,7 @@
+import os
+import shutil
 from pathlib import Path
+import pytest
 
 import mudata as md
 
@@ -176,6 +179,17 @@ def test_ellipsis_middle_indexing(adata, gdata):
     num_cells = adata[adata.obs[DAnn.donor] == "D0"].shape[0]
     expected_shape = (1, num_G_vars, num_cells, 1)
     assert dd_res.shape == expected_shape
+
+
+@pytest.mark.slow
+def test_write_donordata_object(tmp_path, adata, gdata):
+    output_path = tmp_path / "donordata.dd.h5"
+
+    dd = DonorData(G=gdata, C=adata)
+
+    dd.write_donordata_object(str(output_path))
+
+    assert output_path.exists()
 
 
 if __name__ == "__main__":
