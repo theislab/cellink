@@ -64,8 +64,6 @@
     tl.run_vep
     tl.one_hot_encode_genotypes
     tl.dosage_per_strand
-    tl.simulate_genotype_data_msprime
-    tl.simulate_genotype_data_numpy
 ```
 
 ## Plotting

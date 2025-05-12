@@ -22,12 +22,14 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "anndata",
+  "scanpy",
   "pandas",
   "polars",  # for variant annotation
   # for debug logging (referenced from the issue template)
   "session-info",
   "sgkit",
+  "rich",
+  "requests"
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -48,8 +50,12 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.msprime = [
-  "msprime",
+optional-dependencies.ml = [
+  "pytorch-lightning",
+]
+optional-dependencies.burden = [
+  "limix-core",
+  "chiscore",
 ]
 optional-dependencies.mudata = [
   "mudata",
