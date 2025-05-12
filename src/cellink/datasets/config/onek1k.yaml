@@ -1,0 +1,13 @@
+remote_files:
+  - filename: onek1k_cellxgene.h5ad
+    url: https://datasets.cellxgene.cziscience.com/81d84489-bff9-4fb6-b0ee-78348126eada.h5ad
+    checksum: "8aacc5bf8d0e4e155ced3910c938e50c68c55cdb7ddea177cf7f91d1bf10bd96"
+  - filename: OneK1K.noGP.vcf.gz
+    url: https://zenodo.org/records/7619796/files/OneK1K.noGP.vcf.gz?download=1
+    checksum: "7f052b61bdecff8eaae18f456bff17eebc27ff384f3e8e7f0c14dde6defd10b7"
+  - filename: OneK1K.noGP.vcf.gz.csi
+    url: https://zenodo.org/records/7619796/files/OneK1K.noGP.vcf.gz.csi?download=1
+    checksum: "8ebe660bee5d40037ff9554622b3353c7ed0323226e1635a919eadd62c078c0b"
+  - filename: gene_counts_Ensembl_105_phenotype_metadata.tsv.gz
+    url: https://zenodo.org/records/7619796/files/gene_counts_Ensembl_105_phenotype_metadata.tsv.gz?download=1
+    checksum: "c2f3647901119fc211db8e8a157dd567f70e0716d7e2a2d9baf263aa1405ea15"
