@@ -8,4 +8,3 @@ from ._annotate_snps_genotype_data import (
     setup_snpeff,
 )
 from ._encode_genotype_data import dosage_per_strand, one_hot_encode_genotypes
-from ._simulate_genotype_data import simulate_genotype_data_msprime, simulate_genotype_data_numpy

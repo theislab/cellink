@@ -140,9 +140,8 @@ def plink_kinship(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
 
 converter = get_lifter("hg19", "hg38", one_based=True)
 
-
 def try_liftover(row):
     try:
         return int(converter[str(row.chrom)][row.pos][0][1])
-    except:
+    except IndexError:
         return np.nan
