@@ -1,4 +1,7 @@
+import os
+import shutil
 from pathlib import Path
+import pytest
 
 import mudata as md
 
@@ -80,6 +83,14 @@ def test_donordata_aggregate(adata, gdata, dummy_covariates):
 
     dd.aggregate(obs=dummy_covariates, func="first", add_to_obs=True)
     assert all(col in dd.G.obs.columns for col in dummy_covariates)
+
+
+def test_donordata_aggregate_first_add_to_obs(adata, gdata, dummy_covariates):
+    dd = DonorData(G=gdata, C=adata).copy()
+
+    dd.C.obs[dummy_covariates[0]] = dd.C.obs[dummy_covariates[0]].astype("category")
+    dd.C.obs[dummy_covariates[1]] = dd.C.obs[dummy_covariates[1]].astype("category").cat.codes
+    dd.aggregate(obs=dummy_covariates, func="first", add_to_obs=True)
 
 
 def test_sel_dict_indexing(adata, gdata):
@@ -168,6 +179,17 @@ def test_ellipsis_middle_indexing(adata, gdata):
     num_cells = adata[adata.obs[DAnn.donor] == "D0"].shape[0]
     expected_shape = (1, num_G_vars, num_cells, 1)
     assert dd_res.shape == expected_shape
+
+
+@pytest.mark.slow
+def test_write_donordata_object(tmp_path, adata, gdata):
+    output_path = tmp_path / "donordata.dd.h5"
+
+    dd = DonorData(G=gdata, C=adata)
+
+    dd.write_donordata_object(str(output_path))
+
+    assert output_path.exists()
 
 
 if __name__ == "__main__":
