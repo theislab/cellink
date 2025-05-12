@@ -2,11 +2,9 @@ fail_fast: false
 default_language_version:
   python: python3
 default_stages:
-  - commit
-  - push
-exclude: |
-  tests/data
-  \.ipynb
+  - pre-commit
+  - pre-push
+exclude: tests/data
 minimum_pre_commit_version: 2.16.0
 repos:
   - repo: https://github.com/pre-commit/mirrors-prettier
