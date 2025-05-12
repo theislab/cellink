@@ -85,7 +85,14 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
 
     contig_mapping = dict(enumerate(asarray(sgkit_dataset[SgVars.contig_label])))
     var[VAnn.chrom] = var[VAnn.contig].map(contig_mapping)
-    var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+
+    alleles = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+
+    a0_a1 = alleles[:, :2]
+    var[[VAnn.a0, VAnn.a1]] = a0_a1
+    if alleles.shape[1] > 2:
+        var[[f"{VAnn.asymb}{i}" for i in range(alleles[:, 2:].shape[1])]] = alleles[:, 2:]
+    # var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
 
     first_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
     var = var[first_cols + [c for c in var.columns if c not in first_cols]]
