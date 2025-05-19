@@ -3,8 +3,8 @@ from ._annotate_snps_genotype_data import (
     add_vep_annos_to_gdata,
     aggregate_annotations_for_varm,
     combine_annotations,
-    run_annotation_with_snpeff,
+    run_favor,
+    run_snpeff,
     run_vep,
-    setup_snpeff,
 )
 from ._encode_genotype_data import dosage_per_strand, one_hot_encode_genotypes

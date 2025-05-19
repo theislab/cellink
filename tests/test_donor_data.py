@@ -182,15 +182,24 @@ def test_ellipsis_middle_indexing(adata, gdata):
 
 
 @pytest.mark.slow
-def test_write_donordata_object(tmp_path, adata, gdata):
+def test_write_h5_dd(tmp_path, adata, gdata):
     output_path = tmp_path / "donordata.dd.h5"
 
     dd = DonorData(G=gdata, C=adata)
 
-    dd.write_donordata_object(str(output_path))
+    dd.write_h5_dd(str(output_path))
 
     assert output_path.exists()
 
+@pytest.mark.slow
+def test_write_zarr_dd(tmp_path, adata, gdata):
+    output_path = tmp_path / "donordata.dd.zarr"
+
+    dd = DonorData(G=gdata, C=adata)
+
+    dd.write_zarr_dd(str(output_path))
+
+    assert output_path.exists()
 
 if __name__ == "__main__":
     import pytest
