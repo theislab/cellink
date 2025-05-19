@@ -22,15 +22,21 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
-  "scanpy",
+  "anndata",
+  "bed-reader",
+  "dask",
+  "muon",
   "pandas",
-  "polars",  # for variant annotation
+  "polars",     # for variant annotation
+  "regex",
+  "requests",
+  "rich",
+  "scanpy",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit",
-  "rich",
-  "requests"
+  "sgkit[plink]",
 ]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -50,15 +56,8 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.ml = [
-  "pytorch-lightning",
-]
-optional-dependencies.burden = [
-  "limix-core",
-  "chiscore",
-]
-optional-dependencies.mudata = [
-  "mudata",
+optional-dependencies.snpeff = [
+  "snpeff",
 ]
 optional-dependencies.test = [
   "coverage",

@@ -1,10 +1,15 @@
+import glob
 import logging
 import os
 import subprocess
 import sys
+from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+import polars as pl
+import regex as re
 import yaml
 
 from cellink._core.data_fields import AAnn
@@ -20,57 +25,231 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
-def setup_snpeff():
+import sys
+
+DEFAULT_EXTENSION = ".yaml"
+
+
+def resolve_config_path(name_or_path):
+    if os.path.isfile(name_or_path):
+        return name_or_path
+
+    if not name_or_path.endswith(DEFAULT_EXTENSION):
+        name_or_path += DEFAULT_EXTENSION
+
+    if os.path.isfile(name_or_path):
+        return name_or_path
+
+    raise FileNotFoundError(f"Config file '{name_or_path}' not found.")
+
+
+def run_snpeff(
+    command: str = "snpeff",
+    genome_assembly: str = "GRCh37.75",
+    input_vcf: str = "variants.vcf",
+    output: str = "variant_vep_annotated.txt",
+    return_annos: bool = True,
+    **kwargs,
+):
     """
-    Downloads and sets up the SnpEff tool in the 'deps' directory.
+    Annotates variants using the SnpEff command-line tool.
 
-    This function creates a directory called 'deps', downloads the latest version
-    of SnpEff from SourceForge, and extracts the contents. It ensures that the
-    required tool is available for genome annotation tasks.
+    Requires SnpEff to be installed and a valid genome database to be specified in the config. If you choose to install Snpeff via conda, the command should be snpeff; If you choose to install Snpeff via java .ar download, this should be the path to the snpeff jar file, e.g. java -Xmx8g -jar /opt/miniconda3/envs/ENV_NAME/share/snpeff-5.2-1/snpEff.jar
+
+    Parameters
+    ----------
+    input_vcf : str, optional
+        Path to the input VCF file containing variants to annotate. Defaults to "variants.vcf".
+    output : str, optional
+        Path to the file where the annotated variants will be written. Defaults to "variant_vep_annotated.txt".
+    return_annos : bool, optional
+        Whether to return the annotations as a Pandas DataFrame after writing them to disk.
+        Defaults to False.
+    **kwargs : dict
+        Additional keyword arguments to be passed as command-line options to SnpEff.
+        These are formatted as --key value.
+
+    Returns
+    -------
+    None or pandas.DataFrame
+        Returns None if return_annos is False.
+        If True, returns a DataFrame of the annotations loaded from the output file.
     """
-    os.makedirs("deps", exist_ok=True)
-    subprocess.run(
-        [
-            "wget",
-            "http://sourceforge.net/projects/snpeff/files/snpEff_latest_core.zip",
-            "-O",
-            "deps/snpEff_latest_core.zip",
-        ],
-        check=True,
-    )
-    os.chdir("deps")
-    subprocess.run(["unzip", "snpEff_latest_core.zip"], check=True)
-    os.chdir("../")
+    env = os.environ.copy()
+    env["_JAVA_OPTIONS"] = "-Xmx8g"
+
+    cmd = [command, genome_assembly, input_vcf]
+
+    for key, value in kwargs.items():
+        cmd.extend([f"--{key}", str(value)])
+
+    with open(output.replace(".txt", ".vcf"), "w") as f:
+        subprocess.run(cmd, stdout=f, env=env, check=True)
+
+    annos = pd.read_csv(output.replace(".txt", ".vcf"), delimiter="\t", skiprows=6)
+    annos["INFO"] = annos["INFO"].apply(lambda x: x.split("|"))
+
+    def chunk_info(info_list):
+        if not isinstance(info_list, list):
+            return [[np.nan] * 15]
+
+        chunks = [info_list[i : i + 15] for i in range(0, len(info_list), 15) if len(info_list[i : i + 15]) == 15]
+        if not chunks:
+            return [[np.nan] * 15]
+
+        cleaned_chunks = []
+        for chunk in chunks:
+            cleaned_chunk = []
+            for i, val in enumerate(chunk):
+                if i == 0 and val.startswith("ANN="):
+                    cleaned_chunk.append(val[4:])
+                elif val.startswith(","):
+                    cleaned_chunk.append(val[1:])
+                else:
+                    cleaned_chunk.append(val)
+            cleaned_chunks.append(cleaned_chunk)
+        return cleaned_chunks
+
+    annos = annos.rename(columns={"ID": "snp_id"})
+    annos = annos[["snp_id", "INFO"]]
+    annos["info_chunks"] = annos["INFO"].apply(chunk_info)
+
+    annos_exploded = annos.explode("info_chunks", ignore_index=True)
+
+    # See https://pcingola.github.io/SnpEff/adds/VCFannotationformat_v1.0.pdf
+    columns = [
+        "ALT",
+        "consequence",
+        "putative_impact",
+        "gene_name",
+        "ensembl_gene_id",
+        "feature_type",
+        "ensembl_transcript_id",
+        "transcript_biotype",
+        "exon_intron_rank",
+        "hgvs_c",
+        "hgvs_p",
+        "cdna_position",
+        "cds_position",
+        "protein_position",
+        "distance_to_feature",
+    ]
+    info_df = pd.DataFrame(annos_exploded["info_chunks"].tolist(), columns=columns)
+
+    annos = pd.concat([annos_exploded[["snp_id"]].reset_index(drop=True), info_df], axis=1)
+
+    annos.to_csv(output)
+
+    if return_annos:
+        return annos
 
 
-def run_annotation_with_snpeff(vcf_input: str, vcf_output: str, genome: str = "GRCh37.75"):
+def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None):
+    URL = URLs.loc[URLs["chr"] == chromosome, "URL"].values[0]
+
+    subprocess.Popen(["wget", "--progress=bar:force:noscroll", URL], stdout=sys.stdout, stderr=sys.stderr)
+    file_id = re.search(r"(\d+)", URL).group(1)
+    subprocess.Popen(["tar", "-xvf", file_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> pd.DataFrame:
+    logger.info(f"using config {config_file}")
+    config_file = resolve_config_path(config_file)
+    with open(config_file) as f:
+        config = yaml.safe_load(f)
+
+    urls_dict = config["favor"][version]
+    URLs = pd.DataFrame({"chr": list(map(int, urls_dict.keys())), "URL": list(urls_dict.values())})
+    return URLs
+
+
+def download_favor(
+    version: Literal["essential", "full"] = "essential",
+    chromosome: Chromosome | list[Chromosome] | None = None,
+    config_file: str = "../configs/favor.yaml",
+):
+    logger.info(f"Using config: {config_file}")
+    URLs = load_favor_urls(config_file=config_file, version=version)
+    _download_favor(URLs=URLs, chromosome=chromosome)
+
+
+def run_favor(
+    database_dir: str = None,
+    version: Literal["essential", "full"] = "essential",
+    G=None,
+    output: str = None,
+    return_annos: bool = True,
+):
     """
-    Runs genome annotation using the SnpEff tool.
+    Annotates variants using the FAVOR database from within Python
 
-    This function uses the SnpEff tool to annotate a given VCF file with the specified
-    genome database. The annotated output is saved to the specified output file.
+    Requires access to FAVOR CSV databases either locally or via automatic download.
 
-    Args:
-        vcf_input (str): Path to the input VCF file to be annotated.
-        vcf_output (str): Path to the output file where the annotated VCF will be saved.
-        genome (str): Genome version to be used for annotation (default: "GRCh37.75").
-                      Ensure this genome is supported by SnpEff.
+    Parameters
+    ----------
+    G : anndata.AnnData, optional
+        AnnData object with a .var DataFrame containing variant information, including
+        'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
+    output : str, optional
+        File where annotated variants will be saved. Defaults to "variant_vep_annotated.txt".
+    return_annos : bool, optional
+        Whether to return the annotations as a Pandas DataFrame after writing them to disk.
+        Defaults to False.
+
+    Returns
+    -------
+    None or pandas.DataFrame
+        Returns None if return_annos is False.
+        If True, returns a DataFrame of annotations loaded from the output file.
     """
-    snpeff_path = "./deps/snpEff/snpEff.jar"
+    if output is None and not return_annos:
+        raise ValueError("Please provide an output file name or set return_annos to True.")
 
-    subprocess.run(
-        ["java", "-Xmx8g", "-jar", snpeff_path, genome, vcf_input],
-        stdout=open(vcf_output, "w"),
-        check=True,
-    )
+    if database_dir is None:
+        database_dir = Path.cwd() / "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB"
+
+    annos = []
+    for chromosome in np.unique(G.var["chrom"]):
+        if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0:
+            logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
+            download_favor(version=version, chromosome=chromosome)
+        else:
+            G_var_chrom = G.var[G.var["chrom"] == chromosome]
+
+            database = pl.concat([pl.scan_csv(path) for path in glob.glob(f"{database_dir}/chr{chromosome}_*.csv")])
+
+            database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
+
+            snp_df = pl.LazyFrame(
+                {
+                    "variant_vcf": G_var_chrom["chrom"]
+                    .astype(str)
+                    .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
+                }
+            )
+
+            result_chrom = snp_df.join(database, on="variant_vcf", how="left")
+            annos.append(result_chrom.collect())
+
+    annos = pl.concat(annos)
+    annos = annos.rename({"variant_vcf": "snp_id"})
+    annos["snp_id"].apply(lambda x: x.replace("-", "_"))
+    annos = annos.with_columns(pl.col("snp_id").str.replace_all("-", "_").alias("snp_id"))
+    if output:
+        annos.to_csv(output)
+
+    if return_annos:
+        return annos
 
 
 def run_vep(
-    config_file,
-    input_vcf="variants.vcf",
-    output="variant_vep_annotated.txt",
-    return_annos=False,
+    config_file: str = "../configs/vep.yaml",
+    input_vcf: str = "variants.vcf",
+    output: str = "variant_vep_annotated.txt",
+    return_annos: bool = True,
+    **kwargs,
 ):
     """Calls the VEP command line tool from within python
 
@@ -92,6 +271,7 @@ def run_vep(
     None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
     logger.info(f"using config {config_file}")
+    config_file = resolve_config_path(config_file)
     with open(config_file) as f:
         config = yaml.safe_load(f)
 
@@ -100,7 +280,7 @@ def run_vep(
     offline = config.get("offline", False)
 
     base_cmd = [
-        "vep",
+        config["vep_command"],
         "--input_file",
         str(input_vcf),
         "--output_file",
@@ -148,6 +328,8 @@ def run_vep(
             cmd.append(f"--plugin {plugin}")
 
     cmd = " ".join(cmd)
+    for key, value in kwargs.items():
+        cmd += f" --{key} {value}"
 
     logger.info(f"running VEP command {cmd}")
     try:
