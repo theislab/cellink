@@ -19,6 +19,7 @@ class DAnn:
     """Donor annotation fields in adata.obs and gdata.obs"""
 
     donor: str = "donor_id"
+    donor_family: str = "donor_family_id"
     DONOR_X_KEY: str = "donor_X" 
     DONOR_LABELS_KEY: str = "donor_labels"
     DONOR_BATCH_KEY: str = "donor_batch"
