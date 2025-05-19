@@ -27,14 +27,18 @@ dependencies = [
   "dask",
   "muon",
   "pandas",
-  "polars",     # for variant annotation
+  "polars",     
   "regex",
   "requests",
   "rich",
   "scanpy",
+  "pandas-plink",
   # for debug logging (referenced from the issue template)
   "session-info",
   "sgkit[plink]",
+  "adjusttext",
+  "torch",
+  "pytorch-lightning",
 ]
 
 optional-dependencies.dev = [
@@ -58,6 +62,12 @@ optional-dependencies.doc = [
 ]
 optional-dependencies.snpeff = [
   "snpeff",
+]
+optional-dependencies.tensorqtl = [
+  "tensorqtl",
+]
+optional-dependencies.mixmil = [
+  "mixmil",
 ]
 optional-dependencies.test = [
   "coverage",
