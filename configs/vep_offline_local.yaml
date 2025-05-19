@@ -1,8 +1,11 @@
-# Config for running VEP online.
-# Works as-is if VEP is installed
+# Example config for running VEP offline (with cached data)
+# the paths `vep` and `vep_data` have to be adapted based on where the VEP cache
+# and other vep relevant files have been stored
+# See instruction on VEP how to set up the Cache and install plugins
+# https://www.ensembl.org/info/docs/tools/vep/script/vep_cache.html#pre
 # Using docker the vep_command would like this: docker run -v <base_path>:<base_path> -t ensemblorg/ensembl-vep vep
 vep_command: docker run -v /Users/larnoldt/:/Users/larnoldt/ -t ensemblorg/ensembl-vep vep
-offline: false
+offline: true
 vep_nfork: 5
 genome_assembly: GRCh37
 species: homo_sapiens
@@ -11,6 +14,7 @@ additional_flags:
   - "--polyphen s"
   - "--sift s"
   - "--total_length"
+  - "--total_length"
   - "--no_escape"
   - "--canonical"
   - "--protein"
@@ -18,6 +22,12 @@ additional_flags:
   - "--force_overwrite"
   - "--no_stats"
   - "--per_gene"
+
+## these fields are only needed if offline = true
+input_fasta: GRCh37.primary_assembly.genome.fa
+cache_dir: vep/112
+vep_plugin_dir: vep/112/Plugins
+af_flags: --af_gnomad
 
 additional_vep_plugin_cmds:
   cadd: CADD,vep_data/cadd/v1.6/GRCh37/whole_genome_SNVs.tsv.gz,vep_data/cadd/v1.6/GRCh37/InDels.tsv.gz

@@ -130,7 +130,8 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
     gdata = cl.io.read_sgkit_zarr(DATA / "OneK1K.noGP.vcz")
 
     ###
-
+    
+    """ #TODO
     gdata.var = gdata.var.drop(columns=["contig"])
     new_pos = gdata.var.apply(lambda row: try_liftover(row), axis=1)
     gdata.var["pos_hg19"] = new_pos.astype(pd.Int64Dtype())
@@ -138,7 +139,8 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
         gdata.var.chrom + "_" + gdata.var.pos_hg19.astype(str) + "_" + gdata.var.a0 + "_" + gdata.var.a1
     )
     gdata.var["id_hg19"] = gdata.var["id_hg19"].astype(str)
-
+    """
+    
     ###
 
     gpcs = pd.read_csv(DATA / "pcdir" / "OneK1K.noGP.filtered.pruned.eigenvec", sep=r"\s+", index_col=1, header=None).drop(columns=0)
