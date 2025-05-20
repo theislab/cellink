@@ -36,6 +36,7 @@ class VAnn:
     pos: str = "pos"
     a0: str = "a0"
     a1: str = "a1"
+    asymb: str = "asymb"
     maf: str = "maf"
     contig: str = "contig"  # index for contig_id
     index: str = "snp_id"
