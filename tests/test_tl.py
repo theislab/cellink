@@ -6,21 +6,9 @@ from cellink.io import read_sgkit_zarr
 from cellink.tl import (
     dosage_per_strand,
     one_hot_encode_genotypes,
-    simulate_genotype_data_msprime,
-    simulate_genotype_data_numpy,
 )
 
 DATA = Path("tests/data")
-
-
-def test_simulate_genotype_data_msprime():
-    adata = simulate_genotype_data_msprime(100, 100)
-    assert adata.shape == (100, 100)
-
-
-def test_simulate_genotype_data_numpy():
-    adata = simulate_genotype_data_numpy(100, 100)
-    assert adata.shape == (100, 100)
 
 
 def test_one_hot_encode_genotypes():
