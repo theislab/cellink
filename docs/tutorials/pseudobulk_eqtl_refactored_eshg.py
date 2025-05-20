@@ -241,7 +241,7 @@ def load_data():
         #cell_type = cell_type.removeprefix("pseudobulk_eqtl_").removesuffix("_chr1.csv")
         results_cell_type = []
         for chrom in list(range(1, 23)):
-            results_cell_type.append(pd.read_csv(f"./pseudobulk_eqtl_{cell_type}_chr{chrom}.csv"))
+            results_cell_type.append(pd.read_csv(f"./association/pseudobulk_eqtl_{cell_type}_chr{chrom}.csv"))
         results_cell_type = pd.concat(results_cell_type)
         results_cell_type["cell_type"] = cell_type
         results.append(results_cell_type)
