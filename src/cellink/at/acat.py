@@ -1,8 +1,19 @@
 import numpy as np
 import scipy.stats as st
 
+from cellink.at.utils import ensure_float64_array
 
-def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> float:
+__all__ = [
+    "acat_test",
+    "compute_acat",
+]
+
+
+def acat_test(
+    pvalues: np.ndarray,
+    tolerance: float = 1e-16,
+    weights: np.ndarray = None,
+) -> float:
     """
     Perform the Aggregated Cauchy Association Test (ACAT) to combine p-values.
 
@@ -29,11 +40,17 @@ def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray
         The ACAT-combined p-value.
 
     """
+    # preparing the input
     if weights is None:
-        weights = np.array([1 / len(pvalues) for i in pvalues])
+        weights = np.ones_like(pvalues) / pvalues.shape[0]
 
+    # sanity checks
     assert len(weights) == len(pvalues), "Length of weights and p-values differs."
     assert weights.all() > 0, "All weights must be positive."
+
+    # type casting
+    pvalues = ensure_float64_array(pvalues)
+    weights = ensure_float64_array(weights)
 
     if not any(pvalues < tolerance):
         cct_stat = sum(weights * np.tan((0.5 - pvalues) * np.pi))
@@ -49,7 +66,11 @@ def acat_test(pvalues: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray
     return pval
 
 
-def compute_acat(pvs: np.ndarray, tolerance: float = 1e-16, weights: np.ndarray = None) -> np.ndarray:
+def compute_acat(
+    pvs: np.ndarray,
+    tolerance: float = 1e-16,
+    weights: np.ndarray = None,
+) -> np.ndarray:
     """
     Aggregate p-values using the Cauchy combination method (ACAT).
 
