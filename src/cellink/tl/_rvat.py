@@ -3,7 +3,7 @@ import pandas as pd
 from scipy.stats import beta
 
 from cellink.at.gwas import GWAS
-from cellink.at.skat import skat_test
+from cellink.at.skat import _skat_test
 
 
 def _get_burden(G, var_scores, burden_agg_fct):
@@ -106,7 +106,7 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
 
 def run_skat_test(G, Y, F, gene):
     # TODO implement alternative weights once skat_test supports this
-    skat = skat_test(Y, G.X, F)
+    skat = _skat_test(Y, G.X, F)
     rdict = {
         "burden_gene": gene,
         "egene": gene,
