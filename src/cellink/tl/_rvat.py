@@ -87,7 +87,7 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
     var_scores = G.varm["variant_annotation"][annotation_cols].to_numpy()
 
     burdens = _get_burden(genotypes, var_scores, burden_agg_fct)
-    gwas.process(burdens)
+    gwas.test_association(burdens)
     rdf = pd.DataFrame(
         {
             "burden_gene": gene,
