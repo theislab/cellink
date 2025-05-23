@@ -159,11 +159,11 @@ def test_acat_testing():
     gwas.test_association(g)
     burden_pvp = gwas.getPv()  # pv permutated
     # ACAT testing
-    pvs = np.array([skat_pv, burden_pv], axis=1)
+    pvs = np.stack([skat_pv, burden_pv], axis=1)
     pvs = utils.ensure_float64_array(pvs)
     pvs = pvs.reshape(1, -1)
     acat_pv = compute_acat(pvs=pvs)
-    pvps = np.array([skat_pvp, burden_pvp], axis=1)
+    pvps = np.stack([skat_pvp, burden_pvp], axis=1)
     pvps = utils.ensure_float64_array(pvps)
     pvps = pvps.reshape(1, -1)
     acat_pvp = compute_acat(pvs=pvps)
