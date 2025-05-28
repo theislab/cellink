@@ -7,6 +7,7 @@ from cellink.at import utils
 from cellink.at.acat import compute_acat
 from cellink.at.gwas import GWAS
 from cellink.at.skat import Skat
+from cellink.at.structlmm import StructLMM
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -159,6 +160,7 @@ def test_acat_testing():
     gwas.test_association(g)
     burden_pvp = gwas.getPv()  # pv permutated
     # ACAT testing
+
     pvs = np.stack([skat_pv, burden_pv], axis=1)
     pvs = utils.ensure_float64_array(pvs)
     pvs = pvs.reshape(1, -1)
@@ -171,6 +173,56 @@ def test_acat_testing():
     assert acat_pv < acat_pvp, "P-value is not smaller than permutated p-value"
 
 
+def test_structlmm():
+    N = 3000
+    S = 1
+    Edim = 10
+    vg = 0.5
+    number_causal_variants = 1
+    number_causal_interactions = 5
+    percentage_interaction = 0.5
+
+    # Simulate data
+    X = np.random.choice([0, 1, 2], size=(N, S)).astype(np.float64)
+    E = np.random.randn(N, Edim)
+
+    Y, betas, Yg, Yn, Ye, gammas = utils.generate_phenotype(
+        X,
+        vg=vg,
+        number_causal_variants=number_causal_variants,
+        E=E,
+        number_causal_interactions=number_causal_interactions,
+        percentage_variance_explained_by_interaction=percentage_interaction,
+    )
+
+    F = np.ones((N, 1))  # intercept
+
+    # --- Full interaction test (StructLMM)
+    model_int = StructLMM(Y=Y, X=X, E=E, F=F)
+    pvals_interaction = model_int.interaction_test()
+
+    # --- Simple additive test (StructLMM with E = 1)
+    dummy_E = np.ones((N, 1))
+    model_add = StructLMM(Y=Y, X=X, E=dummy_E, F=F)
+    pvals_additive = model_add.interaction_test()
+
+    # --- Compare p-values
+    true_causal_idx = np.where(betas.ravel() != 0)[0]
+
+    power_add = np.mean(pvals_additive[true_causal_idx] < 0.05)
+    power_int = np.mean(pvals_interaction[true_causal_idx] < 0.05)
+
+    print(f"🔍 Power (StructLMM additive):    {power_add:.2%}")
+    print(f"🔍 Power (StructLMM interaction): {power_int:.2%}")
+
+    # --- Permutation test for Type I error (interaction only)
+    Y_perm = np.random.permutation(Y)
+    model_perm = StructLMM(Y=Y_perm, X=X, E=E, F=F)
+    perm_pvals = model_perm.interaction_test()
+
+    print(f"⚖️  Lambda inflation under perm: {np.median(perm_pvals) / 0.5:.2f}")
+
+
 if __name__ == "__main__":
     logger.info("Running tests...")
     logger.info("Testing generate_phenotype_data...")
@@ -181,3 +233,5 @@ if __name__ == "__main__":
     test_skat_testing()
     logger.info("Testing acat testing...")
     test_acat_testing()
+    logger.info("Testing structlmm testing...")
+    test_structlmm()

@@ -136,22 +136,62 @@ def compute_eigenvals(
 
 
 def generate_phenotype(
-    X: np.array, vg: float, number_causal_variants: int = 10
-) -> tuple[np.array, np.array, np.array, np.array]:
+    X: np.array,
+    vg: float,
+    number_causal_variants: int = 10,
+    E: np.ndarray = None,
+    number_causal_interactions: int = 0,
+    percentage_variance_explained_by_interaction: float = 0,
+) -> (
+    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    | tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+):
     """
-    Generate a phenotype vector based on the genotype matrix.
+    Simulate a quantitative phenotype with additive genetic effects, environmental effects, and optionally gene-environment interactions.
 
-    The phenotype is generated as a linear combination of the genotype matrix
-    and a random noise term.
-    The noise term is generated from a normal distribution with mean 0 and variance 1-vg.
-    Y = Yg + Yn
-    Yg ~ N(X @ beta, vg)
-    Yn ~ N(0, 1-vg)
-    where beta is a vector of coefficients and e is a random noise term.
-    The phenotype is further normalized to have mean 0 and variance 1.
+    Parameters
+    ----------
+        X: np.ndarray
+            Genotype matrix (n_samples x n_variants).
+        vg: float
+            Proportion of phenotypic variance explained by genetic factors (heritability).
+        number_causal_variants: int
+            Number of variants with non-zero effect.
+        E: np.ndarray, optional
+            Environmental matrix (n_samples x n_env_vars).
+        number_causal_interactions: int
+            Number of environmental variables interacting with genetic effects.
+
+    Returns
+    -------
+        Y: np.ndarray
+            Simulated phenotype (n_samples x 1).
+        betas: np.ndarray
+            Coefficient vector for genetic effects.
+        Yg: np.ndarray
+            Genetic contribution to phenotype.
+        Yn: np.ndarray
+            Noise contribution to phenotype.
+        Ye: np.ndarray, optional
+            Interaction term (only if E is provided).
+        gammas: np.ndarray, optional
+            Environmental interaction weights (only if E is provided).
     """
+    # sanity checks
+    assert (
+        number_causal_variants <= X.shape[1]
+    ), "Number of causal variants should be smaller than the number of variants in the genotype"
+    if E is not None:
+        assert (
+            number_causal_interactions <= E.shape[1]
+        ), "Number of causal interactions should be smaller than the number of environmental factors"
+        assert percentage_variance_explained_by_interaction < 1.0, "Percentage can't be larger than 1"
+        assert percentage_variance_explained_by_interaction > 0.0, "Percentage can't be less than 0"
+    else:
+        if percentage_variance_explained_by_interaction != 0:
+            logger.warning("With no Environmental contribution this parameter must be 0.")
+            percentage_variance_explained_by_interaction = 0
     # Generate random coefficients
-    betas = np.random.normal(size=(X.shape[1], number_causal_variants))
     betas = np.zeros((X.shape[1], 1))
 
     idx = np.random.choice(X.shape[1], number_causal_variants, replace=False)
@@ -159,13 +199,28 @@ def generate_phenotype(
     betas[idx] = np.random.normal(size=(number_causal_variants, 1))
 
     # Generate phenotype
+
+    Yn = np.sqrt(1 - vg) * np.random.normal(size=(X.shape[0], 1))
+
     Yg = X @ betas
     Yg = Yg - np.mean(Yg, axis=0)
     Yg = Yg / xgower_factor_(Yg)
-
-    Yg = np.sqrt(vg) * Yg
-
-    Yn = np.sqrt(1 - vg) * np.random.normal(size=(X.shape[0], 1))
+    Yg = np.sqrt(vg * (1 - percentage_variance_explained_by_interaction)) * Yg
     Y = Yg + Yn
+    if E is not None:
+        # Generate random coefficients
+        gammas = np.zeros((E.shape[1], 1))
+
+        idx = np.random.choice(E.shape[1], number_causal_interactions, replace=False)
+
+        gammas[idx] = np.random.normal(size=(number_causal_interactions, 1))
+        Ye = (X @ betas) * (E @ gammas)
+        Ye = Ye - np.mean(Ye, axis=0)
+        Ye = Ye / xgower_factor_(Ye)
+        Ye = np.sqrt(vg * percentage_variance_explained_by_interaction) * (Ye)
+        Y = Y + Ye
+
     Y = (Y - np.mean(Y, axis=0)) / np.std(Y, axis=0)
+    if E is not None:
+        return Y, betas, Yg, Yn, Ye, gammas
     return Y, betas, Yg, Yn
