@@ -38,9 +38,14 @@ dependencies = [
 ]
 
 optional-dependencies.burden = [
-  "chiscore",
+  # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
+  # "chiscore",
   "limix-core",
 ]
+optional-dependencies.datasets = [
+  "liftover",
+]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -61,14 +66,16 @@ optional-dependencies.doc = [
   "sphinxext-opengraph",
 ]
 optional-dependencies.ensembl-vep = [
-  "ensembl-vep",
+  # not available via pip, has to be installed via conda install bioconda::ensembl-vep
+  #  "ensembl-vep",
 ]
 
 optional-dependencies.ml = [
   "pytorch-lightning",
 ]
 optional-dependencies.snpeff = [
-  "snpeff",
+  # not available via pip, has to be installed via conda install bioconda::snpeff
+  #  "snpeff",
 ]
 optional-dependencies.test = [
   "coverage",
