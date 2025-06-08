@@ -1,6 +1,6 @@
 import anndata
 import dask.array as da
-import numpy as np
+
 
 def variant_qc(
     adata: anndata.AnnData,
