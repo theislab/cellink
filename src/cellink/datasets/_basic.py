@@ -8,8 +8,8 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import anndata as ad
-import yaml
 import pandas as pd
+import yaml
 
 import cellink as cl
 from cellink.datasets._utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
@@ -46,13 +46,17 @@ def _sha256sum(filename):
 def _download_file(url, dest, checksum=None):
     """Download a file and verify checksum."""
     if dest.exists():
-        print(f"{dest} already exists. Verifying checksum.")
+        logging.info(f"{dest} already exists")
+        if checksum is None:
+            logging.warning("No checksum provided, skipping verification")
+            return
+        logging.info("Veryifying checksum")
         if checksum and _sha256sum(dest) == checksum:
             return
-        print(f"{dest} exists but checksum mismatch. Re-downloading.")
+        logging.info(f"{dest} exists but checksum mismatch. Re-downloading.")
         dest.unlink()
 
-    print(f"Downloading {url} to {dest}")
+    logging.info(f"Downloading {url} to {dest}")
     urlretrieve(url, dest)
     if checksum and _sha256sum(dest) != checksum:
         raise ValueError(f"Checksum mismatch for {dest}")
@@ -71,7 +75,7 @@ def _load_config(path):
         return yaml.safe_load(f)
 
 
-def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", data_home=None):
+def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", data_home=None, verify_checksum=True):
     """Main function to download and preprocess the data."""
     data_home = get_data_home(data_home)
     DATA = data_home / "1000genomes"
@@ -81,7 +85,8 @@ def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", da
     config = _load_config(config_path)
 
     for file in config["remote_files"]:
-        _download_file(file["url"], DATA / file["filename"], file.get("checksum"))
+        checksum = file.get("checksum") if verify_checksum else None
+        _download_file(file["url"], DATA / file["filename"], checksum)
 
     gdata_list = []
     for chromosome in list(range(1, 23)):
@@ -105,7 +110,7 @@ def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", da
     return gdata
 
 
-def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=None):
+def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=None, verify_checksum=True):
     """Main function to download and preprocess the data."""
     data_home = get_data_home(data_home)
     DATA = data_home / "onek1k"
@@ -115,7 +120,8 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
     config = _load_config(config_path)
 
     for file in config["remote_files"]:
-        _download_file(file["url"], DATA / file["filename"], file.get("checksum"))
+        checksum = file.get("checksum") if verify_checksum else None
+        _download_file(file["url"], DATA / file["filename"], checksum)
 
     if not os.path.isdir(DATA / "OneK1K.noGP.vcz"):
         _run("vcf2zarr explode OneK1K.noGP.vcf.gz OneK1K.noGP.icf", cwd=DATA)
@@ -126,11 +132,10 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
         plink_filter_prune(fname="OneK1K.noGP", DATA=DATA)
 
         plink_kinship(fname="OneK1K.noGP", DATA=DATA)
-    
+
     gdata = cl.io.read_sgkit_zarr(DATA / "OneK1K.noGP.vcz")
 
     ###
-
     gdata.var = gdata.var.drop(columns=["contig"])
     new_pos = gdata.var.apply(lambda row: try_liftover(row), axis=1)
     gdata.var["pos_hg19"] = new_pos.astype(pd.Int64Dtype())
@@ -141,11 +146,19 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
 
     ###
 
-    gpcs = pd.read_csv(DATA / "pcdir" / "OneK1K.noGP.filtered.pruned.eigenvec", sep=r"\s+", index_col=1, header=None).drop(columns=0)
+    gpcs = pd.read_csv(
+        DATA / "pcdir" / "OneK1K.noGP.filtered.pruned.eigenvec", sep=r"\s+", index_col=1, header=None
+    ).drop(columns=0)
     gdata.obsm["gPCs"] = gpcs.loc[gdata.obs_names]
 
-    gdata.uns["kinship"] =  pd.read_csv(DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel", delimiter="\t", header=None)
-    kinship_id =  list(pd.read_csv(DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel.id", index_col=1, delimiter="\t", header=None).index)
+    gdata.uns["kinship"] = pd.read_csv(
+        DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel", delimiter="\t", header=None
+    )
+    kinship_id = list(
+        pd.read_csv(
+            DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel.id", index_col=1, delimiter="\t", header=None
+        ).index
+    )
     gdata.uns["kinship"].index = kinship_id
     gdata.uns["kinship"].columns = kinship_id
 
@@ -166,4 +179,3 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
 if __name__ == "__main__":
     get_onek1k()
     get_1000genomes()
-    
