@@ -160,7 +160,7 @@ def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> 
         config = yaml.safe_load(f)
 
     urls_dict = config["favor"][version]
-    URLs = pd.DataFrame({"chr": list(map(int, urls_dict.keys())), "URL": list(urls_dict.values())})
+    URLs = pd.DataFrame({"chr": list(map(str, urls_dict.keys())), "URL": list(urls_dict.values())})
     return URLs
 
 
@@ -180,6 +180,7 @@ def run_favor(
     G=None,
     output: str = None,
     return_annos: bool = True,
+    config_file="../configs/favor.yaml",
 ):
     """
     Annotates variants using the FAVOR database from within Python
@@ -211,24 +212,24 @@ def run_favor(
     for chromosome in np.unique(G.var["chrom"]):
         if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0:
             logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
-            download_favor(version=version, chromosome=chromosome)
-        else:
-            G_var_chrom = G.var[G.var["chrom"] == chromosome]
+            download_favor(version=version, chromosome=chromosome, config_file=config_file)
 
-            database = pl.concat([pl.scan_csv(path) for path in glob.glob(f"{database_dir}/chr{chromosome}_*.csv")])
+        G_var_chrom = G.var[G.var["chrom"] == chromosome]
 
-            database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
+        database = pl.concat([pl.scan_csv(path) for path in glob.glob(f"{database_dir}/chr{chromosome}_*.csv")])
 
-            snp_df = pl.LazyFrame(
-                {
-                    "variant_vcf": G_var_chrom["chrom"]
-                    .astype(str)
-                    .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
-                }
-            )
+        database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
 
-            result_chrom = snp_df.join(database, on="variant_vcf", how="left")
-            annos.append(result_chrom.collect())
+        snp_df = pl.LazyFrame(
+            {
+                "variant_vcf": G_var_chrom["chrom"]
+                .astype(str)
+                .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
+            }
+        )
+
+        result_chrom = snp_df.join(database, on="variant_vcf", how="left")
+        annos.append(result_chrom.collect())
 
     annos = pl.concat(annos)
     annos = annos.rename({"variant_vcf": AAnn.index})
