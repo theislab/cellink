@@ -37,11 +37,6 @@ dependencies = [
   "sgkit[plink]",
 ]
 
-optional-dependencies.burden = [
-  # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
-  # "chiscore",
-  "limix-core",
-]
 optional-dependencies.datasets = [
   "liftover",
 ]
@@ -72,6 +67,12 @@ optional-dependencies.ensembl-vep = [
 
 optional-dependencies.ml = [
   "pytorch-lightning",
+]
+optional-dependencies.rvat = [
+  # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
+  # "chiscore",
+  "limix-core",
+  "pybiomart",
 ]
 optional-dependencies.snpeff = [
   # not available via pip, has to be installed via conda install bioconda::snpeff
