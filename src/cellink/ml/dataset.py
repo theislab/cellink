@@ -1,11 +1,12 @@
+from typing import Any
+
+import numpy as np
 import torch
-from torch.utils.data import Dataset, DataLoader
 from anndata import AnnData
 from mudata import MuData
-import numpy as np
-from typing import Optional, List, Union, Dict, Any
-from .._core import DonorData
-from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
+from torch.utils.data import Dataset
+
+from cellink._core.data_fields import CAnn, DAnn
 
 
 class MILDataset(Dataset):
@@ -16,29 +17,29 @@ class MILDataset(Dataset):
 
     def __init__(
         self,
-        dd: Union[AnnData, MuData],
-        donor_layer: Optional[str] = None,
-        donor_labels_key: Optional[str] = None,
-        donor_batch_key: Optional[str] = None,
-        donor_cat_covs_key: Optional[str] = None,
-        donor_cont_covs_key: Optional[str] = None,
-        donor_indices_key: Optional[str] = None,
-        donor_id_key: Optional[str] = None,
-        celltype_key: Optional[str] = None,
-        cell_layer: Optional[str] = None,
-        cell_labels_key: Optional[str] = None,
-        cell_batch_key: Optional[str] = None,
-        cell_cat_covs_key: Optional[str] = None,
-        cell_cont_covs_key: Optional[str] = None,
-        cell_indices_key: Optional[str] = None,
-        cell_donor_key: Optional[str] = None,
-        split_donors: Optional[List[int]] = None,
-        split_indices: Optional[List[int]] = None,
+        dd: AnnData | MuData,
+        donor_layer: str | None = None,
+        donor_labels_key: str | None = None,
+        donor_batch_key: str | None = None,
+        donor_cat_covs_key: str | None = None,
+        donor_cont_covs_key: str | None = None,
+        donor_indices_key: str | None = None,
+        donor_id_key: str | None = None,
+        celltype_key: str | None = None,
+        cell_layer: str | None = None,
+        cell_labels_key: str | None = None,
+        cell_batch_key: str | None = None,
+        cell_cat_covs_key: str | None = None,
+        cell_cont_covs_key: str | None = None,
+        cell_indices_key: str | None = None,
+        cell_donor_key: str | None = None,
+        split_donors: list[int] | None = None,
+        split_indices: list[int] | None = None,
     ):
         """
         Parameters
         ----------
-        dd : 
+        dd :
         donor_labels_key : str, optional
             Key for donor labels.
         donor_batch_key : str, optional
@@ -68,18 +69,17 @@ class MILDataset(Dataset):
         split_indices : list of ints, optional
             Predefined indices to use as dataset subset.
         """
-        
         if split_donors is not None and split_indices is not None:
             raise ValueError("Both split_donors and split_indices cannot be provided at the same time.")
-    
+
         self.donor_labels_key = donor_labels_key or DAnn.DONOR_LABELS_KEY
         self.donor_batch_key = donor_batch_key or DAnn.DONOR_BATCH_KEY
         self.donor_cat_covs_key = donor_cat_covs_key or DAnn.DONOR_CAT_COVS_KEY
         self.donor_cont_covs_key = donor_cont_covs_key or DAnn.DONOR_CONT_COVS_KEY
         self.donor_indices_key = donor_indices_key or DAnn.DONOR_INDICES_KEY
         self.donor_id_key = donor_id_key or DAnn.DONOR_ID_KEY
-        
-        self.celltype_key = celltype_key or CAnn.celltype #TODO MAYBE REMOVE
+
+        self.celltype_key = celltype_key or CAnn.celltype  # TODO MAYBE REMOVE
         self.cell_labels_key = cell_labels_key or CAnn.CELL_LABELS_KEY
         self.cell_batch_key = cell_batch_key or CAnn.CELL_BATCH_KEY
         self.cell_cat_covs_key = cell_cat_covs_key or CAnn.CELL_CAT_COVS_KEY
@@ -94,7 +94,7 @@ class MILDataset(Dataset):
         self.donor_ids = self._get_obs_field(self.dd.G, self.donor_id_key, force=True)
 
         if split_donors is not None:
-            self.selected_ids = np.array(split_donors) 
+            self.selected_ids = np.array(split_donors)
         elif split_indices is not None:
             self.selected_ids = self.donor_ids[split_indices]
         else:
@@ -131,7 +131,9 @@ class MILDataset(Dataset):
             "donor_y": torch.tensor(donor_y, dtype=torch.float32),
             "donor_batch": torch.tensor(donor_batch, dtype=torch.float32) if donor_batch is not None else None,
             "donor_cat_covs": torch.tensor(donor_cat_covs, dtype=torch.float32) if donor_cat_covs is not None else None,
-            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32) if donor_cont_covs is not None else None,
+            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32)
+            if donor_cont_covs is not None
+            else None,
             "donor_indices": torch.tensor(donor_indices, dtype=torch.float32) if donor_indices is not None else None,
             "cell_x": torch.tensor(cell_x, dtype=torch.float32),
             "cell_labels": torch.tensor(cell_labels, dtype=torch.float32) if cell_labels is not None else None,
@@ -140,16 +142,26 @@ class MILDataset(Dataset):
             "cell_cont_covs": torch.tensor(cell_cont_covs, dtype=torch.float32) if cell_cont_covs is not None else None,
             "cell_indices": torch.tensor(cell_indices, dtype=torch.float32) if cell_indices is not None else None,
         }
-        
+
         return sample
 
-    def _get_layer(self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
+    def _get_layer(
+        self, data: AnnData | MuData, layer_key: str | None, mask: np.ndarray = None, force: bool = False
+    ) -> Any:
         """
         Get the layer from the data. If force is False and layer is missing, return None.
         """
-        if isinstance(data, MuData): #TODO FORCE #TODO GET THE RIGHT #TODO MASK
+        if isinstance(data, MuData):  # TODO FORCE #TODO GET THE RIGHT #TODO MASK
+            # TODO data_list is undefined
             if layer_key is not None:
-                concatenated_layers = np.concatenate([d.layers.get(layer_key, None)[mask] for d in data_list if d.layers.get(layer_key, None) is not None], axis=0)
+                concatenated_layers = np.concatenate(
+                    [
+                        d.layers.get(layer_key, None)[mask]
+                        for d in data_list
+                        if d.layers.get(layer_key, None) is not None
+                    ],
+                    axis=0,
+                )
                 return concatenated_layers if concatenated_layers is not None else None
             data_list = [data.mod[key] for key in data.mod.keys()]
             concatenated_data = np.concatenate([d.X[mask] for d in data_list], axis=1)
@@ -158,11 +170,13 @@ class MILDataset(Dataset):
             return data.layers.get(layer_key, None)[mask] if layer_key else None
         return data.X[mask] if data.X is not None else None
 
-    def _get_obs_field(self, data: Union[AnnData, MuData], key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
+    def _get_obs_field(
+        self, data: AnnData | MuData, key: str | None, mask: np.ndarray = None, force: bool = False
+    ) -> Any:
         """
         Fetch the obs field. If the field is missing and force is False, return None.
         """
-        if key is None: 
+        if key is None:
             raise ValueError("Field key must be provided.")
         if isinstance(data, MuData):
             for mod in data.mod.values():
@@ -176,15 +190,24 @@ class MILDataset(Dataset):
             return None
         raise KeyError(f"Field '{key}' not found in the data.")
 
+
 def mil_collate_fn(batch):
     """
-    Custom collate function for MIL Dataset. 
+    Custom collate function for MIL Dataset.
     Combines donor and cell data in the correct format for batch processing.
     """
-        
     stack_fields = [
-        "donor_x", "donor_y", "donor_batch", "donor_cat_covs", "donor_cont_covs", "donor_indices",
-        "cell_y", "cell_batch", "cell_cat_covs", "cell_cont_covs", "cell_indices"
+        "donor_x",
+        "donor_y",
+        "donor_batch",
+        "donor_cat_covs",
+        "donor_cont_covs",
+        "donor_indices",
+        "cell_y",
+        "cell_batch",
+        "cell_cat_covs",
+        "cell_cont_covs",
+        "cell_indices",
     ]
 
     list_fields = ["cell_x"]

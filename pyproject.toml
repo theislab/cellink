@@ -59,6 +59,10 @@ optional-dependencies.doc = [
 optional-dependencies.ensembl-vep = [
   "ensembl-vep",
 ]
+optional-dependencies.ml = [
+  "pytorch-lightning",
+  "torch",
+]
 optional-dependencies.msprime = [
   "msprime",
 ]
