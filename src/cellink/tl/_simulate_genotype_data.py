@@ -1,7 +1,6 @@
 import anndata
 import anndata as ad
-
-# import msprime
+import msprime
 import numpy as np
 
 
