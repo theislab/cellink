@@ -1,9 +1,9 @@
 import torch
-try:  
-    from torch.utils.data import Dataset, DataLoader  
+try:
+    from torch.utils.data import Dataset, DataLoader
 except ImportError:
-    Dataset = None  
-    DataLoader = None  
+    Dataset = None
+    DataLoader = None
 from anndata import AnnData
 from mudata import MuData
 import numpy as np
@@ -57,7 +57,7 @@ class MILDataset(Dataset):
         """
         Parameters
         ----------
-        dd : 
+        dd :
         donor_labels_key : str, optional
             Key for donor labels.
         donor_batch_key : str, optional
@@ -87,17 +87,17 @@ class MILDataset(Dataset):
         split_indices : list of ints, optional
             Predefined indices to use as dataset subset.
         """
-        
+
         if split_donors is not None and split_indices is not None:
             raise ValueError("Both split_donors and split_indices cannot be provided at the same time.")
-    
+
         self.donor_labels_key = donor_labels_key or DAnn.DONOR_LABELS_KEY
         self.donor_batch_key = donor_batch_key or DAnn.DONOR_BATCH_KEY
         self.donor_cat_covs_key = donor_cat_covs_key or DAnn.DONOR_CAT_COVS_KEY
         self.donor_cont_covs_key = donor_cont_covs_key or DAnn.DONOR_CONT_COVS_KEY
         self.donor_indices_key = donor_indices_key or DAnn.DONOR_INDICES_KEY
         self.donor_id_key = donor_id_key or DAnn.DONOR_ID_KEY
-        
+
         self.celltype_key = celltype_key or CAnn.celltype #TODO MAYBE REMOVE
         self.cell_labels_key = cell_labels_key or CAnn.CELL_LABELS_KEY
         self.cell_batch_key = cell_batch_key or CAnn.CELL_BATCH_KEY
@@ -113,7 +113,7 @@ class MILDataset(Dataset):
         self.donor_ids = self._get_obs_field(self.dd.G, self.donor_id_key, force=True)
 
         if split_donors is not None:
-            self.selected_ids = np.array(split_donors) 
+            self.selected_ids = np.array(split_donors)
         elif split_indices is not None:
             self.selected_ids = self.donor_ids[split_indices]
         else:
@@ -159,14 +159,14 @@ class MILDataset(Dataset):
             "cell_cont_covs": torch.tensor(cell_cont_covs, dtype=torch.float32) if cell_cont_covs is not None else None,
             "cell_indices": torch.tensor(cell_indices, dtype=torch.float32) if cell_indices is not None else None,
         }
-        
+
         return sample
 
     def _get_layer(self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
         """
         Get the layer from the data. If force is False and layer is missing, return None.
         """
-        if isinstance(data, MuData): 
+        if isinstance(data, MuData):
             data_list = [data.mod[key] for key in data.mod.keys()]
             if layer_key is not None:
                 arrays = [
@@ -187,9 +187,9 @@ class MILDataset(Dataset):
             return get_array(data.layers.get(layer_key), mask)
 
         return get_array(data.X, mask)
-        
+
         """
-        if isinstance(data, MuData): 
+        if isinstance(data, MuData):
             if layer_key is not None:
                 arrays = []
                 for d in data_list:
@@ -222,7 +222,7 @@ class MILDataset(Dataset):
         """
         Fetch the obs field. If the field is missing and force is False, return None.
         """
-        if key is None: 
+        if key is None:
             raise ValueError("Field key must be provided.")
         if isinstance(data, MuData):
             for mod in data.mod.values():
@@ -238,10 +238,10 @@ class MILDataset(Dataset):
 
 def mil_collate_fn(batch):
     """
-    Custom collate function for MIL Dataset. 
+    Custom collate function for MIL Dataset.
     Combines donor and cell data in the correct format for batch processing.
     """
-        
+
     stack_fields = [
         "donor_x", "donor_y", "donor_batch", "donor_cat_covs", "donor_cont_covs", "donor_indices",
     ]
