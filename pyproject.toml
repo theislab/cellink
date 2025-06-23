@@ -27,7 +27,7 @@ dependencies = [
   "dask",
   "muon",
   "pandas",
-  "polars",     
+  "polars",
   "regex",
   "requests",
   "rich",
