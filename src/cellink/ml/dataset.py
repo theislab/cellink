@@ -170,29 +170,32 @@ class MILDataset(Dataset):
         return sample
 
     def _get_layer(
-        self, data: AnnData | MuData, layer_key: str | None, mask: np.ndarray = None, force: bool = False
+        self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False
     ) -> Any:
         """
         Get the layer from the data. If force is False and layer is missing, return None.
         """
-        if isinstance(data, MuData):  # TODO FORCE #TODO GET THE RIGHT #TODO MASK
-            # TODO data_list is undefined
-            if layer_key is not None:
-                concatenated_layers = np.concatenate(
-                    [
-                        d.layers.get(layer_key, None)[mask]
-                        for d in data_list
-                        if d.layers.get(layer_key, None) is not None
-                    ],
-                    axis=0,
-                )
-                return concatenated_layers if concatenated_layers is not None else None
+        if isinstance(data, MuData):
             data_list = [data.mod[key] for key in data.mod.keys()]
-            concatenated_data = np.concatenate([d.X[mask] for d in data_list], axis=1)
-            return concatenated_data if concatenated_data is not None else None
+            if layer_key is not None:
+                arrays = [
+                    get_array(d.layers.get(layer_key), mask)
+                    for d in data_list
+                    if d.layers.get(layer_key) is not None
+                ]
+                return np.concatenate(arrays, axis=0) if arrays else None
+            else:
+                arrays = [
+                    get_array(d.X, mask)
+                    for d in data_list
+                    if d.X is not None
+                ]
+                return np.concatenate(arrays, axis=1) if arrays else None
+
         if layer_key is not None:
-            return data.layers.get(layer_key, None)[mask] if layer_key else None
-        return data.X[mask] if data.X is not None else None
+            return get_array(data.layers.get(layer_key), mask)
+
+        return get_array(data.X, mask)
 
     def _get_obs_field(
         self, data: AnnData | MuData, key: str | None, mask: np.ndarray = None, force: bool = False
