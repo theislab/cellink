@@ -1,4 +1,8 @@
+from typing import Any
+
+import numpy as np
 import torch
+
 try:
     from torch.utils.data import Dataset, DataLoader
 except ImportError:
@@ -12,6 +16,7 @@ from typing import Optional, List, Union, Dict, Any
 from .._core import DonorData
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 from anndata.utils import asarray
+
 
 def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
     if array is None:
@@ -35,24 +40,24 @@ class MILDataset(Dataset):
 
     def __init__(
         self,
-        dd: Union[AnnData, MuData],
-        donor_layer: Optional[str] = None,
-        donor_labels_key: Optional[str] = None,
-        donor_batch_key: Optional[str] = None,
-        donor_cat_covs_key: Optional[str] = None,
-        donor_cont_covs_key: Optional[str] = None,
-        donor_indices_key: Optional[str] = None,
-        donor_id_key: Optional[str] = None,
-        celltype_key: Optional[str] = None,
-        cell_layer: Optional[str] = None,
-        cell_labels_key: Optional[str] = None,
-        cell_batch_key: Optional[str] = None,
-        cell_cat_covs_key: Optional[str] = None,
-        cell_cont_covs_key: Optional[str] = None,
-        cell_indices_key: Optional[str] = None,
-        cell_donor_key: Optional[str] = None,
-        split_donors: Optional[List[int]] = None,
-        split_indices: Optional[List[int]] = None,
+        dd: AnnData | MuData,
+        donor_layer: str | None = None,
+        donor_labels_key: str | None = None,
+        donor_batch_key: str | None = None,
+        donor_cat_covs_key: str | None = None,
+        donor_cont_covs_key: str | None = None,
+        donor_indices_key: str | None = None,
+        donor_id_key: str | None = None,
+        celltype_key: str | None = None,
+        cell_layer: str | None = None,
+        cell_labels_key: str | None = None,
+        cell_batch_key: str | None = None,
+        cell_cat_covs_key: str | None = None,
+        cell_cont_covs_key: str | None = None,
+        cell_indices_key: str | None = None,
+        cell_donor_key: str | None = None,
+        split_donors: list[int] | None = None,
+        split_indices: list[int] | None = None,
     ):
         """
         Parameters
@@ -98,7 +103,7 @@ class MILDataset(Dataset):
         self.donor_indices_key = donor_indices_key or DAnn.DONOR_INDICES_KEY
         self.donor_id_key = donor_id_key or DAnn.DONOR_ID_KEY
 
-        self.celltype_key = celltype_key or CAnn.celltype #TODO MAYBE REMOVE
+        self.celltype_key = celltype_key or CAnn.celltype  # TODO MAYBE REMOVE
         self.cell_labels_key = cell_labels_key or CAnn.CELL_LABELS_KEY
         self.cell_batch_key = cell_batch_key or CAnn.CELL_BATCH_KEY
         self.cell_cat_covs_key = cell_cat_covs_key or CAnn.CELL_CAT_COVS_KEY
@@ -150,7 +155,9 @@ class MILDataset(Dataset):
             "donor_y": torch.tensor(donor_y, dtype=torch.float32),
             "donor_batch": torch.tensor(donor_batch, dtype=torch.float32) if donor_batch is not None else None,
             "donor_cat_covs": torch.tensor(donor_cat_covs, dtype=torch.float32) if donor_cat_covs is not None else None,
-            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32) if donor_cont_covs is not None else None,
+            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32)
+            if donor_cont_covs is not None
+            else None,
             "donor_indices": torch.tensor(donor_indices, dtype=torch.float32) if donor_indices is not None else None,
             "cell_x": torch.tensor(cell_x, dtype=torch.float32),
             "cell_y": torch.tensor(cell_y, dtype=torch.float32) if cell_y is not None else None,
@@ -162,7 +169,9 @@ class MILDataset(Dataset):
 
         return sample
 
-    def _get_layer(self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
+    def _get_layer(
+        self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False
+    ) -> Any:
         """
         Get the layer from the data. If force is False and layer is missing, return None.
         """
@@ -188,37 +197,9 @@ class MILDataset(Dataset):
 
         return get_array(data.X, mask)
 
-        """
-        if isinstance(data, MuData):
-            if layer_key is not None:
-                arrays = []
-                for d in data_list:
-                    layer = d.layers.get(layer_key, None)
-                    if layer is not None:
-                        masked = layer[mask]
-                        arrays.append(masked.compute() if isinstance(masked, da.Array) else masked)
-                result = np.concatenate(arrays, axis=0)
-                return result
-            data_list = [data.mod[key] for key in data.mod.keys()]
-            arrays = []
-            for d in data_list:
-                masked = d.X[mask]
-                arrays.append(masked.compute() if isinstance(masked, da.Array) else masked)
-            result = np.concatenate(arrays, axis=1)
-            return result
-        if layer_key is not None:
-            layer = data.layers.get(layer_key, None) if layer_key else None
-            result = layer[mask].compute() if isinstance(layer, da.Array) else layer[mask] if layer is not None else None
-            return result
-        result = (
-            data.X[mask].compute() if isinstance(data.X, da.Array)
-            else data.X[mask] if data.X is not None
-            else None
-        )
-        return result
-        """
-
-    def _get_obs_field(self, data: Union[AnnData, MuData], key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
+    def _get_obs_field(
+        self, data: AnnData | MuData, key: str | None, mask: np.ndarray = None, force: bool = False
+    ) -> Any:
         """
         Fetch the obs field. If the field is missing and force is False, return None.
         """
@@ -236,6 +217,7 @@ class MILDataset(Dataset):
             return None
         raise KeyError(f"Field '{key}' not found in the data.")
 
+
 def mil_collate_fn(batch):
     """
     Custom collate function for MIL Dataset.
@@ -243,10 +225,22 @@ def mil_collate_fn(batch):
     """
 
     stack_fields = [
-        "donor_x", "donor_y", "donor_batch", "donor_cat_covs", "donor_cont_covs", "donor_indices",
+      "donor_x", 
+      "donor_y", 
+      "donor_batch", 
+      "donor_cat_covs", 
+      "donor_cont_covs", 
+      "donor_indices",
     ]
 
-    list_fields = ["cell_x", "cell_y", "cell_batch", "cell_cat_covs", "cell_cont_covs", "cell_indices"]
+    list_fields = [
+      "cell_x", 
+      "cell_y",
+      "cell_batch", 
+      "cell_cat_covs", 
+      "cell_cont_covs", 
+      "cell_indices"
+    ]
 
     collected = {key: [] for key in stack_fields + list_fields}
 
