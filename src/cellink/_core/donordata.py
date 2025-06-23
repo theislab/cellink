@@ -365,6 +365,8 @@ class DonorData:
             logger.info("Observation found for %s donors.", aggres.shape[0])
         data = pd.DataFrame(index=self.G.obs_names, columns=columns)
         data.loc[aggres.index] = aggres
+        aggres.columns = data.columns
+        data = data.astype(aggres.dtypes.to_dict())
 
         if self.G.is_view:  # because we will write to self.G
             self.G = self.G.copy()

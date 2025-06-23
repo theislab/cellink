@@ -27,14 +27,16 @@ dependencies = [
   "dask",
   "muon",
   "pandas",
-  "polars",     # for variant annotation
+  "polars",     
   "regex",
   "requests",
   "rich",
   "scanpy",
+  "pandas-plink",
   # for debug logging (referenced from the issue template)
   "session-info",
   "sgkit[plink]",
+  "adjusttext",
 ]
 
 optional-dependencies.datasets = [
@@ -76,7 +78,19 @@ optional-dependencies.rvat = [
 ]
 optional-dependencies.snpeff = [
   # not available via pip, has to be installed via conda install bioconda::snpeff
-  #  "snpeff",
+  # "snpeff",
+]
+optional-dependencies.tensorqtl = [
+  "tensorqtl",
+]
+optional-dependencies.mixmil = [
+  "mixmil",
+]
+optional-dependencies.tensorqtl = [
+  "tensorqtl",
+]
+optional-dependencies.mixmil = [
+  "mixmil",
 ]
 optional-dependencies.test = [
   "coverage",
