@@ -19,7 +19,7 @@ class DAnn:
     """Donor annotation fields in adata.obs and gdata.obs"""
 
     donor: str = "donor_id"
-    DONOR_X_KEY: str = "donor_X" 
+    DONOR_X_KEY: str = "donor_X"
     DONOR_LABELS_KEY: str = "donor_labels"
     DONOR_BATCH_KEY: str = "donor_batch"
     DONOR_CAT_COVS_KEY: str = "donor_extra_categorical_covs"
@@ -33,8 +33,8 @@ class CAnn:
     """Cell annotation fields in adata.obs and gdata.obs"""
 
     celltype: str = "celltype"
-    CELL_X_KEY: str = "cell_X" 
-    CELL_LABELS_KEY: str = "cell_labels" 
+    CELL_X_KEY: str = "cell_X"
+    CELL_LABELS_KEY: str = "cell_labels"
     CELL_BATCH_KEY: str = "cell_batch"
     CELL_CAT_COVS_KEY: str = "cell_extra_categorical_covs"
     CELL_CONT_COVS_KEY: str = "cell_extra_continuous_covs"
@@ -50,6 +50,7 @@ class VAnn:
     pos: str = "pos"
     a0: str = "a0"
     a1: str = "a1"
+    asymb: str = "asymb"
     maf: str = "maf"
     contig: str = "contig"  # index for contig_id
     index: str = "snp_id"

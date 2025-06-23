@@ -18,7 +18,3 @@ additional_flags:
   - "--force_overwrite"
   - "--no_stats"
   - "--per_gene"
-
-additional_vep_plugin_cmds:
-  cadd: CADD,vep_data/cadd/v1.6/GRCh37/whole_genome_SNVs.tsv.gz,vep_data/cadd/v1.6/GRCh37/InDels.tsv.gz
-  tss_distance: TSSDistance
