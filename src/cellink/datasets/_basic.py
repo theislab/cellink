@@ -136,7 +136,7 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
     gdata = cl.io.read_sgkit_zarr(DATA / "OneK1K.noGP.vcz")
 
     ###
-    
+
     gdata.var = gdata.var.drop(columns=["contig"])
     new_pos = gdata.var.apply(lambda row: try_liftover(row), axis=1)
     gdata.var["pos_hg19"] = new_pos.astype(pd.Int64Dtype())
