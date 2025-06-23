@@ -1,12 +1,31 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+try:  
+    from torch.utils.data import Dataset, DataLoader  
+except ImportError:
+    Dataset = None  
+    DataLoader = None  
 from anndata import AnnData
 from mudata import MuData
 import numpy as np
+import dask.array as da
 from typing import Optional, List, Union, Dict, Any
 from .._core import DonorData
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
+from anndata.utils import asarray
 
+def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    if array is None:
+        return None
+
+    masked = array[mask] if mask is not None else array
+
+    masked = asarray(masked)
+    #if isinstance(masked, da.Array):
+    #    masked = masked.compute()
+    #if issparse(masked):
+    #    return masked.toarray()
+
+    return masked
 
 class MILDataset(Dataset):
     """
@@ -119,7 +138,7 @@ class MILDataset(Dataset):
         cell_donor_ids = self._get_obs_field(self.dd.C, self.cell_donor_key, force=False)
         cell_mask = cell_donor_ids == donor_id
         cell_x = self._get_layer(self.dd.C, mask=cell_mask, layer_key=self.cell_layer, force=True)
-        cell_labels = self._get_obs_field(self.dd.C, self.cell_labels_key, mask=cell_mask, force=False)
+        cell_y = self._get_obs_field(self.dd.C, self.cell_labels_key, mask=cell_mask, force=False)
         cell_batch = self._get_obs_field(self.dd.C, self.cell_batch_key, mask=cell_mask, force=False)
         cell_cat_covs = self._get_obs_field(self.dd.C, self.cell_cat_covs_key, mask=cell_mask, force=False)
         cell_cont_covs = self._get_obs_field(self.dd.C, self.cell_cont_covs_key, mask=cell_mask, force=False)
@@ -134,7 +153,7 @@ class MILDataset(Dataset):
             "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32) if donor_cont_covs is not None else None,
             "donor_indices": torch.tensor(donor_indices, dtype=torch.float32) if donor_indices is not None else None,
             "cell_x": torch.tensor(cell_x, dtype=torch.float32),
-            "cell_labels": torch.tensor(cell_labels, dtype=torch.float32) if cell_labels is not None else None,
+            "cell_y": torch.tensor(cell_y, dtype=torch.float32) if cell_y is not None else None,
             "cell_batch": torch.tensor(cell_batch, dtype=torch.float32) if cell_batch is not None else None,
             "cell_cat_covs": torch.tensor(cell_cat_covs, dtype=torch.float32) if cell_cat_covs is not None else None,
             "cell_cont_covs": torch.tensor(cell_cont_covs, dtype=torch.float32) if cell_cont_covs is not None else None,
@@ -147,16 +166,57 @@ class MILDataset(Dataset):
         """
         Get the layer from the data. If force is False and layer is missing, return None.
         """
-        if isinstance(data, MuData): #TODO FORCE #TODO GET THE RIGHT #TODO MASK
-            if layer_key is not None:
-                concatenated_layers = np.concatenate([d.layers.get(layer_key, None)[mask] for d in data_list if d.layers.get(layer_key, None) is not None], axis=0)
-                return concatenated_layers if concatenated_layers is not None else None
+        if isinstance(data, MuData): 
             data_list = [data.mod[key] for key in data.mod.keys()]
-            concatenated_data = np.concatenate([d.X[mask] for d in data_list], axis=1)
-            return concatenated_data if concatenated_data is not None else None
+            if layer_key is not None:
+                arrays = [
+                    get_array(d.layers.get(layer_key), mask)
+                    for d in data_list
+                    if d.layers.get(layer_key) is not None
+                ]
+                return np.concatenate(arrays, axis=0) if arrays else None
+            else:
+                arrays = [
+                    get_array(d.X, mask)
+                    for d in data_list
+                    if d.X is not None
+                ]
+                return np.concatenate(arrays, axis=1) if arrays else None
+
         if layer_key is not None:
-            return data.layers.get(layer_key, None)[mask] if layer_key else None
-        return data.X[mask] if data.X is not None else None
+            return get_array(data.layers.get(layer_key), mask)
+
+        return get_array(data.X, mask)
+        
+        """
+        if isinstance(data, MuData): 
+            if layer_key is not None:
+                arrays = []
+                for d in data_list:
+                    layer = d.layers.get(layer_key, None)
+                    if layer is not None:
+                        masked = layer[mask]
+                        arrays.append(masked.compute() if isinstance(masked, da.Array) else masked)
+                result = np.concatenate(arrays, axis=0)
+                return result
+            data_list = [data.mod[key] for key in data.mod.keys()]
+            arrays = []
+            for d in data_list:
+                masked = d.X[mask]
+                arrays.append(masked.compute() if isinstance(masked, da.Array) else masked)
+            result = np.concatenate(arrays, axis=1)
+            return result
+        if layer_key is not None:
+            layer = data.layers.get(layer_key, None) if layer_key else None
+            result = layer[mask].compute() if isinstance(layer, da.Array) else layer[mask] if layer is not None else None
+            return result
+        result = (
+            data.X[mask].compute() if isinstance(data.X, da.Array)
+            else data.X[mask] if data.X is not None
+            else None
+        )
+        return result
+        """
 
     def _get_obs_field(self, data: Union[AnnData, MuData], key: Optional[str], mask: np.ndarray = None, force: bool = False) -> Any:
         """
@@ -167,11 +227,11 @@ class MILDataset(Dataset):
         if isinstance(data, MuData):
             for mod in data.mod.values():
                 if key in mod.obs.columns:
-                    return mod.obs[key].values if mask is None else mod.obs[key].values[mask]
+                    return mod.obs[key].to_numpy() if mask is None else mod.obs[key].to_numpy()[mask]
             if not force:
                 return None
         if key in data.obs.columns:
-            return data.obs[key].values if mask is None else data.obs[key].values[mask]
+            return data.obs[key].to_numpy() if mask is None else data.obs[key].to_numpy()[mask]
         if not force:
             return None
         raise KeyError(f"Field '{key}' not found in the data.")
@@ -184,10 +244,9 @@ def mil_collate_fn(batch):
         
     stack_fields = [
         "donor_x", "donor_y", "donor_batch", "donor_cat_covs", "donor_cont_covs", "donor_indices",
-        "cell_y", "cell_batch", "cell_cat_covs", "cell_cont_covs", "cell_indices"
     ]
 
-    list_fields = ["cell_x"]
+    list_fields = ["cell_x", "cell_y", "cell_batch", "cell_cat_covs", "cell_cont_covs", "cell_indices"]
 
     collected = {key: [] for key in stack_fields + list_fields}
 
