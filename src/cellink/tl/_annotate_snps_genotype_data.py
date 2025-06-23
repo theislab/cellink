@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 Chromosome_str = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
-import sys
 
 DEFAULT_EXTENSION = ".yaml"
 
@@ -48,10 +47,10 @@ def resolve_config_path(name_or_path):
 
 
 def run_snpeff(
-    command: str = "snpeff",
+    command: str = "snpEff",
     genome_assembly: str = "GRCh38.104",
     input_vcf: str = "variants.vcf",
-    output: str = "variant_vep_annotated.txt",
+    output: str = "variants_snpeff_annotated.txt",
     return_annos: bool = True,
     **kwargs,
 ):
@@ -65,7 +64,7 @@ def run_snpeff(
     input_vcf : str, optional
         Path to the input VCF file containing variants to annotate. Defaults to "variants.vcf".
     output : str, optional
-        Path to the file where the annotated variants will be written. Defaults to "variant_vep_annotated.txt".
+        Path to the file where the annotated variants will be written. Defaults to "variants_vep_annotated.txt".
     return_annos : bool, optional
         Whether to return the annotations as a Pandas DataFrame after writing them to disk.
         Defaults to False.
@@ -115,8 +114,8 @@ def run_snpeff(
             cleaned_chunks.append(cleaned_chunk)
         return cleaned_chunks
 
-    annos = annos.rename(columns={"ID": "snp_id"})
-    annos = annos[["snp_id", "INFO"]]
+    annos = annos.rename(columns={"ID": AAnn.index})
+    annos = annos[[AAnn.index, "INFO"]]
     annos["info_chunks"] = annos["INFO"].apply(chunk_info)
 
     annos_exploded = annos.explode("info_chunks", ignore_index=True)
@@ -141,7 +140,7 @@ def run_snpeff(
     ]
     info_df = pd.DataFrame(annos_exploded["info_chunks"].tolist(), columns=columns)
 
-    annos = pd.concat([annos_exploded[["snp_id"]].reset_index(drop=True), info_df], axis=1)
+    annos = pd.concat([annos_exploded[[AAnn.index]].reset_index(drop=True), info_df], axis=1)
 
     annos.to_csv(output)
 
@@ -175,7 +174,7 @@ def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> 
         config = yaml.safe_load(f)
 
     urls_dict = config["favor"][version]
-    URLs = pd.DataFrame({"chr": list(map(int, urls_dict.keys())), "URL": list(urls_dict.values())})
+    URLs = pd.DataFrame({"chr": list(map(str, urls_dict.keys())), "URL": list(urls_dict.values())})
     return URLs
 
 
@@ -208,8 +207,6 @@ def run_favor(
     G : anndata.AnnData, optional
         AnnData object with a .var DataFrame containing variant information, including
         'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
-    output : str, optional
-        File where annotated variants will be saved. Defaults to "variant_vep_annotated.txt".
     return_annos : bool, optional
         Whether to return the annotations as a Pandas DataFrame after writing them to disk.
         Defaults to False.
@@ -243,18 +240,18 @@ def run_favor(
             else:
                 database = pl.concat([pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))])
 
-            database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
+        database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
 
-            snp_df = pl.LazyFrame(
-                {
-                    "variant_vcf": G_var_chrom["chrom"]
-                    .astype(str)
-                    .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
-                }
-            )
+        snp_df = pl.LazyFrame(
+            {
+                "variant_vcf": G_var_chrom["chrom"]
+                .astype(str)
+                .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
+            }
+        )
 
-            result_chrom = snp_df.join(database, on="variant_vcf", how="left")
-            annos.append(result_chrom.collect())
+        result_chrom = snp_df.join(database, on="variant_vcf", how="left")
+        annos.append(result_chrom.collect())
 
     annos = pl.concat(annos)
     annos = annos.rename({"variant_vcf": "snp_id"})
@@ -270,7 +267,7 @@ def run_favor(
 def run_vep(
     config_file: str = "../configs/vep.yaml",
     input_vcf: str = "variants.vcf",
-    output: str = "variant_vep_annotated.txt",
+    output: str = "variants_vep_annotated.txt",
     return_annos: bool = True,
     **kwargs,
 ):
@@ -285,7 +282,7 @@ def run_vep(
     input_vcf : str, optional
         VCF with variants to annotate. By default "variants.vcf"
     output : str, optional
-       File where VEP writes the annotated variants by default "variant_vep_annotated.txt"
+       File where VEP writes the annotated variants by default "variants_vep_annotated.txt"
     return_annos : bool, optional
         Should the written annotations be loaded into memory.by default False
 
@@ -303,7 +300,7 @@ def run_vep(
     offline = config.get("offline", False)
 
     base_cmd = [
-        config["vep_command"],
+        "vep",
         "--input_file",
         str(input_vcf),
         "--output_file",

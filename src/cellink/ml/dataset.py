@@ -1,5 +1,9 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+try:  
+    from torch.utils.data import Dataset, DataLoader  
+except ImportError:
+    Dataset = None  
+    DataLoader = None  
 from anndata import AnnData
 from mudata import MuData
 import numpy as np

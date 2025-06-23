@@ -37,8 +37,10 @@ dependencies = [
   "session-info",
   "sgkit[plink]",
   "adjusttext",
-  "torch",
-  "pytorch-lightning",
+]
+
+optional-dependencies.datasets = [
+  "liftover",
 ]
 
 optional-dependencies.dev = [
@@ -60,8 +62,29 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.ensembl-vep = [
+  # not available via pip, has to be installed via conda install bioconda::ensembl-vep
+  #  "ensembl-vep",
+]
+
+optional-dependencies.ml = [
+  "pytorch-lightning",
+]
+optional-dependencies.rvat = [
+  # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
+  # "chiscore",
+  "limix-core",
+  "pybiomart",
+]
 optional-dependencies.snpeff = [
-  "snpeff",
+  # not available via pip, has to be installed via conda install bioconda::snpeff
+  # "snpeff",
+]
+optional-dependencies.tensorqtl = [
+  "tensorqtl",
+]
+optional-dependencies.mixmil = [
+  "mixmil",
 ]
 optional-dependencies.tensorqtl = [
   "tensorqtl",
