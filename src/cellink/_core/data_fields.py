@@ -34,8 +34,8 @@ class CAnn:
     """Cell annotation fields in adata.obs and gdata.obs"""
 
     celltype: str = "celltype"
-    CELL_X_KEY: str = "cell_X" 
-    CELL_LABELS_KEY: str = "cell_labels" 
+    CELL_X_KEY: str = "cell_X"
+    CELL_LABELS_KEY: str = "cell_labels"
     CELL_BATCH_KEY: str = "cell_batch"
     CELL_CAT_COVS_KEY: str = "cell_extra_categorical_covs"
     CELL_CONT_COVS_KEY: str = "cell_extra_continuous_covs"

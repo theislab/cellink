@@ -36,6 +36,7 @@ def test_dosage_per_strand():
     dosage_per_strand_gdata_load = np.load(DATA / "simulated_genotype_calls_dosage_per_strand.npy")
     assert np.allclose(dosage_per_strand_gdata, dosage_per_strand_gdata_load)
 
+
 @pytest.fixture
 def gdata():
     return sim_gdata()
