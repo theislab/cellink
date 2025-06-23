@@ -2,12 +2,35 @@ from typing import Any
 
 import numpy as np
 import torch
+
+try:
+    from torch.utils.data import Dataset, DataLoader
+except ImportError:
+    Dataset = None
+    DataLoader = None
 from anndata import AnnData
 from mudata import MuData
-from torch.utils.data import Dataset
+import numpy as np
+import dask.array as da
+from typing import Optional, List, Union, Dict, Any
+from .._core import DonorData
+from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
+from anndata.utils import asarray
 
-from cellink._core.data_fields import CAnn, DAnn
 
+def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    if array is None:
+        return None
+
+    masked = array[mask] if mask is not None else array
+
+    masked = asarray(masked)
+    #if isinstance(masked, da.Array):
+    #    masked = masked.compute()
+    #if issparse(masked):
+    #    return masked.toarray()
+
+    return masked
 
 class MILDataset(Dataset):
     """
@@ -69,6 +92,7 @@ class MILDataset(Dataset):
         split_indices : list of ints, optional
             Predefined indices to use as dataset subset.
         """
+
         if split_donors is not None and split_indices is not None:
             raise ValueError("Both split_donors and split_indices cannot be provided at the same time.")
 
@@ -119,7 +143,7 @@ class MILDataset(Dataset):
         cell_donor_ids = self._get_obs_field(self.dd.C, self.cell_donor_key, force=False)
         cell_mask = cell_donor_ids == donor_id
         cell_x = self._get_layer(self.dd.C, mask=cell_mask, layer_key=self.cell_layer, force=True)
-        cell_labels = self._get_obs_field(self.dd.C, self.cell_labels_key, mask=cell_mask, force=False)
+        cell_y = self._get_obs_field(self.dd.C, self.cell_labels_key, mask=cell_mask, force=False)
         cell_batch = self._get_obs_field(self.dd.C, self.cell_batch_key, mask=cell_mask, force=False)
         cell_cat_covs = self._get_obs_field(self.dd.C, self.cell_cat_covs_key, mask=cell_mask, force=False)
         cell_cont_covs = self._get_obs_field(self.dd.C, self.cell_cont_covs_key, mask=cell_mask, force=False)
@@ -136,7 +160,7 @@ class MILDataset(Dataset):
             else None,
             "donor_indices": torch.tensor(donor_indices, dtype=torch.float32) if donor_indices is not None else None,
             "cell_x": torch.tensor(cell_x, dtype=torch.float32),
-            "cell_labels": torch.tensor(cell_labels, dtype=torch.float32) if cell_labels is not None else None,
+            "cell_y": torch.tensor(cell_y, dtype=torch.float32) if cell_y is not None else None,
             "cell_batch": torch.tensor(cell_batch, dtype=torch.float32) if cell_batch is not None else None,
             "cell_cat_covs": torch.tensor(cell_cat_covs, dtype=torch.float32) if cell_cat_covs is not None else None,
             "cell_cont_covs": torch.tensor(cell_cont_covs, dtype=torch.float32) if cell_cont_covs is not None else None,
@@ -181,11 +205,11 @@ class MILDataset(Dataset):
         if isinstance(data, MuData):
             for mod in data.mod.values():
                 if key in mod.obs.columns:
-                    return mod.obs[key].values if mask is None else mod.obs[key].values[mask]
+                    return mod.obs[key].to_numpy() if mask is None else mod.obs[key].to_numpy()[mask]
             if not force:
                 return None
         if key in data.obs.columns:
-            return data.obs[key].values if mask is None else data.obs[key].values[mask]
+            return data.obs[key].to_numpy() if mask is None else data.obs[key].to_numpy()[mask]
         if not force:
             return None
         raise KeyError(f"Field '{key}' not found in the data.")
@@ -196,21 +220,24 @@ def mil_collate_fn(batch):
     Custom collate function for MIL Dataset.
     Combines donor and cell data in the correct format for batch processing.
     """
+
     stack_fields = [
-        "donor_x",
-        "donor_y",
-        "donor_batch",
-        "donor_cat_covs",
-        "donor_cont_covs",
-        "donor_indices",
-        "cell_y",
-        "cell_batch",
-        "cell_cat_covs",
-        "cell_cont_covs",
-        "cell_indices",
+      "donor_x", 
+      "donor_y", 
+      "donor_batch", 
+      "donor_cat_covs", 
+      "donor_cont_covs", 
+      "donor_indices",
     ]
 
-    list_fields = ["cell_x"]
+    list_fields = [
+      "cell_x", 
+      "cell_y",
+      "cell_batch", 
+      "cell_cat_covs", 
+      "cell_cont_covs", 
+      "cell_indices"
+    ]
 
     collected = {key: [] for key in stack_fields + list_fields}
 

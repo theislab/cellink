@@ -2,9 +2,12 @@ import logging
 import sys
 
 import numpy as np
+import anndata as ad
 import pandas as pd
+from pandas_plink import write_plink1_bin
+import xarray as xr
 
-from cellink._core.data_fields import VAnn
+from cellink._core.data_fields import VAnn, DAnn
 
 logging.basicConfig(
     format="[%(asctime)s] %(levelname)s:%(name)s: %(message)s",
@@ -14,193 +17,67 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-def _generate_bim_df(gdata, chrom_col="chrom", cm_col="cm", pos_col="pos", a1_col="a1", a2_col="a2"):
+def to_plink(gdata: ad.AnnData, output_prefix: str = None, donor_id: str = DAnn.donor, donor_family_id: str = DAnn.donor_family, chrom: str = VAnn.chrom, pos: str = VAnn.pos, a0: str = VAnn.a0, a1: str = VAnn.a1):
     """
-    Generate a BIM DataFrame from genetic data.
+    Export genotype data from an AnnData object to PLINK1 binary format (.bed, .bim, .fam).
 
     Parameters
     ----------
-    gdata : object
-        A genetic data object with a `var` attribute containing SNP information.
-    chrom_col : str, optional
-        The column name in `gdata.var` representing the chromosome. Default is "chrom".
-    cm_col : str, optional
-        The column name in `gdata.var` representing the centimorgan position. Default is "cm".
-    pos_col : str, optional
-        The column name in `gdata.var` representing the base pair position. Default is "pos".
-    a1_col : str, optional
-        The column name in `gdata.var` representing allele 1. Default is "a1".
-    a2_col : str, optional
-        The column name in `gdata.var` representing allele 2. Default is "a2".
+    gdata : anndata.AnnData
+        AnnData object containing genotype data in `.X`, with variants in `.var` and sample metadata in `.obs`.
+    output_prefix : str
+        Prefix for the output PLINK files. If it does not end with '.bed', the extension is appended automatically.
+    donor_id : str, default DAnn.donor
+        Column in `gdata.obs` representing sample (individual) IDs.
+    donor_family_id : str, default DAnn.donor_family
+        Column in `gdata.obs` representing family IDs. If not present, `donor_id` is used instead.
+    chrom : str, default VAnn.chrom
+        Column in `gdata.var` representing chromosome information.
+    pos : str, default VAnn.pos
+        Column in `gdata.var` representing base-pair positions.
+    a0 : str, default VAnn.a0
+        Column in `gdata.var` representing the reference allele.
+    a1 : str, default VAnn.a1
+        Column in `gdata.var` representing the alternate allele.
 
     Returns
     -------
-    pd.DataFrame
-        A BIM-formatted DataFrame with the following columns:
-        - "CHR": Chromosome number.
-        - "SNP": SNP identifier (from the index of `gdata.var`).
-        - "CM": Centimorgan position (default 0 if column is missing).
-        - "BP": Base pair position (default 0 if column is missing).
-        - "A1": Allele 1 (default 0 if column is missing).
-        - "A2": Allele 2 (default 0 if column is missing).
+    None
+        Writes `.bed`, `.bim`, and `.fam` files to disk using the provided prefix.
+
+    Notes
+    -----
+    - Uses `xarray` to construct a labeled data array of genotypes.
+    - Internally calls `sgkit.io.plink.write_plink1_bin` for exporting to PLINK format.
     """
-    bim_data = pd.DataFrame(
-        {
-            "CHR": gdata.var[chrom_col],
-            "SNP": gdata.var.index,
-            "CM": gdata.var.get(cm_col, 0),
-            "BP": gdata.var.get(pos_col, 0),
-            "A1": gdata.var.get(a1_col, 0),
-            "A2": gdata.var.get(a2_col, 0),
-        }
+    
+    if not output_prefix.endswith(".bed"):
+        output_prefix += ".bed"
+
+    xarr = xr.DataArray(
+        gdata.X.astype("float32"),
+        dims=("sample", "variant"),
+        coords={
+            "sample": gdata.obs.index.to_numpy(),
+            "sample_id": ("sample", gdata.obs[donor_id]), 
+            "IID": ("sample", gdata.obs[donor_id]),   
+            "iid": ("sample", gdata.obs[donor_id]),  
+            "family_id": ("sample", gdata.obs[donor_family_id] if donor_family_id in gdata.obs.columns else gdata.obs[donor_id]), 
+            "fid": ("sample", gdata.obs[donor_family_id] if donor_family_id in gdata.obs.columns else gdata.obs[donor_id]), 
+            "i": ("sample", range(len(gdata.obs))),    
+            "variant": gdata.var.index.to_numpy(),
+            "snp": ("variant", gdata.var.index),       
+            "chrom": ("variant", gdata.var[chrom]),
+            "cm": ("variant", [0.0] *len(gdata.var)),
+            "chr": ("variant", gdata.var[chrom]),      
+            "pos": ("variant", gdata.var[pos]),       
+            "a0": ("variant", gdata.var[a0]),         
+            "a1": ("variant", gdata.var[a1]),
+            "i": ("variant", range(len(gdata.var))),         
+        },
+        name="genotypes"
     )
-
-    return bim_data
-
-
-def _generate_fam_df(gdata, fid_col="fid", pid_col="pid", mid_col="mid", sex_col="sex", phenotype_col="phenotype"):
-    """
-    Generate a FAM DataFrame from genetic data.
-
-    Parameters
-    ----------
-    gdata : object
-        A genetic data object with an `obs` attribute containing individual information.
-    fid_col : str, optional
-        The column name in `gdata.obs` representing family IDs. Default is "fid".
-    pid_col : str, optional
-        The column name in `gdata.obs` representing paternal IDs. Default is "pid".
-    mid_col : str, optional
-        The column name in `gdata.obs` representing maternal IDs. Default is "mid".
-    sex_col : str, optional
-        The column name in `gdata.obs` representing the sex of individuals. Default is "sex".
-    phenotype_col : str, optional
-        The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
-
-    Returns
-    -------
-    pd.DataFrame
-        A FAM-formatted DataFrame with the following columns:
-        - "FID": Family ID (default 0 if column is missing).
-        - "IID": Individual ID (from the index of `gdata.obs`).
-        - "PID": Paternal ID (default 0 if column is missing).
-        - "MID": Maternal ID (default 0 if column is missing).
-        - "SEX": Sex (default 0 if column is missing).
-        - "PHENOTYPE": Phenotype (default 0 if column is missing).
-    """
-    fam_data = pd.DataFrame(
-        {
-            "FID": gdata.obs.get(fid_col, 0),
-            "IID": gdata.obs.index,
-            "PID": gdata.obs.get(pid_col, 0),
-            "MID": gdata.obs.get(mid_col, 0),
-            "SEX": gdata.obs.get(sex_col, 0),
-            "PHENOTYPE": gdata.obs.get(phenotype_col, 0),
-        }
-    )
-
-    return fam_data
-
-
-def to_plink(
-    gdata,
-    output_prefix,
-    snp_per_byte=4,
-    num_patients_chunk=100,
-    chrom_col="chrom",
-    cm_col="cm",
-    pos_col="pos",
-    a1_col="a1",
-    a2_col="a2",
-    fid_col="fid",
-    pid_col="pid",
-    mid_col="mid",
-    sex_col="sex",
-    phenotype_col="phenotype",
-):
-    """
-    Export genotype data in Dask array format to PLINK binary format.
-
-    Parameters
-    ----------
-    gdata : object
-        A genetic data object with an `obs` attribute containing individual information.
-    output_prefix: str
-        Prefix for the output PLINK files (.bed, .bim, .fam).
-    snp_per_byte: int
-        Number of SNPs to pack into a single byte. Options are 1, 2, or 4.
-    num_patients_chunk: int
-        Number of patients in chunk
-    chrom_col : str, optional
-        The column name in `gdata.var` representing the chromosome. Default is "chrom".
-    cm_col : str, optional
-        The column name in `gdata.var` representing the centimorgan position. Default is "cm".
-    pos_col : str, optional
-        The column name in `gdata.var` representing the base pair position. Default is "pos".
-    a1_col : str, optional
-        The column name in `gdata.var` representing allele 1. Default is "a1".
-    a2_col : str, optional
-        The column name in `gdata.var` representing allele 2. Default is "a2".
-    fid_col : str, optional
-        The column name in `gdata.obs` representing family IDs. Default is "fid".
-    pid_col : str, optional
-        The column name in `gdata.obs` representing paternal IDs. Default is "pid".
-    mid_col : str, optional
-        The column name in `gdata.obs` representing maternal IDs. Default is "mid".
-    sex_col : str, optional
-        The column name in `gdata.obs` representing the sex of individuals. Default is "sex".
-    phenotype_col : str, optional
-        The column name in `gdata.obs` representing phenotypes. Default is "phenotype".
-    """
-    bim_df = _generate_bim_df(gdata)
-    fam_df = _generate_fam_df(gdata)
-    dask_genotype_array = gdata.X
-
-    num_individuals, num_snps = dask_genotype_array.shape
-    dask_genotype_array = dask_genotype_array.rechunk((num_patients_chunk, num_snps))
-
-    if len(bim_df) != num_snps:
-        raise ValueError("Number of SNPs in BIM file does not match genotype matrix.")
-    if len(fam_df) != num_individuals:
-        raise ValueError("Number of individuals in FAM file does not match genotype matrix.")
-
-    if len(dask_genotype_array.chunks) != 2:
-        raise ValueError("Dask array is not 2D. Please ensure the input is (individuals x SNPs).")
-
-    bim_file = f"{output_prefix}.bim"
-    bim_df.to_csv(bim_file, sep="\t", index=False, header=False)
-
-    fam_file = f"{output_prefix}.fam"
-    fam_df.to_csv(fam_file, sep="\t", index=False, header=False)
-
-    bed_file = f"{output_prefix}.bed"
-    with open(bed_file, "wb") as bed:
-        bed.write(bytearray([108, 27, 1]))
-
-        for delayed_chunk_row in dask_genotype_array.to_delayed():
-            for delayed_chunk in delayed_chunk_row:
-                chunk = delayed_chunk.compute()
-                if len(chunk.shape) != 2:
-                    raise ValueError(f"Chunk is not 2D. Got shape: {chunk.shape}")
-
-                chunk = np.nan_to_num(chunk, nan=3).astype(np.uint8)
-
-                bed_data = []
-                for row in chunk:
-                    packed_row = []
-                    for i in range(0, len(row), 4):
-                        genotypes = row[i : i + 4]
-                        byte = 0
-                        for j, genotype in enumerate(genotypes):
-                            byte |= genotype << (j * 2)
-                        packed_row.append(byte)
-                    bed_data.extend(packed_row)
-
-                bed.write(bytearray(bed_data))
-
-    logger.info(f"Exported: {output_prefix}.bed, {output_prefix}.bim, {output_prefix}.fam")
-
+    write_plink1_bin(xarr, output_prefix)
 
 def write_variants_to_vcf(gdata, out_file="variants.vcf"):
     """Write unique variants from gdata to vcf file for annotation

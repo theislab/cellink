@@ -26,12 +26,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+Chromosome_str = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
 DEFAULT_EXTENSION = ".yaml"
 
 
 def resolve_config_path(name_or_path):
+    name_or_path = str(name_or_path)
     if os.path.isfile(name_or_path):
         return name_or_path
 
@@ -46,7 +48,7 @@ def resolve_config_path(name_or_path):
 
 def run_snpeff(
     command: str = "snpEff",
-    genome_assembly: str = "GRCh37.75",
+    genome_assembly: str = "GRCh38.104",
     input_vcf: str = "variants.vcf",
     output: str = "variants_snpeff_annotated.txt",
     return_annos: bool = True,
@@ -78,6 +80,7 @@ def run_snpeff(
     """
     env = os.environ.copy()
     env["_JAVA_OPTIONS"] = "-Xmx8g"
+    output = str(output)
 
     cmd = [command, genome_assembly, input_vcf]
 
@@ -145,16 +148,27 @@ def run_snpeff(
         return annos
 
 
-def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None):
+def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None, database_dir: str =None):
     URL = URLs.loc[URLs["chr"] == chromosome, "URL"].values[0]
 
-    subprocess.Popen(["wget", "--progress=bar:force:noscroll", URL], stdout=sys.stdout, stderr=sys.stderr)
+    subprocess.run(
+        ["wget", "--progress=bar:force:noscroll", URL],
+        stdout=sys.stdout,
+        stderr=sys.stderr,
+        cwd=database_dir,
+        check=True
+    )
     file_id = re.search(r"(\d+)", URL).group(1)
-    subprocess.Popen(["tar", "-xvf", file_id], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    subprocess.run(
+        ["tar", "-xvf", file_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=database_dir,
+        text=True,
+        check=True
+    )
 
 def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> pd.DataFrame:
-    logger.info(f"using config {config_file}")
     config_file = resolve_config_path(config_file)
     with open(config_file) as f:
         config = yaml.safe_load(f)
@@ -168,19 +182,20 @@ def download_favor(
     version: Literal["essential", "full"] = "essential",
     chromosome: Chromosome | list[Chromosome] | None = None,
     config_file: str = "../configs/favor.yaml",
+    database_dir: str = None
 ):
     logger.info(f"Using config: {config_file}")
     URLs = load_favor_urls(config_file=config_file, version=version)
-    _download_favor(URLs=URLs, chromosome=chromosome)
+    _download_favor(URLs=URLs, chromosome=chromosome, database_dir=database_dir)
 
 
 def run_favor(
+    config_file: str = "../configs/favor.yaml",
     database_dir: str = None,
     version: Literal["essential", "full"] = "essential",
     G=None,
     output: str = None,
     return_annos: bool = True,
-    config_file="../configs/favor.yaml",
 ):
     """
     Annotates variants using the FAVOR database from within Python
@@ -206,17 +221,24 @@ def run_favor(
         raise ValueError("Please provide an output file name or set return_annos to True.")
 
     if database_dir is None:
-        database_dir = Path.home() / "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB"
+        database_dir = os.path.expanduser("~/favor_database/")
+
+    os.makedirs(database_dir, exist_ok=True)
 
     annos = []
     for chromosome in np.unique(G.var["chrom"]):
-        if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0:
-            logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
-            download_favor(version=version, chromosome=chromosome, config_file=config_file)
+        if chromosome in range(1, 23) or chromosome in [str(chr) for chr in range(1, 23)]:
+            chromosome = int(chromosome)
+            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0 and len(glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))) == 0:
+                logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
+                download_favor(version=version, chromosome=chromosome, config_file=config_file, database_dir=database_dir)
 
-        G_var_chrom = G.var[G.var["chrom"] == chromosome]
+            G_var_chrom = G.var[G.var["chrom"] == chromosome]
 
-        database = pl.concat([pl.scan_csv(path) for path in glob.glob(f"{database_dir}/chr{chromosome}_*.csv")])
+            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) > 1:
+                database = pl.concat([pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))])
+            else:
+                database = pl.concat([pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))])
 
         database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
 
@@ -232,11 +254,11 @@ def run_favor(
         annos.append(result_chrom.collect())
 
     annos = pl.concat(annos)
-    annos = annos.rename({"variant_vcf": AAnn.index})
-    annos[AAnn.index].apply(lambda x: x.replace("-", "_"))
-    annos = annos.with_columns(pl.col(AAnn.index).str.replace_all("-", "_").alias(AAnn.index))
+    annos = annos.rename({"variant_vcf": "snp_id"})
+
+    annos = annos.with_columns(pl.col("snp_id").str.replace_all("-", "_").alias("snp_id"))
     if output:
-        annos.to_csv(output)
+        annos.write_csv(output)
 
     if return_annos:
         return annos
@@ -362,7 +384,7 @@ def _prep_vep_annos(
     id_col_vep: str = "#Uploaded_variation",
     cols_to_drop=None,
     dummy_consequence: bool = True,
-) -> pd.DataFrame:
+ ) -> pd.DataFrame:
     """Add VEP annotations to gdata
 
     Parameters
