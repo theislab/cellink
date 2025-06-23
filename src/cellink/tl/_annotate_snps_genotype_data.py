@@ -81,7 +81,7 @@ def run_snpeff(
     env = os.environ.copy()
     env["_JAVA_OPTIONS"] = "-Xmx8g"
     output = str(output)
-    
+
     cmd = [command, genome_assembly, input_vcf]
 
     for key, value in kwargs.items():
@@ -156,7 +156,7 @@ def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chr
         stdout=sys.stdout,
         stderr=sys.stderr,
         cwd=database_dir,
-        check=True  
+        check=True
     )
     file_id = re.search(r"(\d+)", URL).group(1)
     subprocess.run(
@@ -164,8 +164,8 @@ def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chr
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=database_dir,
-        text=True,  
-        check=True  
+        text=True,
+        check=True
     )
 
 def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> pd.DataFrame:
@@ -222,9 +222,9 @@ def run_favor(
 
     if database_dir is None:
         database_dir = os.path.expanduser("~/favor_database/")
- 
-    os.makedirs(database_dir, exist_ok=True) 
-    
+
+    os.makedirs(database_dir, exist_ok=True)
+
     annos = []
     for chromosome in np.unique(G.var["chrom"]):
         if chromosome in range(1, 23) or chromosome in [str(chr) for chr in range(1, 23)]:
@@ -232,7 +232,7 @@ def run_favor(
             if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0 and len(glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))) == 0:
                 logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
                 download_favor(version=version, chromosome=chromosome, config_file=config_file, database_dir=database_dir)
-                
+
             G_var_chrom = G.var[G.var["chrom"] == chromosome]
 
             if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) > 1:
@@ -704,4 +704,3 @@ def aggregate_annotations_for_varm(
 
     if return_data:
         return aggregated_df
-
