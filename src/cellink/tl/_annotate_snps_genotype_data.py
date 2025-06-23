@@ -45,7 +45,7 @@ def resolve_config_path(name_or_path):
 
 
 def run_snpeff(
-    command: str = "snpeff",
+    command: str = "snpEff",
     genome_assembly: str = "GRCh37.75",
     input_vcf: str = "variants.vcf",
     output: str = "variants_snpeff_annotated.txt",
@@ -206,7 +206,7 @@ def run_favor(
         raise ValueError("Please provide an output file name or set return_annos to True.")
 
     if database_dir is None:
-        database_dir = Path.cwd() / "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB"
+        database_dir = Path.home() / "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB"
 
     annos = []
     for chromosome in np.unique(G.var["chrom"]):
