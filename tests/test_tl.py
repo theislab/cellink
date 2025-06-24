@@ -18,7 +18,7 @@ from cellink.tl import (
 )
 
 DATA = Path("tests/data")
-CONFIG = Path("docs/configs")
+CONFIG = Path("configs")
 
 
 def test_one_hot_encode_genotypes():
@@ -58,7 +58,7 @@ def test_write_variants_to_vcf(gdata):
 @pytest.mark.skipif(shutil.which("vep") is None, reason="VEP is not installed in the environment")
 def test_run_vep(gdata):
     write_variants_to_vcf(gdata, "variants.vcf")
-    run_vep(CONFIG / "vep_config.yaml", "variants.vcf", "variants_annotated.txt")
+    run_vep(CONFIG / "vep.yaml", "variants.vcf", "variants_annotated.txt")
     for this_file in ["variants.vcf", "variants_annotated.txt"]:
         this_file = Path(this_file)
         assert Path(this_file).exists()

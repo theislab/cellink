@@ -1,45 +1,44 @@
-import torch
-import numpy as np
+import glob
+import gzip
+import logging
+import os
+import shutil
+import subprocess
+from typing import Literal
+
 import pandas as pd
 import scanpy as sc
-from typing import Literal, List, Optional, Tuple
 from anndata.utils import asarray
-import subprocess
-import shutil
-import gzip
-import os
-import glob
+
 from cellink._core import DonorData
 from cellink.io import to_plink
 
-import logging
 logger = logging.getLogger(__name__)
 
-from typing import Optional, Literal, Union
 
 def run_jaxqtl(
     dd: DonorData,
     prefix: str = None,
     out: str = None,
     n_pcs: int = 50,
-    add_covar: Optional[str] = None,
-    covar_test: Optional[str] = None,
-    rm_covar: Optional[str] = None,
-    model: Optional[Literal['gaussian', 'poisson', 'NB']] = "NB",
-    mode: Optional[Literal['nominal', 'cis', 'cis_acat', 'fitnull', 'covar', 'trans', 'estimate_ld_only']] = "cis",
-    ld_type: Optional[Literal['raw', 'glm_wt', 'no_glm_wt']] = None,
-    platform: Optional[Literal['cpu', 'gpu', 'tpu']] = None,
-    test_method: Optional[Literal['wald', 'score']] = "score",
-    window: Optional[int] = 500000,
-    nperm: Optional[int] = 1000,
-    max_iter: Optional[int] = None,
-    perm_seed: Optional[int] = None,
-    addpc: Optional[int] = 2,
-    prop_cutoff: Optional[float] = None,
-    express_percent: Optional[float] = None,
-    offset: Optional[str] = None,
-    indlist: Optional[str] = None,
-    cond_snp: Optional[str] = None,
+    add_covar: str | None = None,
+    covar_test: str | None = None,
+    rm_covar: str | None = None,
+    model: Literal["gaussian", "poisson", "NB"] | None = "NB",
+    mode: Literal["nominal", "cis", "cis_acat", "fitnull", "covar", "trans", "estimate_ld_only"] | None = "cis",
+    ld_type: Literal["raw", "glm_wt", "no_glm_wt"] | None = None,
+    platform: Literal["cpu", "gpu", "tpu"] | None = None,
+    test_method: Literal["wald", "score"] | None = "score",
+    window: int | None = 500000,
+    nperm: int | None = 1000,
+    max_iter: int | None = None,
+    perm_seed: int | None = None,
+    addpc: int | None = 2,
+    prop_cutoff: float | None = None,
+    express_percent: float | None = None,
+    offset: str | None = None,
+    indlist: str | None = None,
+    cond_snp: str | None = None,
     robust: bool = False,
     rare_snp: bool = False,
     autosomal_only: bool = False,
@@ -51,15 +50,17 @@ def run_jaxqtl(
     verbose: bool = False,
     encode_sex: bool = True,
     encode_age: bool = True,
-    additional_covariates: Optional[List[str]] = None,
+    additional_covariates: list[str] | None = None,
     dtype: str = "float32",
     run: bool = True,
-) -> Union[subprocess.CompletedProcess, str]:
+    save_cmd_file: bool = False,
+    plink_export_kwargs: dict | None = {},
+) -> subprocess.CompletedProcess | str:
     """
     Run cis- or trans-eQTL mapping using jaxQTL on donor-level genotype and aggregated expression data.
 
     This function prepares input files from a `DonorData` object, builds a command to invoke the `jaxqtl` binary, and optionally executes it.
-    Covariates such as age, sex, and additional user-specified variables are encoded and included in the model. Supports multiple modes 
+    Covariates such as age, sex, and additional user-specified variables are encoded and included in the model. Supports multiple modes
     including nominal testing, permutation-based cis-QTL mapping, trans-QTL mapping, and LD estimation.
 
     Parameters
@@ -136,6 +137,10 @@ def run_jaxqtl(
         Data type for numerical covariate matrices.
     run : bool, default=True
         If True, executes the jaxQTL command. If False, returns the constructed command as a string.
+    save_cmd_file : str, default=None
+        If provided, saves the jaxQTL command to this file instead of printing it.
+    plink_export_kwargs : dict, optional
+        Additional keyword arguments for `to_plink` function.
 
     Returns
     -------
@@ -149,12 +154,11 @@ def run_jaxqtl(
     ValueError
         If required covariates are not found in the DonorData object.
     """
-
     if not prefix:
         prefix = "jaxqtl_temp"
-    if not out: 
+    if not out:
         out = prefix
-    
+
     if run and shutil.which("jaxqtl") is None:
         raise ImportError(
             "jaxqtl is required for `run_jaxqtl`. Please install it following the instructions on https://github.com/mancusolab/jaxqtl and ensure it is available in your system PATH."
@@ -166,7 +170,7 @@ def run_jaxqtl(
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
     phenotype_df = dd.G.obsm["PB"].T
-    phenotype_df.index.name = 'Geneid'
+    phenotype_df.index.name = "Geneid"
     phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
     phenotype_pos_df["Geneid"] = phenotype_pos_df.index
     phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
@@ -187,30 +191,38 @@ def run_jaxqtl(
     if additional_covariates:
         for cov in additional_covariates:
             if cov in dd.G.obs.columns:
-                covariate_df = pd.DataFrame(dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns)
+                covariate_df = pd.DataFrame(
+                    dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
+                )
                 covariate_list.append(covariate_df)
             elif cov in dd.G.obsm:
                 cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
                 if cov_matrix.ndim == 1:
                     covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                 else:
-                    covariate_list.append(pd.DataFrame(cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=phenotype_df.columns))
+                    covariate_list.append(
+                        pd.DataFrame(
+                            cov_matrix,
+                            columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
+                            index=phenotype_df.columns,
+                        )
+                    )
             else:
                 raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
-            
+
     covariates_df = pd.concat(covariate_list, axis=1)
-    covariates_df.index.name = 'iid'
+    covariates_df.index.name = "iid"
     covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
-    #genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
-    to_plink(dd.G, prefix)
+    # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
+    to_plink(dd.G, prefix, **plink_export_kwargs)
 
     ###
 
     geno = prefix
     covar = f"{prefix}_donor_features.tsv"
     pheno = f"{prefix}_phenotype.bed.gz"
-    
-    cmd = ['jaxqtl', '--geno', geno, '--covar', covar, '--pheno', pheno]
+
+    cmd = ["jaxqtl", "--geno", geno, "--covar", covar, "--pheno", pheno]
 
     def add_opt(flag, value):
         if value is not None:
@@ -220,35 +232,35 @@ def run_jaxqtl(
         if enabled:
             cmd.append(flag)
 
-    add_opt('--add-covar', add_covar) 
-    add_opt('--covar-test', covar_test) 
-    add_opt('--rm-covar', rm_covar) 
-    add_opt('--model', model)
-    add_opt('--offset', offset)
-    add_opt('--indlist', indlist)
-    add_opt('--mode', mode)
-    add_opt('--ld-type', ld_type)
-    add_opt('--platform', platform)
-    add_opt('--test-method', test_method)
-    add_opt('--window', window)
-    add_opt('--nperm', nperm)
-    add_opt('--max-iter', max_iter)
-    add_opt('--perm-seed', perm_seed)
-    add_opt('--addpc', addpc)
-    add_opt('--prop-cutoff', prop_cutoff)
-    add_opt('--express-percent', express_percent)
-    add_opt('--cond-snp', cond_snp)
-    add_opt('--out', out)
+    add_opt("--add-covar", add_covar)
+    add_opt("--covar-test", covar_test)
+    add_opt("--rm-covar", rm_covar)
+    add_opt("--model", model)
+    add_opt("--offset", offset)
+    add_opt("--indlist", indlist)
+    add_opt("--mode", mode)
+    add_opt("--ld-type", ld_type)
+    add_opt("--platform", platform)
+    add_opt("--test-method", test_method)
+    add_opt("--window", window)
+    add_opt("--nperm", nperm)
+    add_opt("--max-iter", max_iter)
+    add_opt("--perm-seed", perm_seed)
+    add_opt("--addpc", addpc)
+    add_opt("--prop-cutoff", prop_cutoff)
+    add_opt("--express-percent", express_percent)
+    add_opt("--cond-snp", cond_snp)
+    add_opt("--out", out)
 
-    add_flag('--robust', robust)
-    add_flag('--rare-snp', rare_snp)
-    add_flag('--autosomal-only', autosomal_only)
-    add_flag('--perm-pheno', perm_pheno)
-    add_flag('--qvalue', qvalue)
-    add_flag('--no-offset', no_offset)
-    add_flag('--standardize', standardize)
-    add_flag('--statsmodel', statsmodel)
-    add_flag('--verbose', verbose)
+    add_flag("--robust", robust)
+    add_flag("--rare-snp", rare_snp)
+    add_flag("--autosomal-only", autosomal_only)
+    add_flag("--perm-pheno", perm_pheno)
+    add_flag("--qvalue", qvalue)
+    add_flag("--no-offset", no_offset)
+    add_flag("--standardize", standardize)
+    add_flag("--statsmodel", statsmodel)
+    add_flag("--verbose", verbose)
 
     if run:
         subprocess.run(cmd, check=True, shell=True)
@@ -261,7 +273,11 @@ def run_jaxqtl(
             filename = prefix + ext
             if os.path.isfile(filename):
                 os.remove(filename)
-        
+
         return results
     else:
-        return ' '.join(cmd)
+        if save_cmd_file:
+            with open(save_cmd_file, "w") as f:
+                f.write(" ".join(cmd) + "\n")
+        else:
+            return " ".join(cmd)
