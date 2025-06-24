@@ -1,12 +1,9 @@
-import os
-import shutil
 from pathlib import Path
 
 import pytest
-from sgkit.io.plink import read_plink as sg_read_plink
 
 from cellink import DonorData
-from cellink.io import from_sgkit_dataset, read_h5_dd, read_zarr_dd, read_plink, read_sgkit_zarr, to_plink
+from cellink.io import from_sgkit_dataset, read_bgen, read_h5_dd, read_plink, read_sgkit_zarr, read_zarr_dd, to_plink
 
 DATA = Path("tests/data")
 
@@ -17,13 +14,28 @@ def test_read_plink():
 
 
 @pytest.mark.slow
+def test_read_bgen():
+    read_bgen(DATA / "simulated_genotype_calls")
+
+
+@pytest.mark.slow
 def test_read_sgkit_zarr():
     read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
 
 
 @pytest.mark.slow
-def test_from_sgkit_dataset():
+def test_from_plink_sgkit_dataset():
+    from sgkit.io.plink import read_plink as sg_read_plink
+
     sgkit_dataset = sg_read_plink(path=DATA / "simulated_genotype_calls")
+    from_sgkit_dataset(sgkit_dataset)
+
+
+@pytest.mark.slow
+def test_from_bgen_sgkit_dataset():
+    from sgkit.io.bgen import read_bgen as sg_read_bgen
+
+    sgkit_dataset = sg_read_bgen(path=DATA / "simulated_genotype_calls")
     from_sgkit_dataset(sgkit_dataset)
 
 
@@ -31,8 +43,9 @@ def test_from_sgkit_dataset():
 def test_export(tmp_path):
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata = gdata[:, :1996]
+    gdata.obs["donor_id"] = gdata.obs.index
 
-    to_plink(gdata, output_prefix=str(tmp_path), num_patients_chunk=100)
+    to_plink(gdata, output_prefix=str(tmp_path))
 
 
 @pytest.mark.slow
@@ -46,6 +59,7 @@ def test_read_h5_dd(tmp_path, adata, gdata):
 
     assert dd_loaded.C.shape == dd.C.shape
     assert dd_loaded.G.shape == dd.G.shape
+
 
 @pytest.mark.slow
 def test_read_zarr_dd(tmp_path, adata, gdata):
