@@ -17,11 +17,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-import zarr
-from anndata.io import write_elem
-from mudata._core.io import _write_h5mu
-from mudata import MuData
-
 
 from cellink._core.data_fields import DAnn
 
@@ -107,7 +102,6 @@ class DonorData:
         return self
 
     def _write_dd(self, f: h5py.File):
-        
         if isinstance(self.G, MuData):
             g_group = f.create_group("G")
             _write_h5mu(g_group, self.G)
@@ -120,10 +114,9 @@ class DonorData:
             write_elem(f, "C", self.C)
         f.attrs["encoding-type"] = "donordata"
 
-
         f.attrs["donor_id"] = self.donor_id
         f.attrs["var_dims_to_sync"] = self._var_dims_to_sync
-        
+
         for key, value in self.uns.items():
             f.create_dataset(f"uns/{key}", data=value)
 
@@ -374,7 +367,7 @@ class DonorData:
         if target == "obs":
             for col in columns:
                 if data[col].dtype == "category":
-                    self.G.obs[col] = pd.Categorical(categories=data[col].cat.categories)
+                    self.G.obs[col] = pd.Categorical(data[col], categories=data[col].cat.categories)
                 self.G.obs.loc[data.index, col] = data[col]
         else:
             self.G.obsm[key_added] = data

@@ -7,7 +7,6 @@ import sgkit as sg
 import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
-from sgkit.io import plink as sg_plink
 
 from cellink._core.data_fields import DAnn, VAnn
 
@@ -47,6 +46,7 @@ class SgVars:
     filter: str = "variant_filter"  # idx for vcf genotype filters
     filter_id: str = "filter_id"  # maps variant_filter to filter name
     genotype: str = "call_genotype"
+    genotype_alt: str = "call_genotype_probability"
 
 
 SGVAR_TO_GDATA = {
@@ -71,7 +71,10 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
 
-    X = sgkit_dataset[SgVars.genotype].data.sum(-1).T  # additive model encoding
+    try:
+        X = sgkit_dataset[SgVars.genotype].data.sum(-1).T  # additive model encoding
+    except KeyError:
+        X = sgkit_dataset[SgVars.genotype_alt].data.sum(-1).T
 
     obs = _to_df_only_dim(sgkit_dataset, SgDims.samples)
     obs = obs.rename(columns=obs_rename)
@@ -142,6 +145,27 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **k
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     """
+    from sgkit.io import plink as sg_plink
+
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    return gdata
+
+
+def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+    """Read bgen Format
+
+    Params
+    ------
+    path
+        path to bgen format
+    var_rename
+        mapping from sgkit's variant annotation keys to desired gdata.var column
+    obs_rename
+        mapping from sgkit's sample annotation keys to desired gdata.obs column
+    """
+    from sgkit.io import bgen as sg_bgen
+
+    sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
     gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
     return gdata

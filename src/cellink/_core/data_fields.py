@@ -20,6 +20,9 @@ class DAnn:
 
     donor: str = "donor_id"
     donor_family: str = "donor_family_id"
+    donor_paternal_id: str = "donor_paternal_id"
+    donor_maternal_id: str = "donor_maternal_id"
+    donor_sex: str = "sex"
     DONOR_X_KEY: str = "donor_X"
     DONOR_LABELS_KEY: str = "donor_labels"
     DONOR_BATCH_KEY: str = "donor_batch"

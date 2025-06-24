@@ -22,21 +22,22 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [
+  "adjusttext",
   "anndata",
   "bed-reader",
   "dask",
   "muon",
   "pandas",
+  "pandas-plink",
+  "pandera",
   "polars",
   "regex",
   "requests",
   "rich",
   "scanpy",
-  "pandas-plink",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit[plink]",
-  "adjusttext",
+  "sgkit[plink,bgen]",
 ]
 
 optional-dependencies.datasets = [
@@ -67,6 +68,9 @@ optional-dependencies.ensembl-vep = [
   #  "ensembl-vep",
 ]
 
+optional-dependencies.mixmil = [
+  "mixmil",
+]
 optional-dependencies.ml = [
   "pytorch-lightning",
 ]
@@ -82,15 +86,6 @@ optional-dependencies.snpeff = [
 ]
 optional-dependencies.tensorqtl = [
   "tensorqtl",
-]
-optional-dependencies.mixmil = [
-  "mixmil",
-]
-optional-dependencies.tensorqtl = [
-  "tensorqtl",
-]
-optional-dependencies.mixmil = [
-  "mixmil",
 ]
 optional-dependencies.test = [
   "coverage",
