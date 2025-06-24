@@ -23,6 +23,7 @@
 
     io.from_sgkit_dataset
     io.read_plink
+    io.read_bgen
     io.read_sgkit_zarr
 ```
 

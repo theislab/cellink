@@ -2,7 +2,13 @@ import subprocess
 
 import numpy as np
 import pandas as pd
-#from liftover import get_lifter #TODO
+
+try:
+    from liftover import get_lifter
+
+    converter = get_lifter("hg19", "hg38", one_based=True)
+except ImportError:
+    converter = None
 
 
 def preprocess_vcf_to_plink(vcf_filename: str = None, DATA: str = None):
@@ -137,9 +143,11 @@ def plink_kinship(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
     ]
     subprocess.run(cmd, check=True)
 
-#converter = get_lifter("hg19", "hg38", one_based=True) #TODO 
+
 def try_liftover(row):
+    if converter is None:
+        return np.nan
     try:
         return int(converter[str(row.chrom)][row.pos][0][1])
-    except IndexError:
+    except (IndexError, KeyError, TypeError):
         return np.nan
