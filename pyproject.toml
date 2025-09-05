@@ -26,6 +26,7 @@ dependencies = [
   "anndata",
   "bed-reader",
   "dask",
+  "limix-core",
   "muon",
   "pandas",
   "pandas-plink",
@@ -37,7 +38,7 @@ dependencies = [
   "scanpy",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit[plink,bgen]",
+  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
 ]
 
 optional-dependencies.datasets = [
