@@ -8,4 +8,5 @@ from ._annotate_snps_genotype_data import (
     run_vep,
 )
 from ._encode_genotype_data import dosage_per_strand, one_hot_encode_genotypes
-from .external import calculate_ld, calculate_pcs, run_jaxqtl, run_mixmil, run_tensorqtl
+# from .external import calculate_ld, calculate_pcs, run_jaxqtl, run_mixmil, run_tensorqtl
+# TODO mixmil requires torch which we do not want to install by default.
