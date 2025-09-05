@@ -15,8 +15,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/theislab/sc-genetics.git
 git clone https://github.com/AIH-SGML/ratpy.git
 uv venv
-uv pip install -e sc-genetics -e ratpy
-
+uv pip install -e sc-genetics -e ratpy pre-commit
 ```
 
 Please refer to the [documentation][],
