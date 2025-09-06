@@ -1,13 +1,8 @@
 import tarfile
-
 import pandas as pd
+from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
 
-from cellink.data._utils import _download_file, _load_config, get_data_home
-
-
-def get_1000genomes_ld_scores(
-    config_path="./cellink/data/config/1000genomes.yaml", population="EUR", data_home=None, return_path=False
-):
+def get_1000genomes_ld_scores(config_path="./cellink/resources/config/1000genomes.yaml", population="EUR", data_home=None, return_path=False):
     """
     Download and extract precomputed LD scores for Europeans (EUR) or East Asians (EAS).
 
@@ -35,6 +30,7 @@ def get_1000genomes_ld_scores(
         pathlib.Path
             Path to directory containing extracted LD files.
     """
+
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_ld_{population}"
 
@@ -74,7 +70,6 @@ def get_1000genomes_ld_scores(
     ldscores = pd.concat(ldscores, ignore_index=True)
 
     return annot, ldscores
-
 
 if __name__ == "__main__":
     annot, ldscores = get_1000genomes_ld_scores(population="EUR")

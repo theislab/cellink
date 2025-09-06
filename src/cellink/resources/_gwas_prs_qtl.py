@@ -1,10 +1,12 @@
 import logging
-from urllib.request import urlretrieve
+import os
+import shutil
+from pathlib import Path
 
 import pandas as pd
 import requests
-
-from cellink.data._utils import _cache_df, _to_dataframe, get_data_home
+from urllib.request import urlretrieve
+from cellink.resources._utils import get_data_home, _download_file, _run, _load_config, _to_dataframe, _cache_df
 
 logging.basicConfig(level=logging.INFO)
 
@@ -41,7 +43,6 @@ GWAS_API_BASE = "https://www.ebi.ac.uk/gwas/rest/api/v2"
 PGS_API_BASE = "https://www.pgscatalog.org/rest"
 EQTL_API_BASE = "https://www.ebi.ac.uk/eqtl/api/v3"
 
-
 def _fetch(url, params=None, paginate=True, max_pages=None):
     """Generic fetch with pagination support for APIs following HATEOAS style."""
     results = []
@@ -55,14 +56,14 @@ def _fetch(url, params=None, paginate=True, max_pages=None):
         if "_embedded" in data:
             for v in data["_embedded"].values():
                 results.extend(v)
-        elif "results" in data:
+        elif "results" in data: 
             results.extend(data["results"])
         else:
             return data
 
         if "_links" in data:
             url = data.get("_links", {}).get("next", {}).get("href") if paginate else None
-        elif "next" in data:
+        elif "next" in data: 
             url = data["next"] if paginate else None
         else:
             url = None
@@ -73,7 +74,6 @@ def _fetch(url, params=None, paginate=True, max_pages=None):
 
     return results
 
-
 def get_gwas_catalog_studies(data_home=None, max_pages=None, refresh=False, **params):
     data_home = get_data_home(data_home)
     return _cache_df(
@@ -83,24 +83,18 @@ def get_gwas_catalog_studies(data_home=None, max_pages=None, refresh=False, **pa
         lambda: _to_dataframe(_fetch(f"{GWAS_API_BASE}/studies", params=params, max_pages=max_pages)),
     )
 
-
 def get_gwas_catalog_study(accession_id, **params):
     return _fetch(f"studies/{accession_id}", params=params, paginate=False)
-
 
 def get_gwas_catalog_study_summary_stats(accession_id, dest=None, **params):
     if not dest:
         data_home = get_data_home()
         dest = data_home / f"{accession_id}_summary_stats.tsv.gz"
-    url = (
-        _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)["full_summary_stats"]
-        + f"/{accession_id}_buildGRCh37.tsv.gz"
-    )
+    url = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)['full_summary_stats'] + f"/{accession_id}_buildGRCh37.tsv.gz"
     logging.info(f"Downloading {url} to {dest}")
     urlretrieve(url, dest)
     data = pd.read_csv(dest, compression="gzip", delimiter="\t")
     return data
-
 
 def get_gwas_catalog_genes(data_home=None, refresh=False, **params):
     data_home = get_data_home(data_home)
@@ -111,10 +105,8 @@ def get_gwas_catalog_genes(data_home=None, refresh=False, **params):
         lambda: _to_dataframe(_fetch(f"{GWAS_API_BASE}/genes", params=params)),
     )
 
-
 def get_gwas_catalog_gene(gene_name, **params):
     return _fetch(f"{GWAS_API_BASE}/genes/{gene_name}", params=params, paginate=False)
-
 
 def get_pgs_catalog_scores(data_home=None, max_pages=None, refresh=False, **params):
     data_home = get_data_home(data_home)
@@ -125,14 +117,13 @@ def get_pgs_catalog_scores(data_home=None, max_pages=None, refresh=False, **para
         lambda: _to_dataframe(_fetch(f"{PGS_API_BASE}/score/all", params=params, max_pages=max_pages)),
     )
 
-
 def get_pgs_catalog_score(pgs_id, **params):
     return _fetch(f"{PGS_API_BASE}/score/{pgs_id}", params=params, paginate=False)
 
-
 def get_pgs_catalog_score_file(pgs_id, dest=None, **params):
+
     meta = _fetch(f"{PGS_API_BASE}/score/{pgs_id}", params=params, paginate=False)
-    url = meta["ftp_scoring_file"]
+    url = meta['ftp_scoring_file']
 
     if not dest:
         data_home = get_data_home()
@@ -144,7 +135,6 @@ def get_pgs_catalog_score_file(pgs_id, dest=None, **params):
     df = pd.read_csv(dest, compression="gzip", sep="\t", comment="#")
     return df
 
-
 def get_eqtl_catalog_datasets(data_home=None, max_pages=None, refresh=False, **params):
     data_home = get_data_home(data_home)
     return _cache_df(
@@ -153,7 +143,6 @@ def get_eqtl_catalog_datasets(data_home=None, max_pages=None, refresh=False, **p
         refresh,
         lambda: _to_dataframe(_fetch(f"{EQTL_API_BASE}/datasets", params=params, max_pages=max_pages)),
     )
-
 
 def get_eqtl_catalog_dataset_associations(dataset_id, data_home=None, refresh=False, **params):
     data_home = get_data_home(data_home)
@@ -165,7 +154,6 @@ def get_eqtl_catalog_dataset_associations(dataset_id, data_home=None, refresh=Fa
     df = _to_dataframe(data)
     df.to_parquet(dest)
     return df
-
 
 if __name__ == "__main__":
     import json
@@ -188,10 +176,10 @@ if __name__ == "__main__":
     pgs = get_pgs_catalog_scores()
     print(pgs.head())
 
-    pgs_score = get_pgs_catalog_score("PGS000043")
+    pgs_score = get_pgs_catalog_score("PGS000043") 
 
     pgs_score_file = get_pgs_catalog_score_file("PGS000043")
-
+    
     eqtl_datasets = get_eqtl_catalog_datasets()
     print(eqtl_datasets.head())
 
