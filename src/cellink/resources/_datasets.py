@@ -1,17 +1,23 @@
+import hashlib
 import logging
 import os
+import shutil
+import subprocess
+from os.path import expanduser, join
+from pathlib import Path
+from urllib.request import urlretrieve
 
 import anndata as ad
 import pandas as pd
+import yaml
 
 import cellink as cl
-from cellink.data._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
-from cellink.data._utils import _download_file, _load_config, _run, get_data_home
+from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
+from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 
 logging.basicConfig(level=logging.INFO)
 
-
-def get_1000genomes(config_path="./cellink/data/config/1000genomes.yaml", data_home=None, verify_checksum=True):
+def get_1000genomes(config_path="./cellink/resources/config/1000genomes.yaml", data_home=None, verify_checksum=True):
     """Main function to download and preprocess the data."""
     data_home = get_data_home(data_home)
     DATA = data_home / "1000genomes"
@@ -46,7 +52,7 @@ def get_1000genomes(config_path="./cellink/data/config/1000genomes.yaml", data_h
     return gdata
 
 
-def get_onek1k(config_path="./cellink/data/config/onek1k.yaml", data_home=None, verify_checksum=True):
+def get_onek1k(config_path="./cellink/resources/config/onek1k.yaml", data_home=None, verify_checksum=True):
     """Main function to download and preprocess the data."""
     data_home = get_data_home(data_home)
     DATA = data_home / "onek1k"
