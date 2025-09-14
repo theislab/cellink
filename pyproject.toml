@@ -69,6 +69,10 @@ optional-dependencies.ensembl-vep = [
   #  "ensembl-vep",
 ]
 
+optional-dependencies.ldsc = [
+  #TODO ARNOLDT
+  "gsmap",
+]
 optional-dependencies.mixmil = [
   "mixmil",
 ]
