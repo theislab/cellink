@@ -1,0 +1,3 @@
+execution_mode: local
+ldsc_command: ldsc.py
+munge_command: munge_sumstats.py

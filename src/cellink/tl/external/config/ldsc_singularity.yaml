@@ -1,0 +1,4 @@
+execution_mode: singularity
+singularity_image: docker://zijingliu/ldsc
+ldsc_command: /ldsc/ldsc.py
+munge_command: /ldsc/munge_sumstats.py
