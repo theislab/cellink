@@ -14,7 +14,7 @@ def one_hot_encode_genotypes(
     Params
     ------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`.
+        The annotated data matrix of shape `n_obs` x `n_vars`.
         Rows correspond to individuals and columns to variants.
 
     Returns
@@ -75,7 +75,7 @@ def dosage_per_strand(
     Params
     ------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`.
+        The annotated data matrix of shape `n_obs` x `n_vars`.
         Rows correspond to individuals and columns to variants.
 
     Returns

@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import Literal
+from typing import Literal, Union
 
 import pandas as pd
 import scanpy as sc
@@ -15,6 +15,26 @@ from cellink.io import to_plink
 
 logger = logging.getLogger(__name__)
 
+def read_jaxqtl_results(
+    prefix: str
+) -> pd.DataFrame:
+    """
+    Read jaxQTL output TSV file.
+
+    Parameters
+    ----------
+    prefix : str
+        Prefix of the jaxQTL result file (.tsv.gz).
+
+    Returns
+    -------
+    pd.DataFrame
+        The parsed jaxQTL results.
+    """
+    results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
+    results = pd.read_csv(results_path, delimiter="\t")
+    
+    return results
 
 def run_jaxqtl(
     dd: DonorData,
@@ -53,9 +73,10 @@ def run_jaxqtl(
     additional_covariates: list[str] | None = None,
     dtype: str = "float32",
     run: bool = True,
+    read_results: bool = True,
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
-) -> subprocess.CompletedProcess | str:
+) -> Union[pd.DataFrame, str]:
     """
     Run cis- or trans-eQTL mapping using jaxQTL on donor-level genotype and aggregated expression data.
 
@@ -137,6 +158,8 @@ def run_jaxqtl(
         Data type for numerical covariate matrices.
     run : bool, default=True
         If True, executes the jaxQTL command. If False, returns the constructed command as a string.
+    read_results : bool, default=True
+        If True, reads and returns the result files as a pandas DataFrame. If False, returns the path(s) to the output files.
     save_cmd_file : str, default=None
         If provided, saves the jaxQTL command to this file instead of printing it.
     plink_export_kwargs : dict, optional
@@ -144,8 +167,10 @@ def run_jaxqtl(
 
     Returns
     -------
-    Union[subprocess.CompletedProcess, str]
-        CompletedProcess object if `run=True`, otherwise the constructed jaxQTL command string if `run=False`.
+    pd.DataFrame, str, or list[str]
+        If run=True and read_results=True, returns a pandas DataFrame of QTL mapping results.
+        If run=True and read_results=False, returns a list of output file paths.
+        If run=False, returns the constructed jaxQTL command as a string.
 
     Raises
     ------
@@ -265,9 +290,9 @@ def run_jaxqtl(
     if run:
         subprocess.run(cmd, check=True, shell=True)
 
-        results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
-        results = pd.read_csv(results_path, delimiter="\t")
-        os.remove(results_path)
+        if read_results:
+            results = read_jaxqtl_results(prefix=prefix)
+
         extensions = [".bim", ".fam", ".bed", "_donor_features.tsv", "_phenotype.bed.gz"]
         for ext in extensions:
             filename = prefix + ext

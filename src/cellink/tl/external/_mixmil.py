@@ -5,6 +5,7 @@ from typing import Literal, List, Optional, Tuple
 from anndata.utils import asarray
 from cellink._core.data_fields import DAnn
 from cellink._core import DonorData
+from typing import Tuple, Dict, Any
 
 import logging
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def run_mixmil(
     encode_age: bool = True,
     additional_covariates: Optional[List[str]] = None,
     dtype: str = "float32"
-):
+) -> Tuple[Dict[str, Any], "MixMIL"]:
     """
     Train a MixMIL model on donor-level data with flexible covariate encoding.
 

@@ -3,6 +3,7 @@ from typing import Literal
 
 import dask.array as da
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -38,7 +39,7 @@ def expression_by_genotype(
     save: str | bool | None = None,
     dpi: int = 300,
     ax=None,
-):
+) -> Figure:
     """
     Plot gene expression by donor genotype across cell types or genes.
 
@@ -239,7 +240,7 @@ def volcano(
     save: str = None,
     dpi: int = 300,
     ax=None,
-):
+) -> Figure:
     """
     Generate a volcano plot showing -log10(p-value) vs. log fold change.
 

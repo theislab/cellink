@@ -17,8 +17,39 @@ from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship,
 
 logging.basicConfig(level=logging.INFO)
 
-def get_1000genomes(config_path="./cellink/resources/config/1000genomes.yaml", data_home=None, verify_checksum=True):
-    """Main function to download and preprocess the data."""
+def get_1000genomes(
+    config_path: str = "./cellink/resources/config/1000genomes.yaml",
+    data_home: str | None = None,
+    verify_checksum=True
+) -> ad.AnnData:
+    """
+    Download and preprocess the 1000 Genomes Project genotype data.
+
+    This function downloads genotype files specified in a YAML configuration,
+    optionally verifies checksums, converts VCF files to Zarr format using `vcf2zarr`,
+    and concatenates per-chromosome datasets into a single `AnnData` object using `cellink`.
+
+    Parameters
+    ----------
+    config_path : str, default="./cellink/resources/config/1000genomes.yaml"
+        Path to the YAML configuration file listing remote genotype files.
+    data_home : str or None, optional
+        Directory where data should be stored. If None, uses the default `cellink` data directory.
+    verify_checksum : bool, default=True
+        If True, verifies the checksum of downloaded files.
+
+    Returns
+    -------
+    anndata.AnnData
+        Concatenated genotype data across chromosomes in Zarr format.
+
+    Raises
+    ------
+    FileNotFoundError
+        If any required VCF files are missing after download.
+    RuntimeError
+        If `vcf2zarr` conversion fails.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / "1000genomes"
 
@@ -52,8 +83,48 @@ def get_1000genomes(config_path="./cellink/resources/config/1000genomes.yaml", d
     return gdata
 
 
-def get_onek1k(config_path="./cellink/resources/config/onek1k.yaml", data_home=None, verify_checksum=True):
-    """Main function to download and preprocess the data."""
+def get_onek1k(
+    config_path: str = "./cellink/resources/config/onek1k.yaml",
+    data_home: str | None = None,
+    verify_checksum: bool = True
+) -> cl.DonorData:
+    """
+    Download and preprocess the OneK1K genotype and expression dataset.
+
+    This function downloads genotype and expression files listed in a YAML configuration,
+    optionally verifies checksums, converts VCF files to Zarr format, performs PLINK preprocessing
+    including filtering, pruning, and kinship computation, and loads the dataset into a `DonorData` object.
+
+    Additionally, it:
+    - Performs liftover to hg19 coordinates for variant positions.
+    - Computes donor principal components (gPCs) from genotype data.
+    - Aligns expression data from CellxGene to the genotype data.
+    - Encodes donor metadata such as sex and age.
+
+    Parameters
+    ----------
+    config_path : str, default="./cellink/resources/config/onek1k.yaml"
+        Path to the YAML configuration file listing remote genotype and expression files.
+    data_home : str or None, optional
+        Directory where data should be stored. If None, uses the default `cellink` data directory.
+    verify_checksum : bool, default=True
+        If True, verifies the checksum of downloaded files.
+
+    Returns
+    -------
+    cellink.DonorData
+        A `DonorData` object containing preprocessed genotype (`G`) and expression (`C`) data,
+        along with kinship and principal component metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If any required genotype or expression files are missing after download.
+    RuntimeError
+        If preprocessing steps (VCF conversion, PLINK operations, or liftover) fail.
+    ValueError
+        If variant liftover or donor alignment cannot be performed.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / "onek1k"
 

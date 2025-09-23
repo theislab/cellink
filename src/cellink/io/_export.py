@@ -1,7 +1,7 @@
 import logging
 import sys
 
-import anndata as ad
+from anndata import AnnData
 import numpy as np
 import xarray as xr
 from pandas_plink import write_plink1_bin
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def to_plink(
-    gdata: ad.AnnData,
+    gdata: AnnData,
     output_prefix: str = None,
     donor_id: str = DAnn.donor,
     donor_family_id: str = DAnn.donor_family,
@@ -29,7 +29,7 @@ def to_plink(
     pos: str = VAnn.pos,
     a0: str = VAnn.a0,
     a1: str = VAnn.a1,
-):
+) -> None:
     """
     Export genotype data from an AnnData object to PLINK1 binary format (.bed, .bim, .fam).
 
@@ -148,7 +148,10 @@ def to_plink(
     write_plink1_bin(xarr, output_prefix)
 
 
-def write_variants_to_vcf(gdata, out_file="variants.vcf"):
+def write_variants_to_vcf(
+    gdata,
+    out_file="variants.vcf"
+) -> None:
     """Write unique variants from gdata to vcf file for annotation
 
     Parameters
