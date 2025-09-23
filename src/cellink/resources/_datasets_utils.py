@@ -2,6 +2,8 @@ import subprocess
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from typing import Union
 
 try:
     from liftover import get_lifter
@@ -11,8 +13,32 @@ except ImportError:
     converter = None
 
 
-def preprocess_vcf_to_plink(vcf_filename: str = None, DATA: str = None):
-    """Convert VCF file to PLINK format."""
+def preprocess_vcf_to_plink(
+    vcf_filename: str = None, 
+    DATA: Union[str, Path] = None
+) -> None:
+    """
+    Convert a VCF file to PLINK binary format (BED/BIM/FAM).
+
+    This function uses PLINK to filter SNPs with minor allele frequency (MAF) < 0.01,
+    keeps the original allele order, and writes the resulting PLINK files to the specified
+    data directory. The BIM file is additionally updated to include a combined variant
+    identifier in the format `chrom:pos_ref_alt`.
+
+    Parameters
+    ----------
+    vcf_filename : str
+        Path to the input VCF file (.vcf.gz) to convert.
+    DATA : str or Path
+        Directory to store the output PLINK files.
+
+    Returns
+    -------
+    None
+        Outputs PLINK `.bed`, `.bim`, and `.fam` files to the specified directory.
+    """
+    DATA = Path(DATA)
+
     plink_base_cmd = ["plink", "--threads", "10", "--keep-allele-order"]
 
     cmd = plink_base_cmd + [
@@ -32,8 +58,32 @@ def preprocess_vcf_to_plink(vcf_filename: str = None, DATA: str = None):
     bim.to_csv(DATA / f"{vcf_filename.replace('.vcf.gz', '')}.bim", sep="\t", header=None, index=None)
 
 
-def plink_filter_prune(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
-    """Filter and prune PLINK dataset."""
+def plink_filter_prune(
+    fname: str = None, 
+    DATA: Union[str, Path] = None
+) -> None:
+    """
+    Perform quality control filtering and LD-based pruning on a PLINK dataset.
+
+    Steps:
+    1. Filter SNPs by genotype missingness (>10%), MAF (<5%), and Hardy-Weinberg equilibrium (p < 1e-6).
+    2. Perform LD-based pruning in two steps using sliding windows.
+    3. Compute the top 30 principal components (PCs) on the pruned dataset.
+
+    Parameters
+    ----------
+    fname : str
+        Base filename of the input PLINK dataset (without file extensions).
+    DATA : str or Path
+        Directory containing the PLINK dataset and where outputs will be written.
+
+    Returns
+    -------
+    None
+        Filtered, pruned PLINK files and PCA results are saved under `prunedir` and `pcdir`.
+    """
+    DATA = Path(DATA)
+
     prunedir = DATA / "prunedir"
     pcdir = DATA / "pcdir"
 
@@ -94,11 +144,34 @@ def plink_filter_prune(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
     subprocess.run(cmd, check=True)
 
 
-def plink_kinship(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
-    """Calculate kinship matrix from PLINK dataset."""
+def plink_kinship(
+    fname: str = None, 
+    DATA: Union[str, Path] = None
+) -> None:
+    """
+    Compute a kinship matrix from a PLINK dataset.
+
+    This function performs pruning of SNPs to reduce LD, then calculates a pairwise
+    kinship matrix using the `--make-rel square` option in PLINK. Outputs are stored
+    in a dedicated `kinship` directory.
+
+    Parameters
+    ----------
+    fname : str
+        Base filename of the input PLINK dataset (without file extensions).
+    DATA : str or Path
+        Directory containing the filtered PLINK files and where the kinship matrix will be stored.
+
+    Returns
+    -------
+    None
+        Produces a kinship matrix file (`.rel`) along with pruned PLINK files in the `kinship` directory.
+    """
     # DATA = Path(cl.__file__).parent.parent.parent / "data" if data_home is None else Path(data_home)
     # genodir = DATA / "eqtl_cat_genotypes"
     # plinkdir = genodir / "plink"
+    DATA = Path(DATA)
+    
     prunedir = DATA / "prunedir"
     kinshipdir = DATA / "kinship"
 
@@ -144,7 +217,23 @@ def plink_kinship(fname: str = None, DATA: str = None):  # ="OneK1K.noGP"
     subprocess.run(cmd, check=True)
 
 
-def try_liftover(row):
+def try_liftover(row) -> Union[int, float]:
+    """
+    Attempt to lift over a genomic coordinate from hg19 to hg38.
+
+    Uses the `liftover` module to convert a chromosome and position from hg19 to
+    hg38. Returns NaN if conversion fails or if the liftover converter is unavailable.
+
+    Parameters
+    ----------
+    row : pandas.Series
+        A row containing `chrom` and `pos` fields representing the hg19 coordinate.
+
+    Returns
+    -------
+    int or float
+        The converted hg38 position if successful, or `np.nan` if conversion fails.
+    """
     if converter is None:
         return np.nan
     try:

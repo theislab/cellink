@@ -19,6 +19,21 @@ from anndata.utils import asarray
 
 
 def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+    """
+    Convert an input array-like object to a NumPy array and optionally apply a mask.
+
+    Parameters
+    ----------
+    array : Any
+        Input array-like object, such as a NumPy array, Dask array, or sparse matrix.
+    mask : np.ndarray, optional
+        Boolean or integer array used to select a subset of the input. If None, the entire array is returned.
+
+    Returns
+    -------
+    np.ndarray or None
+        The resulting NumPy array after masking, or None if the input array is None.
+    """
     if array is None:
         return None
 
@@ -34,8 +49,12 @@ def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndar
 
 class MILDataset(Dataset):
     """
-    A PyTorch Dataset for Multiple Instance Learning (MIL) using donor-level and cell-level data
-    from AnnData or MuData objects. Supports both pre-split indices and random splitting.
+    PyTorch Dataset for Multiple Instance Learning (MIL) using donor- and cell-level data
+    from AnnData or MuData objects.
+
+    This dataset supports both pre-split donor indices and random splitting. Each
+    item returned by the dataset contains the donor-level and corresponding cell-level
+    features and labels, along with optional batch information and covariates.
     """
 
     def __init__(
@@ -62,35 +81,47 @@ class MILDataset(Dataset):
         """
         Parameters
         ----------
-        dd :
+        dd : DonorData object
+            Donor-level and cell-level data object.
+        donor_layer : str, optional
+            Layer name in donor data for features.
         donor_labels_key : str, optional
-            Key for donor labels.
+            Key for donor labels in `dd`.
         donor_batch_key : str, optional
-            Key for donor batch.
+            Key for donor batch labels.
         donor_cat_covs_key : str, optional
-            Key for categorical covariates for donors.
+            Key for donor categorical covariates.
         donor_cont_covs_key : str, optional
-            Key for continuous covariates for donors.
+            Key for donor continuous covariates.
         donor_indices_key : str, optional
-            Key for donor indices.
+            Key for donor-specific indices.
         donor_id_key : str, optional
-            Key for donor ID.
+            Key for donor IDs.
         celltype_key : str, optional
             Key for cell type.
+        cell_layer : str, optional
+            Layer name in cell data for features.
         cell_labels_key : str, optional
             Key for cell labels.
         cell_batch_key : str, optional
-            Key for cell batch.
+            Key for cell batch labels.
         cell_cat_covs_key : str, optional
-            Key for categorical covariates for cells.
+            Key for cell categorical covariates.
         cell_cont_covs_key : str, optional
-            Key for continuous covariates for cells.
+            Key for cell continuous covariates.
         cell_indices_key : str, optional
             Key for cell indices.
         cell_donor_key : str, optional
-            Key for cell donor ID.
-        split_indices : list of ints, optional
-            Predefined indices to use as dataset subset.
+            Key linking cells to donors.
+        split_donors : list[int], optional
+            List of donor IDs to include in the dataset.
+        split_indices : list[int], optional
+            List of indices of donors to include (alternative to `split_donors`).
+
+        Raises
+        ------
+        ValueError
+            If both `split_donors` and `split_indices` are provided.
         """
 
         if split_donors is not None and split_indices is not None:
@@ -173,7 +204,23 @@ class MILDataset(Dataset):
         self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False
     ) -> Any:
         """
-        Get the layer from the data. If force is False and layer is missing, return None.
+        Retrieve feature matrix from donor or cell data.
+
+        Parameters
+        ----------
+        data : AnnData or MuData
+            Data object to extract the features from.
+        layer_key : str, optional
+            Layer name to extract. If None, uses `X` by default.
+        mask : np.ndarray, optional
+            Boolean array for selecting specific rows.
+        force : bool, default=False
+            If True, raises an error when the layer is missing. Otherwise, returns None.
+
+        Returns
+        -------
+        np.ndarray or None
+            Feature matrix or None if not found and `force=False`.
         """
         if isinstance(data, MuData):
             data_list = [data.mod[key] for key in data.mod.keys()]
@@ -201,7 +248,23 @@ class MILDataset(Dataset):
         self, data: AnnData | MuData, key: str | None, mask: np.ndarray = None, force: bool = False
     ) -> Any:
         """
-        Fetch the obs field. If the field is missing and force is False, return None.
+        Retrieve observation-level field (labels, batch, covariates) from data.
+
+        Parameters
+        ----------
+        data : AnnData or MuData
+            Data object to extract observation fields from.
+        key : str
+            Key for the field in `.obs`.
+        mask : np.ndarray, optional
+            Boolean array to select subset of observations.
+        force : bool, default=False
+            If True, raises an error if the key is missing. Otherwise, returns None.
+
+        Returns
+        -------
+        np.ndarray or None
+            Array of values for the specified key, optionally masked.
         """
         if key is None:
             raise ValueError("Field key must be provided.")
@@ -220,8 +283,23 @@ class MILDataset(Dataset):
 
 def mil_collate_fn(batch):
     """
-    Custom collate function for MIL Dataset.
-    Combines donor and cell data in the correct format for batch processing.
+    Custom collate function for MILDataset to prepare batched input for PyTorch models.
+
+    Donor-level features are stacked into tensors, while cell-level features remain
+    as lists of tensors corresponding to each donor. This preserves the MIL structure.
+
+    Parameters
+    ----------
+    batch : list[dict]
+        List of samples returned by MILDataset.__getitem__.
+
+    Returns
+    -------
+    dict
+        Batched sample with stacked donor-level tensors and list-based cell-level tensors.
+        Keys include:
+        - 'donor_x', 'donor_y', 'donor_batch', 'donor_cat_covs', 'donor_cont_covs', 'donor_indices'
+        - 'cell_x', 'cell_y', 'cell_batch', 'cell_cat_covs', 'cell_cont_covs', 'cell_indices'
     """
 
     stack_fields = [

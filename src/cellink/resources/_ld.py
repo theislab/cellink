@@ -2,12 +2,33 @@ import shutil
 import tarfile
 
 import pandas as pd
+from pathlib import Path
+from typing import Optional, Tuple, Union
 
 from cellink.resources._utils import _download_file, _load_config, get_data_home
 
 
-def _extract_or_refresh(tgz_path, extract_path, refresh=False):
-    """Extract a tar.gz file if the directory doesn't exist or refresh=True."""
+def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = False) -> None:
+    """
+    Extract a tar.gz archive into a directory, optionally refreshing its contents.
+
+    If `refresh` is True and the extraction directory exists, all existing contents
+    will be deleted before extraction. If the directory is empty or `refresh` is True,
+    the tar.gz archive is extracted. Handles nested directories by flattening if necessary.
+
+    Parameters
+    ----------
+    tgz_path : pathlib.Path
+        Path to the `.tar.gz` archive to extract.
+    extract_path : pathlib.Path
+        Directory where the archive should be extracted.
+    refresh : bool, default=False
+        If True, deletes existing files/directories in `extract_path` before extraction.
+
+    Returns
+    -------
+    None
+    """
     if refresh and extract_path.exists():
         for item in extract_path.iterdir():
             if item.is_file():
@@ -27,13 +48,54 @@ def _extract_or_refresh(tgz_path, extract_path, refresh=False):
 
 
 def get_1000genomes_ld_scores(
-    config_path="./cellink/resources/config/1000genomes.yaml",
-    population="EUR",
-    data_home=None,
-    return_path=False,
-    refresh=False,
-):
-    """Download and extract precomputed LD scores for a population."""
+    config_path: Union[str, Path] = "./cellink/resources/config/1000genomes.yaml",
+    population: str = "EUR",
+    data_home: Optional[Union[str, Path]] = None,
+    return_path: bool = False,
+    refresh: bool = False,
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame, str], Tuple[Path, str]]:
+    """
+    Download, extract, and load precomputed 1000 Genomes linkage disequilibrium (LD) scores.
+
+    This function downloads population-specific LD scores from the 1000 Genomes project,
+    extracts them to a local directory, and concatenates chromosome-wise annotation and 
+    LD score files into pandas DataFrames.
+
+    Parameters
+    ----------
+    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
+        Path to YAML configuration file specifying URLs and file names for LD scores.
+    population : str, default='EUR'
+        Population code for LD scores. Must be one of {'EUR', 'EAS'}.
+    data_home : str or pathlib.Path, optional
+        Root directory where data will be stored. Defaults to user-specific cache directory.
+    return_path : bool, default=False
+        If True, returns the path to the extracted files and file prefix instead of DataFrames.
+    refresh : bool, default=False
+        If True, re-downloads and re-extracts files even if they already exist locally.
+
+    Returns
+    -------
+    tuple
+        If `return_path=False`, returns `(annot, ldscores, prefix)`:
+        - annot : pd.DataFrame
+            Concatenated annotation files for all chromosomes.
+        - ldscores : pd.DataFrame
+            Concatenated LD score files for all chromosomes.
+        - prefix : str
+            File name prefix used in the extracted data.
+        
+        If `return_path=True`, returns `(DATA, prefix)`:
+        - DATA : pathlib.Path
+            Path to the directory containing extracted files.
+        - prefix : str
+            File name prefix used in the extracted data.
+
+    Raises
+    ------
+    ValueError
+        If `population` is not one of the populations listed in the configuration.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_ld_scores_{population}"
     DATA.mkdir(exist_ok=True)
@@ -73,13 +135,51 @@ def get_1000genomes_ld_scores(
 
 
 def get_1000genomes_ld_weights(
-    config_path="./cellink/resources/config/1000genomes.yaml",
-    population="EUR",
-    data_home=None,
-    return_path=False,
-    refresh=False,
-):
-    """Download and extract precomputed LD weights for a population."""
+    config_path: Union[str, Path] = "./cellink/resources/config/1000genomes.yaml",
+    population: str = "EUR",
+    data_home: Optional[Union[str, Path]] = None,
+    return_path: bool = False,
+    refresh: bool = False,
+) -> Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[Path, str]]:
+    """
+    Download, extract, and load precomputed 1000 Genomes LD weights.
+
+    This function downloads population-specific LD weights from the 1000 Genomes project,
+    extracts them to a local directory, and concatenates chromosome-wise weight files 
+    into a single pandas DataFrame.
+
+    Parameters
+    ----------
+    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
+        Path to YAML configuration file specifying URLs and file names for LD weights.
+    population : str, default='EUR'
+        Population code for LD weights. Must be one of {'EUR', 'EAS'}.
+    data_home : str or pathlib.Path, optional
+        Root directory where data will be stored. Defaults to user-specific cache directory.
+    return_path : bool, default=False
+        If True, returns the path to the extracted files and file prefix instead of a DataFrame.
+    refresh : bool, default=False
+        If True, re-downloads and re-extracts files even if they already exist locally.
+
+    Returns
+    -------
+    tuple
+        If `return_path=False`, returns `(None, weights)`:
+        - None : placeholder for compatibility with LD scores interface.
+        - weights : pd.DataFrame
+            Concatenated LD weight files for all chromosomes.
+        
+        If `return_path=True`, returns `(DATA, prefix)`:
+        - DATA : pathlib.Path
+            Path to the directory containing extracted files.
+        - prefix : str
+            File name prefix used in the extracted data.
+
+    Raises
+    ------
+    ValueError
+        If `population` is not one of the populations listed in the configuration.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_ld_weights_{population}"
     DATA.mkdir(exist_ok=True)

@@ -5,7 +5,7 @@ import os
 import pickle
 import shutil
 import subprocess
-from typing import Literal
+from typing import Literal, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -17,6 +17,61 @@ from cellink.io import to_plink
 
 logger = logging.getLogger(__name__)
 
+def read_tensorqtl_results(
+    prefix: str = None, 
+    mode: str = None,
+    cis_output: bool | str = None,
+    interaction_df: bool | str = None,
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame]]:
+    """
+    Read TensorQTL result files.
+
+    Parameters
+    ----------
+    prefix : str, optional
+        File prefix used for generating intermediate input/output files. Required for most modes.
+    mode : str
+        Mode of TensorQTL run (e.g., "cis_nominal", "cis", "trans", "cis_susie").
+    cis_output : str or bool, default=True
+        - If a string, specifies the path to the cis_output file for modes like `cis_independent` or `cis_susie`.
+        - If True, the function will automatically attempt to find the cis_output file in `file_paths`.
+        - If False, the cis_output will not be read.
+    interaction_df : str or bool, default=True
+        - If a string, specifies the path to the interaction terms file for `cis_nominal` mode.
+        - If True, the function will attempt to automatically find the interaction file in `file_paths`.
+        - If False, the interaction file will not be read.
+
+    Returns
+    -------
+    pd.DataFrame or tuple
+        Parsed results depending on the mode.
+    """
+
+    if mode == "cis_nominal":
+        cis_qtl_pairs = pd.concat(
+            [pd.read_parquet(path) for path in glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet")], axis=0
+        )
+        if cis_output is not None:
+            cis_qtl_signif_pairs = pd.read_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
+        else:
+            cis_qtl_signif_pairs = None
+        if interaction_df is not None:
+            cis_qtl_top_assoc = pd.read_csv(f"{prefix}.cis_qtl_top_assoc.txt.gz", sep="\t")
+        else:
+            cis_qtl_top_assoc = None
+        results = (cis_qtl_pairs, cis_qtl_signif_pairs, cis_qtl_top_assoc)
+    elif mode == "cis":
+        results = pd.read_csv(f"{prefix}.cis_qtl.txt.gz", sep="\t")
+    elif mode == "cis_independent":
+        results = pd.read_csv(f"{prefix}.cis_independent_qtl.txt.gz", sep="\t")
+    elif mode == "trans":
+        results = pd.read_parquet(f"{prefix}.trans_qtl_pairs.parquet")
+    elif mode == "cis_susie" or mode == "trans_susie":
+        with open(f"{prefix}.SuSiE.pickle", "rb") as f:
+            susie = pickle.load(f)
+        susie_summary = pd.read_parquet(f"{prefix}.SuSiE_summary.parquet")
+        results = (susie, susie_summary)
+    return results
 
 def run_tensorqtl(
     dd: DonorData,
@@ -50,9 +105,10 @@ def run_tensorqtl(
     additional_covariates: list[str] | None = None,
     dtype: str = "float32",
     run: bool = True,
+    read_results: bool = True,
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
-):
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame], str]:
     """
     Run cis- or trans-QTL mapping using TensorQTL on donor-level aggregated expression and genotype data.
 
@@ -121,6 +177,8 @@ def run_tensorqtl(
         Data type to cast covariates and matrices for QTL model input.
     run : bool, default=True
         If True, executes the TensorQTL command. If False, returns the constructed command as a string.
+    read_results : bool, default=True
+        If True, reads and returns the result files. If False, returns the paths to the output files.
     save_cmd_file : bool, default=False
         If True, saves the constructed TensorQTL command to a file instead of printing.
     plink_export_kwargs : dict, optional
@@ -128,8 +186,11 @@ def run_tensorqtl(
 
     Returns
     -------
-    results : pd.DataFrame or str
-        If `run=True`, returns a pandas DataFrame of QTL mapping results. If `run=False`, returns the shell command as a string.
+    pd.DataFrame, tuple, str, or list[str]
+        Depending on mode and read_results:
+        - If run=True and read_results=True: returns pandas DataFrame(s) or tuple of results.
+        - If run=True and read_results=False: returns list of output file paths.
+        - If run=False: returns the constructed TensorQTL command as a string.
 
     Raises
     ------
@@ -291,32 +352,10 @@ def run_tensorqtl(
             filename = prefix + ext
             if os.path.isfile(filename):
                 os.remove(filename)
-
-        if mode == "cis_nominal":
-            cis_qtl_pairs = pd.concat(
-                [pd.read_parquet(path) for path in glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet")], axis=0
-            )
-            if cis_output is not None:
-                cis_qtl_signif_pairs = pd.read_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
-            else:
-                cis_qtl_signif_pairs = None
-            if interaction_df is not None:
-                cis_qtl_top_assoc = pd.read_csv(f"{prefix}.cis_qtl_top_assoc.txt.gz", sep="\t")
-            else:
-                cis_qtl_top_assoc = None
-            results = (cis_qtl_pairs, cis_qtl_signif_pairs, cis_qtl_top_assoc)
-        elif mode == "cis":
-            results = pd.read_csv(f"{prefix}.cis_qtl.txt.gz", sep="\t")
-        elif mode == "cis_independent":
-            results = pd.read_csv(f"{prefix}.cis_independent_qtl.txt.gz", sep="\t")
-        elif mode == "trans":
-            results = pd.read_parquet(f"{prefix}.trans_qtl_pairs.parquet")
-        elif mode == "cis_susie" or mode == "trans_susie":
-            with open(f"{prefix}.SuSiE.pickle", "rb") as f:
-                susie = pickle.load(f)
-            susie_summary = pd.read_parquet(f"{prefix}.SuSiE_summary.parquet")
-            results = (susie, susie_summary)
-
+        
+        if read_results:
+            results = read_tensorqtl_results(prefix, mode, cis_output=cis_output, interaction_df=interaction_df)
+        
         return results
 
     else:
