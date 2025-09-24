@@ -288,7 +288,7 @@ def run_jaxqtl(
     add_flag("--verbose", verbose)
 
     if run:
-        subprocess.run(cmd, check=True, shell=True)
+        subprocess.run(" ".join(cmd), check=True, shell=True)
 
         if read_results:
             results = read_jaxqtl_results(prefix=prefix)

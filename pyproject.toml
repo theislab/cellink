@@ -91,6 +91,7 @@ optional-dependencies.snpeff = [
 ]
 optional-dependencies.tensorqtl = [
   "tensorqtl",
+  #"plink2"
 ]
 optional-dependencies.test = [
   "coverage",

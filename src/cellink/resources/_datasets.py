@@ -12,6 +12,7 @@ import pandas as pd
 import yaml
 
 import cellink as cl
+from .._core import DonorData
 from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 
@@ -87,7 +88,7 @@ def get_onek1k(
     config_path: str = "./cellink/resources/config/onek1k.yaml",
     data_home: str | None = None,
     verify_checksum: bool = True
-) -> cl.DonorData:
+) -> DonorData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.
 
@@ -185,7 +186,7 @@ def get_onek1k(
 
     adata.obs["age"] = adata.obs["age"].astype("int")
 
-    dd = cl.DonorData(G=gdata, C=adata).copy()
+    dd = DonorData(G=gdata, C=adata).copy()
 
     return dd
 

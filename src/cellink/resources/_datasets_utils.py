@@ -43,7 +43,7 @@ def preprocess_vcf_to_plink(
 
     cmd = plink_base_cmd + [
         "--vcf",
-        vcf_filename,
+        str(DATA / vcf_filename),
         "--maf",
         "0.01",
         "--const-fid",

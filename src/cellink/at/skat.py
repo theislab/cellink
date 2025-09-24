@@ -6,8 +6,8 @@ import numpy.linalg as la
 import pandas as pd
 import scipy
 import scipy.stats as st
-from limix_core.covar import FreeFormCov
-from limix_core.gp import GP2KronSumLR
+#from limix_core.covar import FreeFormCov #TODO ARNOLDT
+#from limix_core.gp import GP2KronSumLR
 
 from cellink._core import DonorData
 from cellink.at.utils import (
