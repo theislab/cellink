@@ -4,6 +4,7 @@ import logging
 import os
 import pickle
 import shutil
+import importlib.util
 import subprocess
 from typing import Literal, Tuple, Union
 
@@ -203,7 +204,7 @@ def run_tensorqtl(
     if run:
         if shutil.which("plink2") is None:
             raise ImportError("plink2 is required for `run_tensorqtl`. Please install it.")
-        if shutil.which("python3 -m tensorqtl") is None:
+        if importlib.util.find_spec("tensorqtl") is None:
             raise ImportError("tensorqtl is required for `run_tensorqtl`. Please install it.")
 
     args = {
@@ -318,7 +319,7 @@ def run_tensorqtl(
 
     ###
 
-    cmd = f"python3 -m tensorqtl {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
+    cmd = f"python -m tensorqtl {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
 
     for key, value in args.items():
         if isinstance(value, bool) and value:
@@ -361,6 +362,6 @@ def run_tensorqtl(
     else:
         if save_cmd_file:
             with open(save_cmd_file, "w") as f:
-                f.write(" ".join(cmd) + "\n")
+                f.write(cmd + "\n")
         else:
-            return " ".join(cmd)
+            return cmd
