@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 import subprocess
-from typing import Literal, Union
+from typing import Literal
 
 import pandas as pd
 import scanpy as sc
@@ -15,9 +15,8 @@ from cellink.io import to_plink
 
 logger = logging.getLogger(__name__)
 
-def read_jaxqtl_results(
-    prefix: str
-) -> pd.DataFrame:
+
+def read_jaxqtl_results(prefix: str) -> pd.DataFrame:
     """
     Read jaxQTL output TSV file.
 
@@ -33,8 +32,9 @@ def read_jaxqtl_results(
     """
     results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
     results = pd.read_csv(results_path, delimiter="\t")
-    
+
     return results
+
 
 def run_jaxqtl(
     dd: DonorData,
@@ -78,7 +78,7 @@ def run_jaxqtl(
     plink_export_kwargs: dict | None = {},
     remove_intermediate_files: bool = True,
     overwrite_plink_export: bool = True,
-) -> Union[pd.DataFrame, str]:
+) -> pd.DataFrame | str:
     """
     Run cis- or trans-eQTL mapping using jaxQTL on donor-level genotype and aggregated expression data.
 
@@ -245,7 +245,7 @@ def run_jaxqtl(
     covariates_df.index.name = "iid"
     covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
     # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
-    
+
     if not os.path.isfile(f"{prefix}.bed") or overwrite_plink_export:
         to_plink(dd.G, prefix, **plink_export_kwargs)
 
