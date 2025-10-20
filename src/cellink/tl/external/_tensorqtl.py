@@ -109,6 +109,8 @@ def run_tensorqtl(
     read_results: bool = True,
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
+    remove_intermediate_files: bool = True,
+    overwrite_plink_export: bool = True,
 ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame], str]:
     """
     Run cis- or trans-QTL mapping using TensorQTL on donor-level aggregated expression and genotype data.
@@ -184,6 +186,10 @@ def run_tensorqtl(
         If True, saves the constructed TensorQTL command to a file instead of printing.
     plink_export_kwargs : dict, optional
         Additional keyword arguments for `to_plink` function.
+    remove_intermediate_files : bool, default=True
+        If True, removes the intermediate files.
+    overwrite_plink_export : bool, default=True
+        If True, overwrites the plink export.
 
     Returns
     -------
@@ -308,14 +314,14 @@ def run_tensorqtl(
     covariates_df = covariates_df.T
     covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
 
-    to_plink(dd.G, prefix, **plink_export_kwargs)
-
     geno = prefix
     covar = f"{prefix}_donor_features.tsv"
     pheno = f"{prefix}_phenotype.bed.gz"
 
-    cmd_plink_conversion = f"plink2 --bfile {geno} --make-pgen --out {geno}"
-    subprocess.run(cmd_plink_conversion, check=True, shell=True)
+    if not os.path.isfile(f"{prefix}.pgen") or overwrite_plink_export:
+        to_plink(dd.G, prefix, **plink_export_kwargs)
+        cmd_plink_conversion = f"plink2 --bfile {geno} --make-pgen --out {geno}"
+        subprocess.run(cmd_plink_conversion, check=True, shell=True)
 
     ###
 
@@ -347,13 +353,14 @@ def run_tensorqtl(
 
     if run:
         subprocess.run(cmd, check=True, shell=True)
-
-        extensions = [".bim", ".fam", ".bed", ".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
-        for ext in extensions:
-            filename = prefix + ext
-            if os.path.isfile(filename):
-                os.remove(filename)
         
+        if remove_intermediate_files:
+            extensions = [".bim", ".fam", ".bed", ".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
+            for ext in extensions:
+                filename = prefix + ext
+                if os.path.isfile(filename):
+                    os.remove(filename)
+            
         if read_results:
             results = read_tensorqtl_results(prefix, mode, cis_output=cis_output, interaction_df=interaction_df)
         

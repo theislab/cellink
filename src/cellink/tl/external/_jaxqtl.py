@@ -76,6 +76,8 @@ def run_jaxqtl(
     read_results: bool = True,
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
+    remove_intermediate_files: bool = True,
+    overwrite_plink_export: bool = True,
 ) -> Union[pd.DataFrame, str]:
     """
     Run cis- or trans-eQTL mapping using jaxQTL on donor-level genotype and aggregated expression data.
@@ -164,6 +166,10 @@ def run_jaxqtl(
         If provided, saves the jaxQTL command to this file instead of printing it.
     plink_export_kwargs : dict, optional
         Additional keyword arguments for `to_plink` function.
+    remove_intermediate_files : bool, default=True
+        If True, removes the intermediate files.
+    overwrite_plink_export : bool, default=True
+        If True, overwrites the plink export.
 
     Returns
     -------
@@ -239,7 +245,9 @@ def run_jaxqtl(
     covariates_df.index.name = "iid"
     covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
     # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
-    to_plink(dd.G, prefix, **plink_export_kwargs)
+    
+    if not os.path.isfile(f"{prefix}.bed") or overwrite_plink_export:
+        to_plink(dd.G, prefix, **plink_export_kwargs)
 
     ###
 
@@ -293,11 +301,12 @@ def run_jaxqtl(
         if read_results:
             results = read_jaxqtl_results(prefix=prefix)
 
-        extensions = [".bim", ".fam", ".bed", "_donor_features.tsv", "_phenotype.bed.gz"]
-        for ext in extensions:
-            filename = prefix + ext
-            if os.path.isfile(filename):
-                os.remove(filename)
+        if remove_intermediate_files:
+            extensions = [".bim", ".fam", ".bed", "_donor_features.tsv", "_phenotype.bed.gz"]
+            for ext in extensions:
+                filename = prefix + ext
+                if os.path.isfile(filename):
+                    os.remove(filename)
 
         return results
     else:
