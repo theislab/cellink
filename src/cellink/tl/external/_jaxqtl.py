@@ -77,6 +77,8 @@ def run_jaxqtl(
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
     remove_intermediate_files: bool = True,
+    overwrite_covariates_export: bool = True,
+    overwrite_phenotype_export: bool = True,
     overwrite_plink_export: bool = True,
 ) -> pd.DataFrame | str:
     """
@@ -168,6 +170,10 @@ def run_jaxqtl(
         Additional keyword arguments for `to_plink` function.
     remove_intermediate_files : bool, default=True
         If True, removes the intermediate files.
+    overwrite_covariates_export : bool, default=True
+        If True, overwrites the covariates export.
+    overwrite_phenotype_export : bool, default=True
+        If True, overwrites the phenotype export.
     overwrite_plink_export : bool, default=True
         If True, overwrites the plink export.
 
@@ -200,50 +206,52 @@ def run_jaxqtl(
         sc.pp.pca(dd.C, n_comps=n_pcs)
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
-    phenotype_df = dd.G.obsm["PB"].T
-    phenotype_df.index.name = "Geneid"
-    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
-    phenotype_pos_df["Geneid"] = phenotype_pos_df.index
-    phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
-    with gzip.open(f"{prefix}_phenotype.bed.gz", "wt") as f:
-        f.write("#" + "\t".join(phenotype_write_df.columns.tolist()) + "\n")
-        phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
+    if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
+        phenotype_df = dd.G.obsm["PB"].T
+        phenotype_df.index.name = "Geneid"
+        phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+        phenotype_pos_df["Geneid"] = phenotype_pos_df.index
+        phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
+        with gzip.open(f"{prefix}_phenotype.bed.gz", "wt") as f:
+            f.write("#" + "\t".join(phenotype_write_df.columns.tolist()) + "\n")
+            phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
 
-    covariate_list = []
+    if not os.path.isfile(f"{prefix}_donor_features.tsv") or overwrite_covariates_export:
+        covariate_list = []
 
-    if encode_sex:
-        sex_codes = dd.G.obs["sex"].astype("category").cat.codes
-        covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
+        if encode_sex:
+            sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+            covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
-    if encode_age:
-        age_values = dd.G.obs[["age"]].values.astype("int")
-        covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
+        if encode_age:
+            age_values = dd.G.obs[["age"]].values.astype("int")
+            covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
-    if additional_covariates:
-        for cov in additional_covariates:
-            if cov in dd.G.obs.columns:
-                covariate_df = pd.DataFrame(
-                    dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
-                )
-                covariate_list.append(covariate_df)
-            elif cov in dd.G.obsm:
-                cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
-                if cov_matrix.ndim == 1:
-                    covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
-                else:
-                    covariate_list.append(
-                        pd.DataFrame(
-                            cov_matrix,
-                            columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
-                            index=phenotype_df.columns,
-                        )
+        if additional_covariates:
+            for cov in additional_covariates:
+                if cov in dd.G.obs.columns:
+                    covariate_df = pd.DataFrame(
+                        dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
                     )
-            else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                    covariate_list.append(covariate_df)
+                elif cov in dd.G.obsm:
+                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                    if cov_matrix.ndim == 1:
+                        covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
+                    else:
+                        covariate_list.append(
+                            pd.DataFrame(
+                                cov_matrix,
+                                columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
+                                index=phenotype_df.columns,
+                            )
+                        )
+                else:
+                    raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
 
-    covariates_df = pd.concat(covariate_list, axis=1)
-    covariates_df.index.name = "iid"
-    covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
+        covariates_df = pd.concat(covariate_list, axis=1)
+        covariates_df.index.name = "iid"
+        covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
     # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
 
     if not os.path.isfile(f"{prefix}.bed") or overwrite_plink_export:
