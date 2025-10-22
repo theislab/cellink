@@ -251,12 +251,12 @@ def run_tensorqtl(
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
 
+    phenotype_df = dd.G.obsm["PB"].T
+    phenotype_df.index.name = "Geneid"
+    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+    phenotype_pos_df["Geneid"] = phenotype_pos_df.index
+    
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
-        phenotype_df = dd.G.obsm["PB"].T
-        phenotype_df.index.name = "Geneid"
-        phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
-        phenotype_pos_df["Geneid"] = phenotype_pos_df.index
-
         phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
         phenotype_write_df = phenotype_write_df.rename(columns={"chr": "#chr"})
         phenotype_write_df = phenotype_write_df.groupby("#chr", sort=False, group_keys=False).apply(
