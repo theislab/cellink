@@ -1,4 +1,0 @@
-execution_mode: docker
-docker_image: zijingliu/ldsc
-ldsc_command: /ldsc/ldsc.py
-munge_command: /ldsc/munge_sumstats.py
