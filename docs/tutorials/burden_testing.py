@@ -11,11 +11,10 @@ from tqdm.auto import tqdm
 
 import cellink as cl
 from cellink._core import DAnn, GAnn
-from cellink.tl._rvat import run_burden_test, run_skat_test, beta_weighting
+from cellink.tl._rvat import run_burden_test, beta_weighting
 from cellink.utils import column_normalize, gaussianize
 
-from cellink.at.acat import acat_test
-from cellink.resources import get_onek1k
+from cellink.datasets import get_onek1k
 
 DATA = Path(cl.__file__).parent.parent.parent / "docs/tutorials/data"
 
@@ -24,70 +23,72 @@ n_epcs = 15
 batch_e_pcs_n_top_genes = 2000
 chrom = 22
 cis_window = 500_000
-#cell_type = "CD8 Naive"
+# cell_type = "CD8 Naive"
 celltype_key = "predicted.celltype.l2"
-#pb_gex_key = f"PB_{cell_type}"  # pseudobulk expression in dd.G.obsm[key_added]
+# pb_gex_key = f"PB_{cell_type}"  # pseudobulk expression in dd.G.obsm[key_added]
 original_donor_col = "donor_id"
 min_percent_donors_expressed = 0.1
 do_debug = False
 
-dd = get_onek1k(config_path='./cellink/resources/config/onek1k.yaml')
+dd = get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml")
 dd
 
 
 ###
 aggregation_map = {
     # CD4 T cell group
-    'CD4 TCM': 'CD4 T cells',
-    'CD4 Naive': 'CD4 T cells',
-    'CD4 TEM': 'CD4 T cells',
-    'CD4 CTL': 'CD4 T cells',
-    'CD4 Proliferating': 'CD4 T cells',
-    'Treg': 'CD4 T cells',
-
+    "CD4 TCM": "CD4 T cells",
+    "CD4 Naive": "CD4 T cells",
+    "CD4 TEM": "CD4 T cells",
+    "CD4 CTL": "CD4 T cells",
+    "CD4 Proliferating": "CD4 T cells",
+    "Treg": "CD4 T cells",
     # CD8 T cell group
-    'CD8 TEM': 'CD8 T cells',
-    'CD8 Naive': 'CD8 T cells',
-    'CD8 TCM': 'CD8 T cells',
-    'CD8 Proliferating': 'CD8 T cells',
-
+    "CD8 TEM": "CD8 T cells",
+    "CD8 Naive": "CD8 T cells",
+    "CD8 TCM": "CD8 T cells",
+    "CD8 Proliferating": "CD8 T cells",
     # NK cells
-    'NK': 'NK cells',
-    'NK_CD56bright': 'NK cells',
-    'NK Proliferating': 'NK cells',
-
+    "NK": "NK cells",
+    "NK_CD56bright": "NK cells",
+    "NK Proliferating": "NK cells",
     # B cells
-    'B naive': 'B cells',
-    'B memory': 'B cells',
-    'B intermediate': 'B cells',
-    'Plasmablast': 'B cells',
-
+    "B naive": "B cells",
+    "B memory": "B cells",
+    "B intermediate": "B cells",
+    "Plasmablast": "B cells",
     # Monocytes
-    'CD14 Mono': 'Monocytes',
-    'CD16 Mono': 'Monocytes',
-
+    "CD14 Mono": "Monocytes",
+    "CD16 Mono": "Monocytes",
     # Dendritic cells
-    'cDC1': 'Conventional DCs',
-    'cDC2': 'Conventional DCs',
-    'ASDC': 'Conventional DCs',
+    "cDC1": "Conventional DCs",
+    "cDC2": "Conventional DCs",
+    "ASDC": "Conventional DCs",
 }
-all_celltypes = ["CD4 T cells", 'CD8 T cells', 'NK cells', 'B cells', 'Monocytes', 'Conventional DCs']
+all_celltypes = ["CD4 T cells", "CD8 T cells", "NK cells", "B cells", "Monocytes", "Conventional DCs"]
 # Replace labels with coarse-grained ones where applicable
-#dd.C.obs[celltype_key] = dd.C.obs[celltype_key].replace(aggregation_map)
+# dd.C.obs[celltype_key] = dd.C.obs[celltype_key].replace(aggregation_map)
 ###
+
 
 def _get_ensembl_gene_id_start_end_chr():
     from pybiomart import Server
-    server = Server(host='http://www.ensembl.org')
-    dataset = (server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl'])
-    ensembl_gene_id_start_end_chr = dataset.query(attributes=['ensembl_gene_id', 'start_position', 'end_position', 'chromosome_name'])
+
+    server = Server(host="http://www.ensembl.org")
+    dataset = server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"]
+    ensembl_gene_id_start_end_chr = dataset.query(
+        attributes=["ensembl_gene_id", "start_position", "end_position", "chromosome_name"]
+    )
     ensembl_gene_id_start_end_chr = ensembl_gene_id_start_end_chr.set_index("Gene stable ID")
-    ensembl_gene_id_start_end_chr = ensembl_gene_id_start_end_chr.rename(columns={
-        "Gene start (bp)": GAnn.start,
-        "Gene end (bp)": GAnn.end,
-        "Chromosome/scaffold name": GAnn.chrom,
-    })
+    ensembl_gene_id_start_end_chr = ensembl_gene_id_start_end_chr.rename(
+        columns={
+            "Gene start (bp)": GAnn.start,
+            "Gene end (bp)": GAnn.end,
+            "Chromosome/scaffold name": GAnn.chrom,
+        }
+    )
     return ensembl_gene_id_start_end_chr
+
 
 ensembl_gene_id_start_end_chr = _get_ensembl_gene_id_start_end_chr()
 ensembl_gene_id_start_end_chr
@@ -110,12 +111,12 @@ sc.tl.pca(mdata, n_comps=n_epcs)
 dd.G.obsm["ePCs"] = mdata[dd.G.obs_names].obsm["X_pca"]
 
 #######
-for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):  
+for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])):  # tqdm(all_celltypes):
     print(cell_type)
     dd_celltype = dd.copy()
     dd_celltype = dd_celltype[..., dd_celltype.C.obs[celltype_key] == cell_type, :].copy()
     dd_celltype
-    pb_gex_key = f"PB_{cell_type}" 
+    pb_gex_key = f"PB_{cell_type}"
 
     gc.collect()
 
@@ -136,7 +137,9 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):
         print(chrom)
         # alternative to dd[:, dd.G.var.chrom == str(chrom), :, dd.C.var.chrom == str(chrom)]
         dd_chrom = dd_celltype.copy()
-        dd_chrom = dd_chrom.sel(G_var=dd_chrom.G.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)).copy()
+        dd_chrom = dd_chrom.sel(
+            G_var=dd_chrom.G.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)
+        ).copy()
         dd_chrom
 
         vep_annotation_file = DATA / f"variant_annotation/variants_vep_annotated_chr{chrom}.txt"
@@ -150,7 +153,7 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):
 
         burden_agg_fct = "sum"
         run_lrt = True
-        annotation_cols = ["maf_beta"] #["CADD_RAW", "maf_beta", "tss_distance", "tss_distance_exp"]
+        annotation_cols = ["maf_beta"]  # ["CADD_RAW", "maf_beta", "tss_distance", "tss_distance_exp"]
 
         rare_maf_threshold = 0.05
 
@@ -183,9 +186,11 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):
         if do_debug:
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-
         for gene, row in tqdm(dd_chrom.C.var.iterrows(), total=dd_chrom.shape[3]):
-            Y = gaussianize(dd_chrom.G.obsm[pb_gex_key][[gene]].values.astype("float") + 1e-5 * np.random.randn(dd_chrom.shape[0], 1))
+            Y = gaussianize(
+                dd_chrom.G.obsm[pb_gex_key][[gene]].values.astype("float")
+                + 1e-5 * np.random.randn(dd_chrom.shape[0], 1)
+            )
 
             start = max(0, row.start - cis_window)
             end = row.end + cis_window
@@ -195,8 +200,8 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):
             _G = _G.copy()
 
             # TODO make strand aware
-            #_G.varm["variant_annotation"]["tss_distance"] = np.abs(row.start - _G.var["pos"])
-            #_G.varm["variant_annotation"]["tss_distance_exp"] = np.exp(-1e-5 * _G.varm["variant_annotation"]["tss_distance"])
+            # _G.varm["variant_annotation"]["tss_distance"] = np.abs(row.start - _G.var["pos"])
+            # _G.varm["variant_annotation"]["tss_distance_exp"] = np.exp(-1e-5 * _G.varm["variant_annotation"]["tss_distance"])
 
             rdf = run_burden_test(
                 _G, Y, F, gene, annotation_cols=annotation_cols, burden_agg_fct=burden_agg_fct, run_lrt=run_lrt
@@ -206,15 +211,13 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])): #tqdm(all_celltypes):
         rdf = pd.concat(results)
         rdf
 
-        #print((rdf.pv < 0.05).sum())
+        # print((rdf.pv < 0.05).sum())
 
         rdf.to_csv(f"burden_test_maf_beta_{cell_type}_chr{chrom}.csv")
-        
+
 
 ##############################
 
-import seaborn as sns
-import matplotlib.pyplot as plt
 import numpy as np
 
 """
