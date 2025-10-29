@@ -31,13 +31,13 @@
 ## DonorData
 
 ```{eval-rst}
-.. module:: cellink._core
+.. module:: cellink
 .. currentmodule:: cellink
 
 .. autosummary::
     :toctree: generated
 
-    _core.DonorData
+    DonorData
 ```
 
 ## Tools
@@ -61,23 +61,31 @@
     tl.run_burden_test
     tl.run_skat_test
     tl.beta_weighting
-    <!-- TODO: add external!! -->
-
+    tl.external.calculate_ld
+    tl.external.run_jaxqtl
+    tl.external.read_jaxqtl_results
+    tl.external.run_mixmil
+    tl.external.calculate_pcs
+    tl.external.run_tensorqtl
+    tl.external.read_tensorqtl_results
 ```
 
-## ML
+<!-- ## External Tools
 
 ```{eval-rst}
-.. module:: cellink.ml
+.. module:: cellink.tl.external
 .. currentmodule:: cellink
 
 .. autosummary::
     :toctree: generated
-
-    ml.MILDataset
-    ml.mil_collate_fn
-    ml.DonorMILModel
-```
+    tl.external.calculate_ld
+    tl.external.run_jaxqtl
+    tl.external.read_jaxqtl_results
+    tl.external.run_mixmil
+    tl.external.calculate_pcs
+    tl.external.run_tensorqtl
+    tl.external.read_tensorqtl_results
+``` -->
 
 ## Utils
 
@@ -90,6 +98,28 @@
 
     utils.column_normalize
     utils.gaussianize
+```
+
+## Resources
+
+```{eval-rst}
+.. module:: cellink.resources
+.. currentmodule:: cellink
+
+.. autosummary::
+   :toctree: generated
+
+   resources.get_1000genomes
+   resources.get_onek1k
+   resources.get_eqtl_catalog_dataset_associations
+   resources.get_eqtl_catalog_datasets
+   resources.get_gwas_catalog_studies
+   resources.get_gwas_catalog_study
+   resources.get_gwas_catalog_study_summary_stats
+   resources.get_pgs_catalog_score
+   resources.get_pgs_catalog_scores
+   resources.get_1000genomes_ld_scores
+   resources.get_1000genomes_ld_weights
 ```
 
 ## Plotting
