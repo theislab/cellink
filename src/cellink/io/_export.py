@@ -1,9 +1,9 @@
 import logging
 import sys
 
-from anndata import AnnData
 import numpy as np
 import xarray as xr
+from anndata import AnnData
 from pandas_plink import write_plink1_bin
 
 from cellink._core.data_fields import DAnn, VAnn
@@ -148,17 +148,14 @@ def to_plink(
     write_plink1_bin(xarr, output_prefix)
 
 
-def write_variants_to_vcf(
-    gdata,
-    out_file="variants.vcf"
-) -> None:
+def write_variants_to_vcf(gdata, out_file="variants.vcf") -> None:
     """Write unique variants from gdata to vcf file for annotation
 
     Parameters
     ----------
-    gdata : gdata
-        gdata object
-    out_file : str, optional
+    gdata : DonorData.G
+        DonorData genotype object
+    out_file : str
         output file. By default "variants.vcf"
     """
     logger.info(f"number of variants to annotate: {len(gdata.var)}")
