@@ -3,11 +3,11 @@ from typing import Literal
 
 import dask.array as da
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from adjustText import adjust_text
+from matplotlib.figure import Figure
 from scipy.sparse import issparse
 
 from cellink._core import DonorData
@@ -252,7 +252,7 @@ def volcano(
         Column name for log fold changes.
     pval_col : str, default 'pval'
         Column name for p-values.
-    label_col : str, optional
+    label_col : str
         Column name for gene/feature labels. Used for annotation.
     pval_thresh : float, default 0.05
         Significance threshold for p-values.
@@ -262,21 +262,21 @@ def volcano(
         Color for significant points.
     non_sig_color : str, default 'grey'
         Color for non-significant points.
-    figsize : tuple, optional
+    figsize : tuple
         Figure size.
-    labelsize : int, optional
+    labelsize : int
         Axis label font size.
-    titlesize : int, optional
+    titlesize : int
         Title font size.
-    title : str, optional
+    title : str
         Plot title.
-    show : bool or None, optional
+    show : bool or None
         Whether to display the plot.
-    save : str or None, optional
+    save : str or None
         Path to save the figure. If provided, the figure is saved instead of shown.
     dpi : int, default 300
         Figure resolution.
-    ax : matplotlib.axes.Axes, optional
+    ax : matplotlib.axes.Axes
         Axis to plot on. If None, a new figure is created.
 
     Returns
