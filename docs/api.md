@@ -1,17 +1,5 @@
 # API
 
-## Linking Structure
-
-```{eval-rst}
-.. module:: cellink._core
-.. currentmodule:: cellink
-
-.. autosummary::
-    :toctree: generated
-
-    _core.donordata.DonorData
-```
-
 ## Input-Output
 
 ```{eval-rst}
@@ -29,8 +17,6 @@
 ```
 
 ## Preprocessing
-
-<!-- TODO: add pp._basic?  -->
 
 ```{eval-rst}
 .. module:: cellink.pp
@@ -75,6 +61,22 @@
     tl.run_burden_test
     tl.run_skat_test
     tl.beta_weighting
+    <!-- TODO: add external!! -->
+
+```
+
+## ML
+
+```{eval-rst}
+.. module:: cellink.ml
+.. currentmodule:: cellink
+
+.. autosummary::
+    :toctree: generated
+
+    ml.MILDataset
+    ml.mil_collate_fn
+    ml.DonorMILModel
 ```
 
 ## Utils
@@ -99,6 +101,9 @@
 .. autosummary::
     :toctree: generated
 
-    pl.basic_plot
-    pl.BasicClass
+    pl.locus
+    pl.manhattan
+    pl.qq
+    pl.expression_by_genotype
+    pl.volcano
 ```
