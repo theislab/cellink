@@ -4,8 +4,8 @@
 <!-- [![Tests][badge-tests]][tests]
 
 <!-- [badge-tests]: https://img.shields.io/github/actions/workflow/status/theislab/Single-cell Genetics (Cellink)/test.yaml?branch=main -->
-[![Documentation][badge-docs]][documentation]
-[badge-docs]: https://cellink-docs.readthedocs.io/
+<!-- [![Documentation][badge-docs]][documentation]  -->
+<!-- [badge-docs]: https://cellink-docs.readthedocs.io/  -->
 
 
 Welcome to the official documentation for **cellink**—the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
