@@ -76,7 +76,7 @@ def from_sgkit_dataset(
     obs_rename = {} if obs_rename is None else obs_rename
 
     if SgVars.genotype in sgkit_dataset:
-        X = sgkit_dataset[SgVars.genotype].data.T
+        X = sgkit_dataset[SgVars.genotype].data.sum(-1).T
     elif SgVars.genotype_alt in sgkit_dataset:
         prob = sgkit_dataset[SgVars.genotype_alt].data
         if hard_call:
