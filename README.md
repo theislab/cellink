@@ -33,17 +33,17 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 
 **cellink** offers a streamlined suite of tools for the entire analysis workflow:
 
-- **[Variant Preprocessing & Annotation](tutorials/explore_annotations.ipynb):** Tools for quality control, annotation (VCF export/import), and selection of genetic variants.
+- **[Variant Preprocessing & Annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html):** Tools for quality control, annotation (VCF export/import), and selection of genetic variants.
 - **Specialized Downstream Analysis:** Easily perform complex genetic analyses on single-cell expression data, including:
-    - [eQTL mapping](tutorials/pseudobulk_eqtl.ipynb).
+    - [eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html).
           <!-- * Colocalization analysis with established disease loci. -->
-    - [Rare variant association studies](tutorials/burden_testing.ipynb).
-- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.ipynb) and includes built-in [dataloaders for deep learning](tutorials/run_dataloader.ipynb).
+    - [Rare variant association studies]([tutorials/burden_testing.ipynb](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html)).
+- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html) and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
 
 ## 🚀 Getting Started
 
-- Check out the **[Tutorials](tutorials/index.md)** section for step-by-step guides on analysis workflows.
-- Explore the **[API Reference](api/index.md)** for detailed documentation.
+- Check out the **[Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html)** section for step-by-step guides on analysis workflows.
+- Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/tutorials/api.html)** for detailed documentation.
 
 Install the latest development version directly from GitHub:
 
