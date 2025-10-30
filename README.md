@@ -43,7 +43,7 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 ## 🚀 Getting Started
 
 - Check out the **[Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html)** section for step-by-step guides on analysis workflows.
-- Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/tutorials/api.html)** for detailed documentation.
+- Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/tutorials/api/index.html)** for detailed documentation.
 
 Install the latest development version directly from GitHub:
 
