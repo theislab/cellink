@@ -6,7 +6,7 @@ build:
     python: "3.10"
   jobs:
     post_install:
-      - pip install -e .[doc]
+      - pip install -e .[doc, ml]
 sphinx:
   configuration: docs/conf.py
   # disable this for more lenient docs builds
