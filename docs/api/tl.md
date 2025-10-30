@@ -11,8 +11,6 @@
     tl.run_favor
     tl.run_snpeff
     tl.run_vep
-    tl.one_hot_encode_genotypes
-    tl.dosage_per_strand
     tl.add_vep_annos_to_gdata
     tl.combine_annotations
     tl.aggregate_annotations_for_varm
