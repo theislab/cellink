@@ -56,7 +56,9 @@ SGVAR_TO_GDATA = {
 }
 
 
-def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None) -> AnnData:
+def from_sgkit_dataset(
+    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None, hard_call: bool = True
+) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -67,14 +69,24 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
 
-    try:
-        X = sgkit_dataset[SgVars.genotype].data.sum(-1).T  # additive model encoding
-    except KeyError:
-        X = sgkit_dataset[SgVars.genotype_alt].data.sum(-1).T
+    if SgVars.genotype in sgkit_dataset:
+        X = sgkit_dataset[SgVars.genotype].data.sum(-1).T
+    elif SgVars.genotype_alt in sgkit_dataset:
+        prob = sgkit_dataset[SgVars.genotype_alt].data
+        if hard_call:
+            # hard-call
+            X = prob.argmax(-1).T
+        else:
+            # dosage/additive encoding
+            X = (prob[..., 1] + 2 * prob[..., 2]).T
+    else:
+        raise KeyError("No genotype or genotype_probability found in dataset.")
 
     obs = _to_df_only_dim(sgkit_dataset, SgDims.samples)
     obs = obs.rename(columns=obs_rename)
@@ -116,7 +128,7 @@ def from_sgkit_dataset(sgkit_dataset: xr.Dataset, *, var_rename: dict = None, ob
     return gdata
 
 
-def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -127,13 +139,15 @@ def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, **kwa
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
     return gdata
 
 
-def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
     """Read Plink Format
 
     Params
@@ -144,15 +158,17 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, **k
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
     from sgkit.io import plink as sg_plink
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
     return gdata
 
 
-def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, **kwargs) -> AnnData:
+def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
     """Read bgen Format
 
     Params
@@ -163,9 +179,11 @@ def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, **kw
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
     from sgkit.io import bgen as sg_bgen
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
     return gdata

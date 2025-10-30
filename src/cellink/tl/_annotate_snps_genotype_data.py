@@ -3,7 +3,6 @@ import logging
 import os
 import subprocess
 import sys
-from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -61,11 +60,11 @@ def run_snpeff(
 
     Parameters
     ----------
-    input_vcf : str, optional
+    input_vcf : str
         Path to the input VCF file containing variants to annotate. Defaults to "variants.vcf".
-    output : str, optional
+    output : str
         Path to the file where the annotated variants will be written. Defaults to "variants_vep_annotated.txt".
-    return_annos : bool, optional
+    return_annos : bool
         Whether to return the annotations as a Pandas DataFrame after writing them to disk.
         Defaults to False.
     **kwargs : dict
@@ -148,15 +147,17 @@ def run_snpeff(
         return annos
 
 
-def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None, database_dir: str =None):
-    URL = URLs.loc[URLs["chr"] == chromosome, "URL"].values[0]
+def _download_favor(
+    URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None, database_dir: str = None
+):
+    URL = URLs.loc[URLs["chr"] == str(chromosome), "URL"].values[0]
 
     subprocess.run(
         ["wget", "--progress=bar:force:noscroll", URL],
         stdout=sys.stdout,
         stderr=sys.stderr,
         cwd=database_dir,
-        check=True
+        check=True,
     )
     file_id = re.search(r"(\d+)", URL).group(1)
     subprocess.run(
@@ -165,8 +166,9 @@ def _download_favor(URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chr
         stderr=subprocess.PIPE,
         cwd=database_dir,
         text=True,
-        check=True
+        check=True,
     )
+
 
 def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> pd.DataFrame:
     config_file = resolve_config_path(config_file)
@@ -182,7 +184,7 @@ def download_favor(
     version: Literal["essential", "full"] = "essential",
     chromosome: Chromosome | list[Chromosome] | None = None,
     config_file: str = "../configs/favor.yaml",
-    database_dir: str = None
+    database_dir: str = None,
 ):
     logger.info(f"Using config: {config_file}")
     URLs = load_favor_urls(config_file=config_file, version=version)
@@ -204,10 +206,10 @@ def run_favor(
 
     Parameters
     ----------
-    G : anndata.AnnData, optional
+    G : anndata.AnnData
         AnnData object with a .var DataFrame containing variant information, including
         'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
-    return_annos : bool, optional
+    return_annos : bool
         Whether to return the annotations as a Pandas DataFrame after writing them to disk.
         Defaults to False.
 
@@ -229,16 +231,41 @@ def run_favor(
     for chromosome in np.unique(G.var["chrom"]):
         if chromosome in range(1, 23) or chromosome in [str(chr) for chr in range(1, 23)]:
             chromosome = int(chromosome)
-            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0 and len(glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))) == 0:
+            if (
+                len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0
+                and len(
+                    glob.glob(
+                        os.path.join(
+                            database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"
+                        )
+                    )
+                )
+                == 0
+            ):
                 logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
-                download_favor(version=version, chromosome=chromosome, config_file=config_file, database_dir=database_dir)
+                download_favor(
+                    version=version, chromosome=chromosome, config_file=config_file, database_dir=database_dir
+                )
 
             G_var_chrom = G.var[G.var["chrom"] == chromosome]
 
-            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) > 1:
-                database = pl.concat([pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))])
+            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) >= 1:
+                database = pl.concat(
+                    [pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))]
+                )
             else:
-                database = pl.concat([pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB", f"chr{chromosome}_*.csv"))])
+                database = pl.concat(
+                    [
+                        pl.scan_csv(path)
+                        for path in glob.glob(
+                            os.path.join(
+                                database_dir,
+                                "n/holystore01/LABS/xlin/Lab/xihao_zilin/FAVORDB",
+                                f"chr{chromosome}_*.csv",
+                            )
+                        )
+                    ]
+                )
 
         database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
 
@@ -279,11 +306,11 @@ def run_vep(
     ----------
     config_file : _type_
         config file specifying VEP paths as in example/config.yaml
-    input_vcf : str, optional
+    input_vcf : str
         VCF with variants to annotate. By default "variants.vcf"
-    output : str, optional
+    output : str
        File where VEP writes the annotated variants by default "variants_vep_annotated.txt"
-    return_annos : bool, optional
+    return_annos : bool
         Should the written annotations be loaded into memory.by default False
 
     Returns
@@ -384,7 +411,7 @@ def _prep_vep_annos(
     id_col_vep: str = "#Uploaded_variation",
     cols_to_drop=None,
     dummy_consequence: bool = True,
- ) -> pd.DataFrame:
+) -> pd.DataFrame:
     """Add VEP annotations to gdata
 
     Parameters
@@ -393,11 +420,11 @@ def _prep_vep_annos(
         Path to the VEP annotation file (e.g., output from run_vep).
     gdata : object
         Object containing genomic data with `var.index` as the list of variants to subset.
-    id_col_vep : str, optional
+    id_col_vep : str
         Column name in the VEP file used for variant IDs, by default "#Uploaded_variation".
-    cols_to_drop : list, optional
+    cols_to_drop : list
         List of columns to remove from the final annotations, by default ["Allele", "Feature_type", "Location"].
-    dummy_consequence : bool, optional
+    dummy_consequence : bool
         If True, one-hot encodes the "Consequence" column into multiple binary columns, by default True.
 
     Returns
@@ -478,11 +505,11 @@ def add_vep_annos_to_gdata(
         Path to the VEP annotation file (e.g., output from run_vep).
     gdata : object
         Object representing genomic data to which the annotations will be added.
-    id_col_vep : str, optional
+    id_col_vep : str
         Column name in the VEP file used for variant IDs, by default "#Uploaded_variation".
-    cols_to_drop : list, optional
+    cols_to_drop : list
         List of columns to drop from the annotations, by default ["Allele", "Feature_type", "Location"].
-    dummy_consequence : bool, optional
+    dummy_consequence : bool
         If True, one-hot encodes the "Consequence" column into multiple binary columns, by default True.
 
     Returns
@@ -521,10 +548,10 @@ def combine_annotations(
     ----------
     gdata : object
         The genomic data object containing annotations stored in `uns` under specific keys.
-    keys : list, optional
+    keys : list
         List of annotation keys to combine, by default ["vep"].
         These keys correspond to the annotations stored in `gdata.uns`, with prefixes like `variant_annotation_key}`.
-    unique_identifier_cols : list, optional
+    unique_identifier_cols : list
         List of columns that uniquely identify a variant-context pair, by default
         [AAnn.index, AAnn.gene_id, AAnn.feature_id].
 
@@ -624,7 +651,7 @@ def aggregate_annotations_for_varm(
         The genomic data object containing annotations stored in `uns` under specific keys.
     annotation_key : str
         Key to access the annotations within `gdata.uns`. The annotations are expected to be stored as a pandas DataFrame.
-    agg_type : str, optional
+    agg_type : str
         Aggregation type to determine how annotation values are combined. Options are:
             - "unique_list_max": Unique string values are aggregated into a comma-separated string,
                                  and numeric columns are aggregated by their maximum value.
@@ -632,13 +659,13 @@ def aggregate_annotations_for_varm(
             - "str": Aggregates all values into a single comma-separated string.
             - "first": Drops duplicates and keeps only the first occurrence for each variant-context pair.
         Default is "unique_list_max".
-    return_data : bool, optional
+    return_data : bool
         If True, the aggregated DataFrame is returned in addition to modifying the `gdata` object.
         Default is False.
 
     Returns
     -------
-    pd.DataFrame, optional
+    pd.DataFrame
         The aggregated DataFrame is returned if `return_data` is True. Otherwise, the function writes the
         aggregated annotations to gdata.varm["variant_annotation"].
 

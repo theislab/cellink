@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 from cellink._core import DAnn, GAnn
 from cellink.at.gwas import GWAS
 from cellink.utils import column_normalize, gaussianize
-from cellink.datasets import get_onek1k
+from cellink.resources import get_onek1k
 
 import requests
 import os

@@ -16,6 +16,26 @@ from cellink.io import to_plink
 logger = logging.getLogger(__name__)
 
 
+def read_jaxqtl_results(prefix: str) -> pd.DataFrame:
+    """
+    Read jaxQTL output TSV file.
+
+    Parameters
+    ----------
+    prefix : str
+        Prefix of the jaxQTL result file (.tsv.gz).
+
+    Returns
+    -------
+    pd.DataFrame
+        The parsed jaxQTL results.
+    """
+    results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
+    results = pd.read_csv(results_path, delimiter="\t")
+
+    return results
+
+
 def run_jaxqtl(
     dd: DonorData,
     prefix: str = None,
@@ -53,9 +73,14 @@ def run_jaxqtl(
     additional_covariates: list[str] | None = None,
     dtype: str = "float32",
     run: bool = True,
+    read_results: bool = True,
     save_cmd_file: bool = False,
     plink_export_kwargs: dict | None = {},
-) -> subprocess.CompletedProcess | str:
+    remove_intermediate_files: bool = True,
+    overwrite_covariates_export: bool = True,
+    overwrite_phenotype_export: bool = True,
+    overwrite_plink_export: bool = True,
+) -> pd.DataFrame | str:
     """
     Run cis- or trans-eQTL mapping using jaxQTL on donor-level genotype and aggregated expression data.
 
@@ -137,15 +162,27 @@ def run_jaxqtl(
         Data type for numerical covariate matrices.
     run : bool, default=True
         If True, executes the jaxQTL command. If False, returns the constructed command as a string.
+    read_results : bool, default=True
+        If True, reads and returns the result files as a pandas DataFrame. If False, returns the path(s) to the output files.
     save_cmd_file : str, default=None
         If provided, saves the jaxQTL command to this file instead of printing it.
     plink_export_kwargs : dict, optional
         Additional keyword arguments for `to_plink` function.
+    remove_intermediate_files : bool, default=True
+        If True, removes the intermediate files.
+    overwrite_covariates_export : bool, default=True
+        If True, overwrites the covariates export.
+    overwrite_phenotype_export : bool, default=True
+        If True, overwrites the phenotype export.
+    overwrite_plink_export : bool, default=True
+        If True, overwrites the plink export.
 
     Returns
     -------
-    Union[subprocess.CompletedProcess, str]
-        CompletedProcess object if `run=True`, otherwise the constructed jaxQTL command string if `run=False`.
+    pd.DataFrame, str, or list[str]
+        If run=True and read_results=True, returns a pandas DataFrame of QTL mapping results.
+        If run=True and read_results=False, returns a list of output file paths.
+        If run=False, returns the constructed jaxQTL command as a string.
 
     Raises
     ------
@@ -171,50 +208,55 @@ def run_jaxqtl(
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
     phenotype_df = dd.G.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
-    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
-    phenotype_pos_df["Geneid"] = phenotype_pos_df.index
-    phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
-    with gzip.open(f"{prefix}_phenotype.bed.gz", "wt") as f:
-        f.write("#" + "\t".join(phenotype_write_df.columns.tolist()) + "\n")
-        phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
+    
+    if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
+        phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+        phenotype_pos_df["Geneid"] = phenotype_pos_df.index
+        phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
+        with gzip.open(f"{prefix}_phenotype.bed.gz", "wt") as f:
+            f.write("#" + "\t".join(phenotype_write_df.columns.tolist()) + "\n")
+            phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
 
-    covariate_list = []
+    if not os.path.isfile(f"{prefix}_donor_features.tsv") or overwrite_covariates_export:
+        covariate_list = []
 
-    if encode_sex:
-        sex_codes = dd.G.obs["sex"].astype("category").cat.codes
-        covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
+        if encode_sex:
+            sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+            covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
-    if encode_age:
-        age_values = dd.G.obs[["age"]].values.astype("int")
-        covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
+        if encode_age:
+            age_values = dd.G.obs[["age"]].values.astype("int")
+            covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
-    if additional_covariates:
-        for cov in additional_covariates:
-            if cov in dd.G.obs.columns:
-                covariate_df = pd.DataFrame(
-                    dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
-                )
-                covariate_list.append(covariate_df)
-            elif cov in dd.G.obsm:
-                cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
-                if cov_matrix.ndim == 1:
-                    covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
-                else:
-                    covariate_list.append(
-                        pd.DataFrame(
-                            cov_matrix,
-                            columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
-                            index=phenotype_df.columns,
-                        )
+        if additional_covariates:
+            for cov in additional_covariates:
+                if cov in dd.G.obs.columns:
+                    covariate_df = pd.DataFrame(
+                        dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
                     )
-            else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                    covariate_list.append(covariate_df)
+                elif cov in dd.G.obsm:
+                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                    if cov_matrix.ndim == 1:
+                        covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
+                    else:
+                        covariate_list.append(
+                            pd.DataFrame(
+                                cov_matrix,
+                                columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
+                                index=phenotype_df.columns,
+                            )
+                        )
+                else:
+                    raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
 
-    covariates_df = pd.concat(covariate_list, axis=1)
-    covariates_df.index.name = "iid"
-    covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
+        covariates_df = pd.concat(covariate_list, axis=1)
+        covariates_df.index.name = "iid"
+        covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
     # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
-    to_plink(dd.G, prefix, **plink_export_kwargs)
+
+    if not os.path.isfile(f"{prefix}.bed") or overwrite_plink_export:
+        to_plink(dd.G, prefix, **plink_export_kwargs)
 
     ###
 
@@ -263,16 +305,17 @@ def run_jaxqtl(
     add_flag("--verbose", verbose)
 
     if run:
-        subprocess.run(cmd, check=True, shell=True)
+        subprocess.run(" ".join(cmd), check=True, shell=True)
 
-        results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
-        results = pd.read_csv(results_path, delimiter="\t")
-        os.remove(results_path)
-        extensions = [".bim", ".fam", ".bed", "_donor_features.tsv", "_phenotype.bed.gz"]
-        for ext in extensions:
-            filename = prefix + ext
-            if os.path.isfile(filename):
-                os.remove(filename)
+        if read_results:
+            results = read_jaxqtl_results(prefix=prefix)
+
+        if remove_intermediate_files:
+            extensions = [".bim", ".fam", ".bed", "_donor_features.tsv", "_phenotype.bed.gz"]
+            for ext in extensions:
+                filename = prefix + ext
+                if os.path.isfile(filename):
+                    os.remove(filename)
 
         return results
     else:

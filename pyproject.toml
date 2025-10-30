@@ -69,6 +69,10 @@ optional-dependencies.ensembl-vep = [
   #  "ensembl-vep",
 ]
 
+optional-dependencies.ldsc = [
+  #TODO ARNOLDT
+  "gsmap",
+]
 optional-dependencies.mixmil = [
   "mixmil",
 ]
@@ -87,6 +91,7 @@ optional-dependencies.snpeff = [
 ]
 optional-dependencies.tensorqtl = [
   "tensorqtl",
+  #"plink2"
 ]
 optional-dependencies.test = [
   "coverage",

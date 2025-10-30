@@ -5,7 +5,9 @@
 :maxdepth: 1
 
 pseudobulk_eqtl
-example
+pseudobulk_eqtl_jaxqtl_tensorqtl
 explore_annotations
-explore_vcf2zarr
+burden_testing
+ehrdataset
+run_dataloader
 ```

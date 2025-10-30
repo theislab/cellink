@@ -193,3 +193,4 @@ misc
 data
 *.code-workspace
 
+_build/*

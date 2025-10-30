@@ -6,6 +6,7 @@ import pandas as pd
 import seaborn as sns
 from adjustText import adjust_text
 from matplotlib.patches import Rectangle
+from matplotlib.figure import Figure
 from scipy.stats import beta
 
 from cellink._core.data_fields import VAnn
@@ -29,7 +30,7 @@ def qq(
     save: str = None,
     dpi: int = 300,
     ax=None,
-):
+) -> Figure:
     """
     Generate quantile-quantile (QQ) plots of p-values, optionally grouped by a categorical column.
 
@@ -169,7 +170,7 @@ def manhattan(
     save: str | bool | None = None,
     dpi: int = 300,
     ax=None,
-):
+) -> Figure:
     """
     Generate a Manhattan plot for genome-wide association p-values.
 
@@ -353,7 +354,7 @@ def locus(
     save: str | bool | None = None,
     dpi: int = 300,
     ax=None,
-):
+) -> Figure:
     """
     Generate a locus plot with SNP p-values and optional gene annotations.
 
