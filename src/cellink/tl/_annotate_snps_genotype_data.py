@@ -150,7 +150,7 @@ def run_snpeff(
 def _download_favor(
     URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None, database_dir: str = None
 ):
-    URL = URLs.loc[URLs["chr"] == chromosome, "URL"].values[0]
+    URL = URLs.loc[URLs["chr"] == str(chromosome), "URL"].values[0]
 
     subprocess.run(
         ["wget", "--progress=bar:force:noscroll", URL],
@@ -249,7 +249,7 @@ def run_favor(
 
             G_var_chrom = G.var[G.var["chrom"] == chromosome]
 
-            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) > 1:
+            if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) >= 1:
                 database = pl.concat(
                     [pl.scan_csv(path) for path in glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))]
                 )
