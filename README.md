@@ -2,12 +2,11 @@
 
 <!-- TODO comment back in once package is public -->
 <!-- [![Tests][badge-tests]][tests]
+
+<!-- [badge-tests]: https://img.shields.io/github/actions/workflow/status/theislab/Single-cell Genetics (Cellink)/test.yaml?branch=main -->
 [![Documentation][badge-docs]][documentation]
+[badge-docs]: https://cellink-docs.readthedocs.io/
 
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/theislab/Single-cell Genetics (Cellink)/test.yaml?branch=main
-[badge-docs]: https://img.shields.io/readthedocs/Single-cell Genetics (Cellink) -->
-
-<!-- # 🧬 cellink Documentation: Integrating Genetics with Single-Cell Omics -->
 
 Welcome to the official documentation for **cellink**—the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
 
@@ -39,12 +38,12 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
     - [eQTL mapping](tutorials/pseudobulk_eqtl.ipynb).
           <!-- * Colocalization analysis with established disease loci. -->
     - [Rare variant association studies](tutorials/burden_testing.ipynb).
-- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.ipynb) and includes built-in [**dataloaders for deep learning**](tutorials/run_dataloader.ipynb).
+- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.ipynb) and includes built-in [dataloaders for deep learning](tutorials/run_dataloader.ipynb).
 
 ## 🚀 Getting Started
 
-- Check out the **[Tutorials](tutorials/)** section for step-by-step guides on analysis workflows.
-- Explore the **[API Reference]** for detailed documentation.
+- Check out the **[Tutorials](tutorials/index.md)** section for step-by-step guides on analysis workflows.
+- Explore the **[API Reference](api/index.md)** for detailed documentation.
 
 Install the latest development version directly from GitHub:
 
@@ -52,17 +51,17 @@ Install the latest development version directly from GitHub:
 pip install git+https://github.com/theislab/sc-genetics.git@main
 ```
 
+## Contact
+
+<!-- For questions and help requests, you can reach out in the [scverse discourse][]. -->
+
+If you found a bug, please use the [issue tracker](https://github.com/theislab/cellink/issues).
+
 ## Release notes
 
 t.b.a
 
 <!-- See the [changelog][]. -->
-
-## Contact
-
-<!-- For questions and help requests, you can reach out in the [scverse discourse][]. -->
-
-If you found a bug, please use the [issue tracker][].
 
 ## Citation
 
