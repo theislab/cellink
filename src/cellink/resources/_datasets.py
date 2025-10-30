@@ -12,71 +12,45 @@ import pandas as pd
 import yaml
 
 import cellink as cl
-from cellink.datasets._utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
+from .._core import DonorData
+from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
+from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 
 logging.basicConfig(level=logging.INFO)
 
-DEFAULT_DATA_HOME = join("~", "cellink_sample_data")
+def get_1000genomes(
+    config_path: str = "./cellink/resources/config/1000genomes.yaml",
+    data_home: str | None = None,
+    verify_checksum=True
+) -> ad.AnnData:
+    """
+    Download and preprocess the 1000 Genomes Project genotype data.
 
+    This function downloads genotype files specified in a YAML configuration,
+    optionally verifies checksums, converts VCF files to Zarr format using `vcf2zarr`,
+    and concatenates per-chromosome datasets into a single `AnnData` object using `cellink`.
 
-def get_data_home(data_home=None):
-    """Get or create the local data storage directory."""
-    if data_home is None:
-        data_home = os.environ.get("CELLINK_SAMPLE_DATA", DEFAULT_DATA_HOME)
-    data_home = expanduser(data_home)
-    os.makedirs(data_home, exist_ok=True)
-    return Path(data_home)
+    Parameters
+    ----------
+    config_path : str, default="./cellink/resources/config/1000genomes.yaml"
+        Path to the YAML configuration file listing remote genotype files.
+    data_home : str or None, optional
+        Directory where data should be stored. If None, uses the default `cellink` data directory.
+    verify_checksum : bool, default=True
+        If True, verifies the checksum of downloaded files.
 
+    Returns
+    -------
+    anndata.AnnData
+        Concatenated genotype data across chromosomes in Zarr format.
 
-def clear_data_home(data_home=None):
-    """Remove all data from local cache."""
-    data_home = get_data_home(data_home)
-    shutil.rmtree(data_home, ignore_errors=True)
-
-
-def _sha256sum(filename):
-    """Return the sha256 checksum of the file."""
-    h = hashlib.sha256()
-    with open(filename, "rb") as f:
-        while chunk := f.read(8192):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _download_file(url, dest, checksum=None):
-    """Download a file and verify checksum."""
-    if dest.exists():
-        logging.info(f"{dest} already exists")
-        if checksum is None:
-            logging.warning("No checksum provided, skipping verification")
-            return
-        logging.info("Veryifying checksum")
-        if checksum and _sha256sum(dest) == checksum:
-            return
-        logging.info(f"{dest} exists but checksum mismatch. Re-downloading.")
-        dest.unlink()
-
-    logging.info(f"Downloading {url} to {dest}")
-    urlretrieve(url, dest)
-    if checksum and _sha256sum(dest) != checksum:
-        raise ValueError(f"Checksum mismatch for {dest}")
-
-
-def _run(cmd, cwd=None):
-    """Run a system command using subprocess."""
-    logging.info(f"Running command: {cmd}")
-    result = subprocess.run(cmd, shell=True, cwd=cwd, check=True)
-    return result
-
-
-def _load_config(path):
-    """Load the YAML config."""
-    with open(path) as f:
-        return yaml.safe_load(f)
-
-
-def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", data_home=None, verify_checksum=True):
-    """Main function to download and preprocess the data."""
+    Raises
+    ------
+    FileNotFoundError
+        If any required VCF files are missing after download.
+    RuntimeError
+        If `vcf2zarr` conversion fails.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / "1000genomes"
 
@@ -110,8 +84,48 @@ def get_1000genomes(config_path="./cellink/datasets/config/1000genomes.yaml", da
     return gdata
 
 
-def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=None, verify_checksum=True):
-    """Main function to download and preprocess the data."""
+def get_onek1k(
+    config_path: str = "./cellink/resources/config/onek1k.yaml",
+    data_home: str | None = None,
+    verify_checksum: bool = True
+) -> DonorData:
+    """
+    Download and preprocess the OneK1K genotype and expression dataset.
+
+    This function downloads genotype and expression files listed in a YAML configuration,
+    optionally verifies checksums, converts VCF files to Zarr format, performs PLINK preprocessing
+    including filtering, pruning, and kinship computation, and loads the dataset into a `DonorData` object.
+
+    Additionally, it:
+    - Performs liftover to hg19 coordinates for variant positions.
+    - Computes donor principal components (gPCs) from genotype data.
+    - Aligns expression data from CellxGene to the genotype data.
+    - Encodes donor metadata such as sex and age.
+
+    Parameters
+    ----------
+    config_path : str, default="./cellink/resources/config/onek1k.yaml"
+        Path to the YAML configuration file listing remote genotype and expression files.
+    data_home : str or None, optional
+        Directory where data should be stored. If None, uses the default `cellink` data directory.
+    verify_checksum : bool, default=True
+        If True, verifies the checksum of downloaded files.
+
+    Returns
+    -------
+    cellink.DonorData
+        A `DonorData` object containing preprocessed genotype (`G`) and expression (`C`) data,
+        along with kinship and principal component metadata.
+
+    Raises
+    ------
+    FileNotFoundError
+        If any required genotype or expression files are missing after download.
+    RuntimeError
+        If preprocessing steps (VCF conversion, PLINK operations, or liftover) fail.
+    ValueError
+        If variant liftover or donor alignment cannot be performed.
+    """
     data_home = get_data_home(data_home)
     DATA = data_home / "onek1k"
 
@@ -172,7 +186,7 @@ def get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml", data_home=No
 
     adata.obs["age"] = adata.obs["age"].astype("int")
 
-    dd = cl.DonorData(G=gdata, C=adata).copy()
+    dd = DonorData(G=gdata, C=adata).copy()
 
     return dd
 

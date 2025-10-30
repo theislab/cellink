@@ -13,7 +13,7 @@ def cell_level_obs_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> DonorData | None:
-    """\
+    """
     Filter DonorData based on cell level observations information.
 
     Parameters
@@ -52,7 +52,7 @@ def donor_level_obs_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> DonorData | None:
-    """\
+    """
     Filter DonorData based on donor level observations information.
 
     Parameters
@@ -91,7 +91,7 @@ def donor_level_var_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> DonorData | None:
-    """\
+    """
     Filter DonorData based on cell level variables information.
 
     Parameters
@@ -130,7 +130,7 @@ def low_abundance_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """\
+    """
     Filter out low-abundance metabolites.
 
     This function removes metabolites (features) with abundance below a specified threshold.
@@ -139,7 +139,7 @@ def low_abundance_filter(
     Parameters
     ----------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`, where rows correspond to samples
+        The annotated data matrix of shape `n_obs` x `n_vars`, where rows correspond to samples
         and columns to metabolites.
     abundance_threshold
         The minimum abundance level to retain a metabolite. Features with abundance below this
@@ -185,14 +185,14 @@ def missing_values_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """\
+    """
     This function removes features that have a proportion of missing values
     greater than the specified threshold.
 
     Parameters
     ----------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`.
+        The annotated data matrix of shape `n_obs` x `n_vars`.
     max_missing_ratio
         Maximum allowable proportion of missing values for a protein to be retained.
     inplace
@@ -230,7 +230,7 @@ def log_transform(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """\
+    """
     Apply log transformation to protein abundance values.
 
     This function applies a log transformation to the abundance values,
@@ -239,7 +239,7 @@ def log_transform(
     Parameters
     ----------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`.
+        The annotated data matrix of shape `n_obs` x `n_vars`.
     base
         The base of the logarithm (e.g., 2 or 10).
     inplace
@@ -273,13 +273,13 @@ def normalize(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """\
+    """
     This function normalizes values using the specified method.
 
     Parameters
     ----------
     adata
-        The annotated data matrix of shape `n_obs` × `n_vars`.
+        The annotated data matrix of shape `n_obs` x `n_vars`.
     method
         The normalization method. Options are:
         - 'zscore': z-score normalization (mean=0, std=1 for each protein).

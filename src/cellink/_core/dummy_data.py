@@ -1,7 +1,8 @@
 from typing import Literal
 
+from anndata import AnnData
 import anndata as ad
-import muon as mu
+from muon import MuData
 import numpy as np
 import pandas as pd
 
@@ -27,15 +28,57 @@ SNP_PREFIX = "SNP"
 
 
 def _sim_donor(
-    start_index,
-    n_cells,
-    n_genes,
-    has_all_celltypes,
+    start_index: int = None,
+    n_cells: int = None,
+    n_genes: int = None,
+    has_all_celltypes: bool = False,
     strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn",
     mean_nb: int = 5,
     dispersion_nb: int = 2,
     p_binomial: float = 0.1,
-):
+) -> AnnData:
+    """
+    Simulate a single donor's cell x gene expression matrix as an AnnData object.
+
+    Generates synthetic expression data for one donor using different statistical distributions,
+    attaches random covariates, and annotates genes with basic genomic features.
+
+    Parameters
+    ----------
+    start_index : int
+        Starting cell index (used to build unique cell IDs).
+    n_cells : int
+        Number of cells to simulate for the donor.
+    n_genes : int
+        Number of genes to simulate.
+    has_all_celltypes : bool
+        Whether to include all cell types in `CELLTYPES`. If False, the last cell type is excluded.
+    strategy : {'randn', 'poisson', 'negative_binomial', 'binomial', 'uniform'}, default='randn'
+        Distribution used to simulate expression counts:
+        - 'randn': standard normal
+        - 'poisson': Poisson with λ=5
+        - 'negative_binomial': Negative binomial with parameters (`mean_nb`, `dispersion_nb`)
+        - 'binomial': Binomial with n=1 and probability `p_binomial`
+        - 'uniform': Uniform(0,1)
+    mean_nb : int, default=5
+        Mean count for negative binomial distribution.
+    dispersion_nb : int, default=2
+        Dispersion parameter for negative binomial distribution.
+    p_binomial : float, default=0.1
+        Success probability for binomial distribution.
+
+    Returns
+    -------
+    AnnData
+        AnnData object with:
+        - `X` : simulated expression matrix (n_cells x n_genes)
+        - `obs` : DataFrame with columns:
+            - celltype
+            - dummy covariates (`cov1`, `cov2`, `cov3`)
+        - `var` : DataFrame with columns:
+            - gene name, chromosome, start, end, strand
+    """
+        
     if strategy == "randn":
         X = np.random.randn(n_cells, n_genes)
     elif strategy == "poisson":
@@ -62,12 +105,43 @@ def _sim_donor(
             GAnn.strand: np.random.choice([1, -1], size=n_genes),
         }
     ).set_index(GAnn.name)
-    return ad.AnnData(X=X, obs=obs, var=var)
+    return AnnData(X=X, obs=obs, var=var)
 
 
 def sim_mudata(
-    n_donors=N_DONORS, n_genes=N_GENES, n_peaks=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS
-):
+    n_donors: int = N_DONORS, n_genes: int = N_GENES, n_peaks: int = N_PEAKS, min_n_cells: int = MIN_N_CELLS, max_n_cells: int = MAX_N_CELLS
+) -> MuData:
+    """
+    Simulate a multi-modal `MuData` object with RNA and ATAC layers.
+
+    This function generates paired RNA-seq and ATAC-seq data across multiple donors,
+    combining them into a single `MuData` container. Cell-level metadata is harmonized
+    so that both modalities share the same donor and cell type assignments.
+
+    Parameters
+    ----------
+    n_donors : int, default=N_DONORS
+        Number of donors to simulate.
+    n_genes : int, default=N_GENES
+        Number of genes in the RNA modality.
+    n_peaks : int, default=N_PEAKS
+        Number of peaks in the ATAC modality.
+    min_n_cells : int, default=MIN_N_CELLS
+        Minimum number of cells per donor.
+    max_n_cells : int, default=MAX_N_CELLS
+        Maximum number of cells per donor.
+
+    Returns
+    -------
+    MuData
+        MuData object with modalities:
+        - 'rna': AnnData of simulated RNA counts (negative binomial)
+        - 'atac': AnnData of simulated ATAC accessibility (binomial)
+        Shared `obs` fields include:
+        - 'celltype'
+        - 'donor_id'
+    """
+        
     rna = sim_adata(
         n_donors=N_DONORS,
         n_genes=N_GENES,
@@ -78,41 +152,48 @@ def sim_mudata(
     atac = sim_adata(
         n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial"
     )
-    adata = mu.MuData({"rna": rna, "atac": atac})
+    adata = MuData({"rna": rna, "atac": atac})
     adata.obs["celltype"] = adata.obs["rna:celltype"]
     adata.obs["donor_id"] = adata.obs["rna:donor_id"]
     return adata
 
 
 def sim_adata(
-    n_donors=N_DONORS,
-    n_genes=N_GENES,
-    min_n_cells=MIN_N_CELLS,
-    max_n_cells=MAX_N_CELLS,
+    n_donors: int = N_DONORS,
+    n_genes: int = N_GENES,
+    min_n_cells: int = MIN_N_CELLS,
+    max_n_cells: int = MAX_N_CELLS,
     strategy: Literal["randn", "poisson", "negative_binomial", "binomial", "uniform"] = "randn",
-):
-    """Simulate an AnnData object with multiple donors.
+) -> AnnData:
+    """
+    Simulate an AnnData object across multiple donors.
 
-    AnnData object with n_obs × n_vars = 445 × N_GENES
-    obs: 'cell_label', 'donor_id'
-    var: 'chrom', 'start', 'end'
+    Each donor contributes a random number of cells (between `min_n_cells` and `max_n_cells`)
+    with expression values simulated according to the chosen distribution.
+    The first donor is intentionally missing one cell type, while all others include
+    the full set of cell types.
 
     Parameters
     ----------
-    n_donors : int, optional
-        Number of donors to simulate, by default N_DONORS
-    n_genes : int, optional
-        Number of genes to simulate, by default N_GENES
-    min_n_cells : int, optional
-        Minimum number of cells per donor, by default MIN_N_CELLS
-    max_n_cells : int, optional
-        Maximum number of cells per donor, by default MAX_N_CELLS
+    n_donors : int, default=N_DONORS
+        Number of donors to simulate.
+    n_genes : int, default=N_GENES
+        Number of genes to simulate.
+    min_n_cells : int, default=MIN_N_CELLS
+        Minimum number of cells per donor.
+    max_n_cells : int, default=MAX_N_CELLS
+        Maximum number of cells per donor.
+    strategy : {'randn', 'poisson', 'negative_binomial', 'binomial', 'uniform'}, default='randn'
+        Distribution to use for simulating expression counts.
 
     Returns
     -------
     AnnData
-        Simulated AnnData object
+        Concatenated AnnData object containing all donors with:
+        - `obs` : cell-level metadata including donor ID and celltype
+        - `var` : gene-level metadata including chromosome, start, end
     """
+
     adatas = []
     has_all_celltypes = [True] * (n_donors - 1) + [False]
     cum_n_cells = 0
@@ -126,7 +207,37 @@ def sim_adata(
     return adata
 
 
-def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
+def sim_gdata(
+    n_donors: int = N_DONORS, 
+    n_snps: int = N_SNPS, 
+    adata: AnnData | None = None
+) -> AnnData:
+    """
+    Simulate genotype data as an AnnData object.
+
+    Generates SNP genotypes for multiple donors using binomial sampling
+    according to randomly assigned minor allele frequencies (MAFs).
+    Optionally aligns SNP positions to overlap with gene coordinates from an RNA AnnData.
+
+    Parameters
+    ----------
+    n_donors : int, default=N_DONORS
+        Number of donors to simulate.
+    n_snps : int, default=N_SNPS
+        Number of SNPs to simulate if `adata` is None.
+    adata : AnnData, optional
+        If provided, SNP positions are aligned with the genes in `adata.var`
+        such that SNPs fall within gene intervals.
+
+    Returns
+    -------
+    AnnData
+        AnnData object with:
+        - `X` : genotype matrix (n_donors x n_snps), values in {0,1,2}
+        - `obs` : donor IDs
+        - `var` : SNP metadata including chromosome, position, alleles, and MAF
+    """
+
     if adata is None:
         pos = np.arange(1, n_snps + 1)
     else:
@@ -153,5 +264,5 @@ def sim_gdata(n_donors=N_DONORS, n_snps=N_SNPS, adata=None):
         index=SNP_PREFIX + pd.RangeIndex(n_snps).astype(str),
     )
     var.index.name = VAnn.index
-    gdata = ad.AnnData(X=X, obs=obs, var=var)
+    gdata = AnnData(X=X, obs=obs, var=var)
     return gdata
