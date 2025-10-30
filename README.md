@@ -21,8 +21,8 @@ Integrating genetic data with cellular heterogeneity is crucial for advancing pe
 
 ```{eval-rst}
 .. image:: _static/img/schematic_figure.png
-   :width: 750px
-   :alt: Data structure schematic
+    :width: 750px
+    :alt: Data structure schematic
 ```
 
 - **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
@@ -37,9 +37,9 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 - **[Variant Preprocessing & Annotation](tutorials/explore_annotations.ipynb):** Tools for quality control, annotation (VCF export/import), and selection of genetic variants.
 - **Specialized Downstream Analysis:** Easily perform complex genetic analyses on single-cell expression data, including:
     - [eQTL mapping](tutorials/pseudobulk_eqtl.ipynb).
-      <!-- * Colocalization analysis with established disease loci. -->
+        <!-- * Colocalization analysis with established disease loci. -->
     - [Rare variant association studies](tutorials/burden_testing.ipynb).
-- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.ipynb) and includes built-in **dataloaders for deep learning**.
+- **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.ipynb) and includes built-in [**dataloaders for deep learning**](tutorials/run_dataloader.ipynb).
 
 ## 🚀 Getting Started
 
