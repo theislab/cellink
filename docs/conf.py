@@ -50,6 +50,7 @@ html_context = {
 # They can be extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     "myst_nb",
+    "myst_parser",
     "sphinx_copybutton",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
@@ -80,6 +81,8 @@ myst_enable_extensions = [
     "dollarmath",
     "html_image",
     "html_admonition",
+    "linkify",
+    "colon_fence",
 ]
 myst_url_schemes = ("http", "https", "mailto")
 nb_output_stderr = "remove"
