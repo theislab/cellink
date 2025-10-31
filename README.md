@@ -7,7 +7,6 @@
 <!-- [![Documentation][badge-docs]][documentation]  -->
 <!-- [badge-docs]: https://cellink-docs.readthedocs.io/  -->
 
-
 Welcome to the official documentation for **cellink**—the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
 
 ## Motivation
@@ -18,11 +17,14 @@ Integrating genetic data with cellular heterogeneity is crucial for advancing pe
 
 **cellink** introduces the `DonorData` class, unifying individual-level and single-cell data. It extends standard formats (AnnData, MuData) with GenoAnnData for efficient genotype (via dask) and phenotype (via ehrapy) handling.
 
-```{eval-rst}
-.. image:: _static/img/schematic_figure.png
-    :width: 750px
-    :alt: Data structure schematic
+![Data structure schematic](docs/_static/img/schematic_figure.png)
+
+````{only} html
+```{image} _static/img/schematic_figure.png
+:width: 750px
+:alt: Data structure schematic
 ```
+````
 
 - **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
 - **Cell-level Data (C):** `AnnData`/ `MuData`, Stores single-cell omics data such as gene expression.
@@ -36,8 +38,8 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 - **[Variant Preprocessing & Annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html):** Tools for quality control, annotation (VCF export/import), and selection of genetic variants.
 - **Specialized Downstream Analysis:** Easily perform complex genetic analyses on single-cell expression data, including:
     - [eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html).
-          <!-- * Colocalization analysis with established disease loci. -->
-    - [Rare variant association studies]([tutorials/burden_testing.ipynb](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html)).
+      <!-- * Colocalization analysis with established disease loci. -->
+    - [Rare variant association studies](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html).
 - **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html) and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
 
 ## 🚀 Getting Started
