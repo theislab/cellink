@@ -7,10 +7,10 @@
       "project_name": "Single-cell Genetics (Cellink)",
       "package_name": "cellink",
       "project_description": "cellink enables genetic analyses on single-cell data",
-      "author_full_name": "Jan Engelmann",
-      "author_email": "jan.engelmann@helmholtz-munich.de",
+      "author_full_name": "Jan Engelmann, Lucas Arnoldt, Eva Holtkamp",
+      "author_email": "jan.engelmann@helmholtz-munich.de, lucas.arnoldt@helmholtz-munich.de, eva.holtkamp@helmholtz-munich.de",
       "github_user": "theislab",
-      "github_repo": "sc-genetics",
+      "github_repo": "cellink",
       "license": "Apache License Version 2.0",
       "ide_integration": false,
       "_copy_without_render": [
