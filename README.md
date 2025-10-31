@@ -48,7 +48,7 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 Install the latest development version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/theislab/sc-genetics.git@main
+pip install git+https://github.com/theislab/cellink.git@main
 ```
 
 ## Contact
@@ -69,9 +69,9 @@ t.b.a
 
 [mambaforge]: https://github.com/conda-forge/miniforge#mambaforge
 [scverse discourse]: https://discourse.scverse.org/
-[issue tracker]: https://github.com/theislab/sc-genetics/issues
+[issue tracker]: https://github.com/theislab/cellink/issues
 
-<!-- [tests]: https://github.com/theislab/sc-genetics/actions/workflows/test.yml
+<!-- [tests]: https://github.com/theislab/cellink/actions/workflows/test.yml
 [documentation]: https://Single-cell Genetics (Cellink).readthedocs.io
 [changelog]: https://Single-cell Genetics (Cellink).readthedocs.io/en/latest/changelog.html
 [api documentation]: https://Single-cell Genetics (Cellink).readthedocs.io/en/latest/api.html

@@ -10,9 +10,14 @@ readme = "README.md"
 license = { file = "LICENSE" }
 maintainers = [
   { name = "Jan Engelmann", email = "jan.engelmann@helmholtz-munich.de" },
+  { name = "Lucas Arnoldt", email = "lucas.arnoldt@helmholtz-munich.de" },
+  { name = "Eva Holtkamp", email = "eva.holtkamp@helmholtz-munich.de" },
 ]
+
 authors = [
   { name = "Jan Engelmann" },
+  { name = "Lucas Arnoldt" },
+  { name = "Eva Holtkamp" },
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -98,9 +103,9 @@ optional-dependencies.test = [
   "pytest",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://cellink.readthedocs.io/"
-urls.Homepage = "https://github.com/theislab/sc-genetics"
-urls.Source = "https://github.com/theislab/sc-genetics"
+urls.Documentation = "https://cellink-docs.readthedocs.io/"
+urls.Homepage = "https://github.com/theislab/cellink"
+urls.Source = "https://github.com/theislab/cellink"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/cellink" ]
