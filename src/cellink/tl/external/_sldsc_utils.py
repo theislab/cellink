@@ -398,13 +398,18 @@ def _fetch_ensembl_annotation(
 
 def _map_gene_annotation(adata: AnnData, anno_df: pd.DataFrame, gene_col: str | None = "gene") -> AnnData:
     """Map gene annotations to adata.var."""
+    anno_cols = ["chrom", "start", "end", "gene_biotype"]
+
+    conflicts = [c for c in anno_cols if c in adata.var.columns]
+    if conflicts:
+        logger.info(f"Dropping conflicting columns from adata.var before merge: {conflicts}")
+        adata.var = adata.var.drop(columns=conflicts)
+
     anno_df["gene_upper"] = anno_df["gene"].astype(str).str.upper()
 
     anno_df = anno_df.drop_duplicates(subset=["gene_upper"])
 
-    merged = adata.var.merge(
-        anno_df[["gene_upper", "chrom", "start", "end", "gene_biotype"]], on="gene_upper", how="left"
-    )
+    merged = adata.var.merge(anno_df[["gene_upper"] + anno_cols], on="gene_upper", how="left")
 
     adata.var = merged.set_index(adata.var.index)
 
@@ -565,39 +570,3 @@ def generate_gene_coord_file(
     coord_df.to_csv(out_path, sep="\t", index=False)
 
     logger.info(f"Successfully created gene coordinate file: {out_path}")
-
-
-if __name__ == "__main__":
-    adata = sc.read_h5ad(
-        "/Users/larnoldt/sc-genetics/Sc-annotation_generation/ayshan_dataset_subsampled_joined_chunks.h5ad"
-    )
-
-    # Using GRCh37 (default)
-    adata_filtered, mean_expr, specificity = preprocess_for_sldsc(
-        adata,
-        celltype_col="roi_group_coarse",  # cell_type
-        genome_build="GRCh37",
-        inplace=False,
-    )
-
-    """
-    # Using GRCh38
-    adata_filtered, mean_expr, specificity = preprocess_for_sldsc(
-        adata,
-        celltype_col="roi_group_coarse",
-        genome_build="GRCh38",
-        inplace=False
-    )
-
-
-    adata_filtered, mean_expr, specificity = preprocess_for_sldsc(
-        adata,
-        celltype_col="roi_group_coarse",
-        fetch_annotation=False,
-        inplace=False
-    )
-    """
-
-    summary = generate_sldsc_genesets(specificity, adata, out_dir="ldsc_genesets", top_frac=0.10, overwrite=True)
-
-    generate_gene_coord_file("gene_coords.txt", gene_identifier_mode="ensembl", genome_build="GRCh37")

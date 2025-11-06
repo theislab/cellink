@@ -1,4 +1,5 @@
 execution_mode: docker
 docker_image: zijingliu/ldsc
 ldsc_command: /ldsc/ldsc.py
+make_annot_command: /ldsc/make_annot.py
 munge_command: /ldsc/munge_sumstats.py
