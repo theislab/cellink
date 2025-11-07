@@ -1,27 +1,20 @@
-import hashlib
 import logging
 import os
-import shutil
-import subprocess
-from os.path import expanduser, join
-from pathlib import Path
-from urllib.request import urlretrieve
 
 import anndata as ad
 import pandas as pd
-import yaml
 
 import cellink as cl
-from .._core import DonorData
-from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
+from cellink.resources._utils import _download_file, _load_config, _run, get_data_home
+
+from .._core import DonorData
 
 logging.basicConfig(level=logging.INFO)
 
+
 def get_1000genomes(
-    config_path: str = "./cellink/resources/config/1000genomes.yaml",
-    data_home: str | None = None,
-    verify_checksum=True
+    config_path: str = "./cellink/resources/config/1000genomes.yaml", data_home: str | None = None, verify_checksum=True
 ) -> ad.AnnData:
     """
     Download and preprocess the 1000 Genomes Project genotype data.
@@ -87,7 +80,7 @@ def get_1000genomes(
 def get_onek1k(
     config_path: str = "./cellink/resources/config/onek1k.yaml",
     data_home: str | None = None,
-    verify_checksum: bool = True
+    verify_checksum: bool = True,
 ) -> DonorData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.

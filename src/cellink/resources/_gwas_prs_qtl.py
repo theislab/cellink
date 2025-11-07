@@ -1,10 +1,10 @@
 import logging
+from pathlib import Path
+from typing import Any
 from urllib.request import urlretrieve
 
 import pandas as pd
 import requests
-from typing import Any, Optional, Union
-from pathlib import Path
 
 from cellink.resources._utils import _cache_df, _to_dataframe, get_data_home
 
@@ -15,13 +15,9 @@ PGS_API_BASE = "https://www.pgscatalog.org/rest"
 EQTL_API_BASE = "https://www.ebi.ac.uk/eqtl/api/v3"
 
 
-
 def _fetch(
-    url: str, 
-    params: Optional[dict[str, Any]] = None, 
-    paginate: bool = True, 
-    max_pages: Optional[int] = None
-) -> Union[list, dict]:
+    url: str, params: dict[str, Any] | None = None, paginate: bool = True, max_pages: int | None = None
+) -> list | dict:
     """
     Fetch JSON data from a REST API, optionally handling pagination.
 
@@ -73,10 +69,7 @@ def _fetch(
 
 
 def get_gwas_catalog_studies(
-    data_home: Optional[Union[str, Path]] = None,
-    max_pages: Optional[int] = None,
-    refresh: bool = False,
-    **params: Any
+    data_home: str | Path | None = None, max_pages: int | None = None, refresh: bool = False, **params: Any
 ) -> pd.DataFrame:
     """
     Retrieve GWAS catalog studies and cache locally as a parquet file.
@@ -126,11 +119,8 @@ def get_gwas_catalog_study(accession_id: str, **params: Any) -> dict:
 
 
 def get_gwas_catalog_study_summary_stats(
-    accession_id: str,
-    dest: Optional[Union[str, Path]] = None,
-    return_path: bool = False,
-    **params: Any
-) -> Union[pd.DataFrame, Path]:
+    accession_id: str, dest: str | Path | None = None, return_path: bool = False, **params: Any
+) -> pd.DataFrame | Path:
     """
     Download full summary statistics for a GWAS study.
 
@@ -150,16 +140,96 @@ def get_gwas_catalog_study_summary_stats(
     pd.DataFrame or Path
         DataFrame containing the summary statistics, or Path to the downloaded file if `return_path=True`.
     """
+    study_meta = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
+
+    if "full_summary_stats" not in study_meta:
+        raise ValueError(f"Study {accession_id} does not have full summary statistics available")
+
+    base_url = study_meta["full_summary_stats"]
+    harmonised_url = f"{base_url}/harmonised"
+
+    import re
+
+    try:
+        r = requests.get(harmonised_url)
+        r.raise_for_status()
+
+        all_files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+
+        h_files = [f for f in all_files if f.endswith(".h.tsv.gz") and not f.endswith(".h.tsv.gz-meta.yaml")]
+
+        if h_files:
+
+            def build_priority(filename):
+                filename_lower = filename.lower()
+                if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+                    return 2
+                elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
+                    return 1
+                else:
+                    return 0
+
+            h_files.sort(key=build_priority, reverse=True)
+            filename = h_files[0]
+            url = f"{harmonised_url}/{filename}"
+            logging.info(f"Found harmonised file: {filename}")
+        else:
+            raise ValueError("No harmonised .h.tsv.gz files found")
+
+    except Exception as e:
+        logging.warning(f"Could not find harmonised files ({e}), trying base directory")
+
+        try:
+            r = requests.get(base_url)
+            r.raise_for_status()
+            files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+
+            if files:
+
+                def build_priority(filename):
+                    filename_lower = filename.lower()
+                    if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+                        return 2
+                    elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
+                        return 1
+                    else:
+                        return 0
+
+                files.sort(key=build_priority, reverse=True)
+                filename = files[0]
+                url = f"{base_url}/{filename}"
+            else:
+                possible_files = [
+                    f"{accession_id}_buildGRCh38.tsv.gz",
+                    f"{accession_id}_buildGRCh37.tsv.gz",
+                    f"{accession_id}.tsv.gz",
+                ]
+
+                for filename in possible_files:
+                    test_url = f"{base_url}/{filename}"
+                    try:
+                        test_r = requests.head(test_url)
+                        if test_r.status_code == 200:
+                            url = test_url
+                            break
+                    except:
+                        continue
+                else:
+                    raise ValueError(f"Could not find summary statistics file for {accession_id}")
+
+        except Exception as e2:
+            raise ValueError(f"Could not find summary statistics for {accession_id}: {e2}")
+
     if not dest:
         data_home = get_data_home()
         dest = data_home / f"{accession_id}_summary_stats.tsv.gz"
 
-    url = (
-        _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)["full_summary_stats"]
-        + f"/{accession_id}_buildGRCh37.tsv.gz"
-    )
     logging.info(f"Downloading {url} to {dest}")
-    urlretrieve(url, dest)
+
+    try:
+        urlretrieve(url, dest)
+    except Exception as e:
+        raise RuntimeError(f"Failed to download summary statistics from {url}: {e}")
 
     if return_path:
         return dest
@@ -168,11 +238,7 @@ def get_gwas_catalog_study_summary_stats(
     return data
 
 
-def get_gwas_catalog_genes(
-    data_home: Optional[Union[str, Path]] = None,
-    refresh: bool = False,
-    **params: Any
-) -> pd.DataFrame:
+def get_gwas_catalog_genes(data_home: str | Path | None = None, refresh: bool = False, **params: Any) -> pd.DataFrame:
     """
     Retrieve GWAS catalog gene associations and cache locally.
 
@@ -219,10 +285,7 @@ def get_gwas_catalog_gene(gene_name: str, **params: Any) -> dict:
 
 
 def get_pgs_catalog_scores(
-    data_home: Optional[Union[str, Path]] = None,
-    max_pages: Optional[int] = None,
-    refresh: bool = False,
-    **params: Any
+    data_home: str | Path | None = None, max_pages: int | None = None, refresh: bool = False, **params: Any
 ) -> pd.DataFrame:
     """
     Retrieve PGS catalog scores and cache locally.
@@ -272,11 +335,8 @@ def get_pgs_catalog_score(pgs_id: str, **params: Any) -> dict:
 
 
 def get_pgs_catalog_score_file(
-    pgs_id: str,
-    dest: Optional[Union[str, Path]] = None,
-    return_path: bool = False,
-    **params: Any
-) -> Union[pd.DataFrame, Path]:
+    pgs_id: str, dest: str | Path | None = None, return_path: bool = False, **params: Any
+) -> pd.DataFrame | Path:
     """
     Download the scoring file for a PGS catalog score.
 
@@ -314,10 +374,7 @@ def get_pgs_catalog_score_file(
 
 
 def get_eqtl_catalog_datasets(
-    data_home: Optional[Union[str, Path]] = None,
-    max_pages: Optional[int] = None,
-    refresh: bool = False,
-    **params: Any
+    data_home: str | Path | None = None, max_pages: int | None = None, refresh: bool = False, **params: Any
 ) -> pd.DataFrame:
     """
     Retrieve eQTL catalog datasets and cache locally.
@@ -349,11 +406,11 @@ def get_eqtl_catalog_datasets(
 
 def get_eqtl_catalog_dataset_associations(
     dataset_id: str,
-    data_home: Optional[Union[str, Path]] = None,
+    data_home: str | Path | None = None,
     refresh: bool = False,
     return_path: bool = False,
-    **params: Any
-) -> Union[pd.DataFrame, Path]:
+    **params: Any,
+) -> pd.DataFrame | Path:
     """
     Retrieve associations for a specific eQTL catalog dataset and cache locally.
 

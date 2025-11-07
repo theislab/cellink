@@ -1,9 +1,8 @@
 import shutil
 import tarfile
+from pathlib import Path
 
 import pandas as pd
-from pathlib import Path
-from typing import Optional, Tuple, Union
 
 from cellink.resources._utils import _download_file, _load_config, get_data_home
 
@@ -36,29 +35,35 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
             else:
                 shutil.rmtree(item)
 
-    if not any(p for p in extract_path.iterdir() if p != tgz_path):
+    existing_contents = [p for p in extract_path.iterdir() if p != tgz_path]
+
+    if not existing_contents:
         with tarfile.open(tgz_path, "r:gz") as tar:
             tar.extractall(path=extract_path)
 
-        contents = list(extract_path.iterdir())
-        if len(contents) == 2 and contents[1].is_dir():
-            for item in contents[1].iterdir():
+        contents = [p for p in extract_path.iterdir() if p != tgz_path]
+
+        if len(contents) == 1 and contents[0].is_dir():
+            nested_dir = contents[0]
+
+            for item in nested_dir.iterdir():
                 shutil.move(str(item), str(extract_path))
-            contents[1].rmdir()
+
+            nested_dir.rmdir()
 
 
 def get_1000genomes_ld_scores(
-    config_path: Union[str, Path] = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
     population: str = "EUR",
-    data_home: Optional[Union[str, Path]] = None,
+    data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
-) -> Union[Tuple[pd.DataFrame, pd.DataFrame, str], Tuple[Path, str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, str] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes linkage disequilibrium (LD) scores.
 
     This function downloads population-specific LD scores from the 1000 Genomes project,
-    extracts them to a local directory, and concatenates chromosome-wise annotation and 
+    extracts them to a local directory, and concatenates chromosome-wise annotation and
     LD score files into pandas DataFrames.
 
     Parameters
@@ -84,7 +89,7 @@ def get_1000genomes_ld_scores(
             Concatenated LD score files for all chromosomes.
         - prefix : str
             File name prefix used in the extracted data.
-        
+
         If `return_path=True`, returns `(DATA, prefix)`:
         - DATA : pathlib.Path
             Path to the directory containing extracted files.
@@ -135,17 +140,17 @@ def get_1000genomes_ld_scores(
 
 
 def get_1000genomes_ld_weights(
-    config_path: Union[str, Path] = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
     population: str = "EUR",
-    data_home: Optional[Union[str, Path]] = None,
+    data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
-) -> Union[Tuple[pd.DataFrame, pd.DataFrame], Tuple[Path, str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes LD weights.
 
     This function downloads population-specific LD weights from the 1000 Genomes project,
-    extracts them to a local directory, and concatenates chromosome-wise weight files 
+    extracts them to a local directory, and concatenates chromosome-wise weight files
     into a single pandas DataFrame.
 
     Parameters
@@ -168,7 +173,7 @@ def get_1000genomes_ld_weights(
         - None : placeholder for compatibility with LD scores interface.
         - weights : pd.DataFrame
             Concatenated LD weight files for all chromosomes.
-        
+
         If `return_path=True`, returns `(DATA, prefix)`:
         - DATA : pathlib.Path
             Path to the directory containing extracted files.
@@ -211,8 +216,73 @@ def get_1000genomes_ld_weights(
     return annot, weights
 
 
+def get_1000genomes_plink_files(
+    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    population: str = "EUR",
+    data_home: str | Path | None = None,
+    refresh: bool = False,
+) -> Path:
+    """
+    Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
+
+    This function downloads population-specific PLINK files from the 1000 Genomes project,
+    extracts them to a local directory, and returns the path to the extracted files.
+
+    Parameters
+    ----------
+    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
+        Path to YAML configuration file specifying URLs and file names for PLINK files.
+    population : str, default='EUR'
+        Population code for PLINK files. Currently only 'EUR' is supported.
+    data_home : str or pathlib.Path, optional
+        Root directory where data will be stored. Defaults to user-specific cache directory.
+    refresh : bool, default=False
+        If True, re-downloads and re-extracts files even if they already exist locally.
+
+    Returns
+    -------
+    - pathlib.Path
+        Path to the directory containing extracted PLINK files (.bed, .bim, .fam).
+        Files are named as: {prefix}{chrom}.bed/bim/fam where chrom ranges from 1-22.
+    - prefix : str
+        File name prefix used in the extracted data.
+
+    Raises
+    ------
+    ValueError
+        If `population` is not supported in the configuration.
+
+    Examples
+    --------
+    >>> plink_dir = get_1000genomes_plink_files(population="EUR")
+    >>> # Access chromosome 1 files at:
+    >>> # plink_dir / "1000G.EUR.QC.1.bed"
+    >>> # plink_dir / "1000G.EUR.QC.1.bim"
+    >>> # plink_dir / "1000G.EUR.QC.1.fam"
+    """
+    data_home = get_data_home(data_home)
+    DATA = data_home / f"1000genomes_plink_{population}"
+    DATA.mkdir(exist_ok=True)
+
+    config = _load_config(config_path)
+    if population not in config["plink_files"]:
+        raise ValueError(f"population must be one of {list(config['plink_files'].keys())}")
+
+    prefix = config["plink_files"]["prefix"]
+    tgz_path = DATA / config["plink_files"][population]["filename"]
+
+    _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None)
+    _extract_or_refresh(tgz_path, DATA, refresh=refresh)
+
+    return DATA, prefix
+
+
 if __name__ == "__main__":
     annot, ldscores, prefix = get_1000genomes_ld_scores(population="EUR")
     annot, ldscores, prefix = get_1000genomes_ld_scores(population="EAS")
+
     annot, weights, prefix = get_1000genomes_ld_weights(population="EUR")
     annot, weights, prefix = get_1000genomes_ld_weights(population="EAS")
+
+    plink_files, prefix = get_1000genomes_plink_files(population="EUR")
+    plink_files, prefix = get_1000genomes_plink_files(population="EAS")
