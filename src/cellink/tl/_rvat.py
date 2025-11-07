@@ -30,13 +30,14 @@ def beta_weighting(values, beta_weights=(1, 25)):
 
     Parameters
     ----------
-    values (array-like): The input values to be weighted. These should be in the range [0, 1].
-    beta_weights (tuple, optional): A tuple of two positive numbers representing the alpha and beta
-                                     parameters of the Beta distribution. Defaults to (1, 25).
+    values : np.ndarray
+        The input values to be weighted. These should be in the range [0, 1].
+    beta_weights: tuple
+        A tuple of two positive numbers representing the alpha and beta parameters of the Beta distribution. Defaults to (1, 25).
 
     Returns
     -------
-    array-like: The weighted values computed using the Beta probability density function.
+    np.ndarray: The weighted values computed using the Beta probability density function.
     """
     weighted = beta.pdf(values, beta_weights[0], beta_weights[1])
 
@@ -53,19 +54,19 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
         An AnnData object containing genotype data. The `X` attribute should
         contain the genotype matrix, and the `varm["variant_annotation"]`
         attribute should contain variant annotations.
-    Y : array-like
+    Y : np.ndarray
         Phenotype data for the samples.
-    F : array-like
+    F : np.ndarray
         Covariate matrix for the samples.
     gene : str
         The name of the gene being tested.
     annotation_cols : list of str
         List of column names in `G.varm["variant_annotation"]` to use for
         calculating variant scores.
-    burden_agg_fct : str, optional (default="sum")
+    burden_agg_fct : str (default="sum")
         Aggregation function to compute the burden score. Options include
         "sum", "mean", "max".
-    run_lrt : bool, optional (default=True)
+    run_lrt : bool (default=True)
         Whether to compute the likelihood ratio test (LRT) for the burden test.
 
     Returns

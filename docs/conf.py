@@ -23,7 +23,7 @@ info = metadata("cellink")
 
 project_name = info["Name"]
 author = info["Author"]
-copyright = f"{datetime.now():%Y}, {author}."
+copyright = f"{datetime.now():%Y}, Theislab."
 version = info["Version"]
 urls = dict(pu.split(", ") for pu in info.get_all("Project-URL"))
 repository_url = urls["Source"]
@@ -39,7 +39,7 @@ needs_sphinx = "4.0"
 html_context = {
     "display_github": True,  # Integrate GitHub
     "github_user": "theislab",
-    "github_repo": "sc-genetics",
+    "github_repo": "cellink",
     "github_version": "main",
     "conf_py_path": "/docs/",
 }
@@ -50,6 +50,7 @@ html_context = {
 # They can be extensions coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = [
     "myst_nb",
+    "myst_parser",
     "sphinx_copybutton",
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
@@ -80,6 +81,8 @@ myst_enable_extensions = [
     "dollarmath",
     "html_image",
     "html_admonition",
+    "linkify",
+    "colon_fence",
 ]
 myst_url_schemes = ("http", "https", "mailto")
 nb_output_stderr = "remove"
@@ -98,6 +101,8 @@ intersphinx_mapping = {
     "anndata": ("https://anndata.readthedocs.io/en/stable/", None),
     "scanpy": ("https://scanpy.readthedocs.io/en/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "matplotlib": ("https://matplotlib.org/stable/", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
 }
 
 # List of patterns, relative to source directory, that match files and
