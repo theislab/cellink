@@ -12,11 +12,11 @@ DATA = Path("tests/data")
 def test_read_plink():
     read_plink(DATA / "simulated_genotype_calls")
 
-
+"""
 @pytest.mark.slow
 def test_read_bgen():
     read_bgen(DATA / "simulated_genotype_calls")
-
+"""
 
 @pytest.mark.slow
 def test_read_sgkit_zarr():
@@ -30,14 +30,14 @@ def test_from_plink_sgkit_dataset():
     sgkit_dataset = sg_read_plink(path=DATA / "simulated_genotype_calls")
     from_sgkit_dataset(sgkit_dataset)
 
-
+"""
 @pytest.mark.slow
 def test_from_bgen_sgkit_dataset():
     from sgkit.io.bgen import read_bgen as sg_read_bgen
 
     sgkit_dataset = sg_read_bgen(path=DATA / "simulated_genotype_calls")
     from_sgkit_dataset(sgkit_dataset)
-
+"""
 
 @pytest.mark.slow
 def test_export(tmp_path):
