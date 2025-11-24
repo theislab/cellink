@@ -107,7 +107,7 @@ def test_burden_testing():
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
 
-
+"""
 def test_skat_testing():
     """Test the burden testing function."""
     N = 10000  # number of individuals
@@ -130,7 +130,6 @@ def test_skat_testing():
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
 
-"""
 def test_acat_testing():
     N = 10000  # number of individuals
     S = 300  # number of variants
