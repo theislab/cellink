@@ -109,7 +109,6 @@ def test_burden_testing():
 
 """
 def test_skat_testing():
-    """Test the burden testing function."""
     N = 10000  # number of individuals
     S = 10  # number of variants
     number_causal_variants = 3  # number of causal variants
