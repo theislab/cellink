@@ -43,7 +43,8 @@ dependencies = [
   "scanpy",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
+  "sgkit[plink,bgen]", # TODO cbgen is a pain to install on mac. I think cmake issues.
+  "bio2zarr[all]",
 ]
 
 optional-dependencies.datasets = [
