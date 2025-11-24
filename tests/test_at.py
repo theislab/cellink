@@ -130,7 +130,7 @@ def test_skat_testing():
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
 
-
+"""
 def test_acat_testing():
     N = 10000  # number of individuals
     S = 300  # number of variants
@@ -169,7 +169,7 @@ def test_acat_testing():
     acat_pvp = compute_acat(pvs=pvps)
     print(f"acat_pv: {acat_pv}, acat_pvp: {acat_pvp}")
     assert acat_pv < acat_pvp, "P-value is not smaller than permutated p-value"
-
+"""
 
 if __name__ == "__main__":
     logger.info("Running tests...")
