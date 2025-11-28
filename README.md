@@ -1,3 +1,9 @@
+[![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)
+[![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache2.0)
+[![Read the Docs](https://img.shields.io/readthedocs/cellink/latest.svg?label=Read%20the%20Docs)](https://cellink-docs.readthedocs.io/)
+[![Test](https://github.com/theislab/cellink/actions/workflows/test.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/test.yaml)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
+
 # Single-cell Genetics Package (Cellink)
 
 <!-- TODO comment back in once package is public -->
