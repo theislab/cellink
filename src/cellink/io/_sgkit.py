@@ -273,9 +273,9 @@ def from_sgkit_dataset(
             continue
 
         if da_var.data.T.ndim == 2:
-            adata.uns[key.replace("call_", "").upper()] = da_var.data.T
-        else:
             adata.layers[key.replace("call_", "").upper()] = da_var.data.T
+        else:
+            adata.uns[key.replace("call_", "").upper()] = da_var.data.T
 
     adata.uns["n_alt"] = n_alt
     if inferred_ploidy is not None:
