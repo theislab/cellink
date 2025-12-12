@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 from typing import Any
+import shlex
 
 import yaml
 
@@ -74,12 +75,12 @@ class LDSCRunner:
 
         volumes[os.getcwd()] = "/data"
 
-        cellink_data_path = get_data_home(data_home)
+        cellink_data_path = str(get_data_home(data_home))
         if os.path.exists(cellink_data_path):
             volumes[cellink_data_path] = "/cellink_data"
 
         for file_path in file_paths:
-            if file_path and os.path.exists(file_path):
+            if file_path: 
                 abs_path = os.path.abspath(file_path)
                 parent_dir = os.path.dirname(abs_path)
 
@@ -131,6 +132,26 @@ class LDSCRunner:
 
         return base_command
 
+    def _rewrite_paths_in_command(self, command: str, volumes: dict[str, str]) -> str:
+        tokens = shlex.split(command)
+        rewritten = []
+
+        for token in tokens:
+            new_token = token
+
+            if os.path.exists(token):
+                abs_path = os.path.abspath(token)
+
+                for host_path, container_path in volumes.items():
+                    if abs_path.startswith(host_path):
+                        rel = os.path.relpath(abs_path, host_path)
+                        new_token = os.path.join(container_path, rel).replace("\\", "/")
+                        break
+
+            rewritten.append(new_token)
+
+        return " ".join(rewritten)
+
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
@@ -156,7 +177,8 @@ class LDSCRunner:
         else:
             volumes = self._infer_volumes_from_paths(*file_paths)
 
-            container_command = base_command
+            #container_command = base_command
+            container_command = _rewrite_paths_in_command(base_command, volumes)
             for host_path, container_path in volumes.items():
                 container_command = str(container_command).replace(str(host_path), str(container_path))
 
@@ -205,7 +227,7 @@ def configure_ldsc_runner(config_path: str | None = None, config_dict: dict | No
     LDSCRunner
         Configured runner instance
     """
-    if not os.path.isfile(config_path) and config_path is not None:
+    if config_path is not None and not os.path.isfile(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
     global _ldsc_runner
     _ldsc_runner = LDSCRunner(config_path=config_path, config_dict=config_dict)
