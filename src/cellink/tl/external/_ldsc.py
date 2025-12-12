@@ -112,8 +112,20 @@ class LDSCRunner:
 
         return file_path
 
-    def _build_container_command(self, base_command: str, volumes: dict[str, str]) -> str:
+    def _build_container_command(self, base_command: str, file_paths: list[str] = None) -> str:
         """Build docker or singularity command with volumes"""
+        if self.config["execution_mode"] == "local":
+            return base_command
+
+        if file_paths is None:
+            file_paths = []
+
+        volumes = self._infer_volumes_from_paths(*file_paths)
+
+        container_command = base_command
+        for host_path, container_path in volumes.items():
+            container_command = str(container_command).replace(str(host_path), str(container_path))
+
         if self.config["execution_mode"] == "docker":
             volume_args = []
             for host_path, container_path in volumes.items():
@@ -130,7 +142,7 @@ class LDSCRunner:
             cmd = ["singularity", "exec", *bind_args, self.config["singularity_image"], base_command]
             return " ".join(cmd)
 
-        return base_command
+        return container_command
 
     def _rewrite_paths_in_command(self, command: str, volumes: dict[str, str]) -> str:
         tokens = shlex.split(command)
@@ -167,6 +179,8 @@ class LDSCRunner:
         """
         if file_paths is None:
             file_paths = []
+        if os.getcwd() not in file_paths:
+            file_paths.append(os.getcwd())
 
         if self.config["execution_mode"] == "local":
             result = subprocess.run(base_command, shell=True, check=check, capture_output=True, text=True)
@@ -423,19 +437,18 @@ def munge_sumstats(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = [sumstats_file]
-        if merge_alleles:
-            file_paths.append(merge_alleles)
-        if snplist:
-            file_paths.append(snplist)
+    file_paths = [sumstats_file]
+    if merge_alleles:
+        file_paths.append(merge_alleles)
+    if snplist:
+        file_paths.append(snplist)
 
+    if run:
         logger.info(f"Running munge_sumstats: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
         return f"{out_prefix}.sumstats.gz"
     else:
-        volumes = runner._infer_volumes_from_paths(sumstats_file, merge_alleles or "", snplist or "")
-        return runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd
+        return runner._build_container_command(cmd, file_paths)
 
 
 def _run_ldsc_estimate_ld_scores(
@@ -493,20 +506,18 @@ def _run_ldsc_estimate_ld_scores(
 
     cmd += " --yes-really"
 
-    if run:
-        file_paths = [f"{bfile_prefix}.bed", f"{bfile_prefix}.bim", f"{bfile_prefix}.fam"]
-        if annot_file:
-            file_paths.append(annot_file)
-        if print_snps:
-            file_paths.append(print_snps)
+    file_paths = [f"{bfile_prefix}.bed", f"{bfile_prefix}.bim", f"{bfile_prefix}.fam"]
+    if annot_file:
+        file_paths.append(annot_file)
+    if print_snps:
+        file_paths.append(print_snps)
 
+    if run:
         logger.info(f"Estimating LD scores: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
         return f"{out_prefix}.l2.ldscore.gz"
     else:
-        file_paths = [f"{bfile_prefix}.bed", annot_file or "", print_snps or ""]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd
+        return runner._build_container_command(cmd, file_paths)
 
 
 def estimate_ld_scores_from_bimfile(
@@ -749,18 +760,16 @@ def _run_ldsc_heritability(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = [sumstats_file, ref_ld_chr, w_ld_chr]
-        if frqfile_chr:
-            file_paths.append(frqfile_chr)
+    file_paths = [sumstats_file, ref_ld_chr, w_ld_chr]
+    if frqfile_chr:
+        file_paths.append(frqfile_chr)
 
+    if run:
         logger.info(f"Estimating heritability: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
         return f"{out_prefix}.log"
     else:
-        file_paths = [sumstats_file, ref_ld_chr, w_ld_chr, frqfile_chr or ""]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd
+        return runner._build_container_command(cmd, file_paths)
 
 
 def estimate_heritability(
@@ -952,18 +961,16 @@ def _run_ldsc_genetic_correlation(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = sumstats_files + [ref_ld_chr, w_ld_chr]
-        if frqfile_chr:
-            file_paths.append(frqfile_chr)
+    file_paths = sumstats_files + [ref_ld_chr, w_ld_chr]
+    if frqfile_chr:
+        file_paths.append(frqfile_chr)
 
+    if run:
         logger.info(f"Estimating genetic correlation: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
         return f"{out_prefix}.log"
     else:
-        file_paths = sumstats_files + [ref_ld_chr, w_ld_chr, frqfile_chr or ""]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd
+        return runner._build_container_command(cmd, file_paths)
 
 
 def estimate_genetic_correlation(
@@ -1134,22 +1141,20 @@ def _run_ldsc_make_annot(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = [bimfile]
-        if gene_set_file:
-            file_paths.append(gene_set_file)
-        if gene_coord_file:
-            file_paths.append(gene_coord_file)
-        if bed_file:
-            file_paths.append(bed_file)
+    file_paths = [bimfile]
+    if gene_set_file:
+        file_paths.append(gene_set_file)
+    if gene_coord_file:
+        file_paths.append(gene_coord_file)
+    if bed_file:
+        file_paths.append(bed_file)
 
+    if run:
         logger.info(f"Creating annotation file: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
         return annot_file
     else:
-        file_paths = [bimfile, gene_set_file or "", gene_coord_file or "", bed_file or ""]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd
+        return runner._build_container_command(cmd, file_paths)
 
 
 def make_annot_from_bimfile(
@@ -1601,11 +1606,11 @@ def compute_ld_scores_with_annotations_from_bimfile(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = [f"{bfile_prefix}.bed", f"{bfile_prefix}.bim", f"{bfile_prefix}.fam", annot_file]
-        if print_snps:
-            file_paths.append(print_snps)
+    file_paths = [f"{bfile_prefix}.bed", f"{bfile_prefix}.bim", f"{bfile_prefix}.fam", annot_file]
+    if print_snps:
+        file_paths.append(print_snps)
 
+    if run:
         logger.info(f"Computing LD scores with annotations: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
 
@@ -1619,9 +1624,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
             ],
         }
     else:
-        file_paths = [f"{bfile_prefix}.bed", annot_file, print_snps or ""]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return {"command": runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd}
+        return {"command": runner._build_container_command(cmd, file_paths)}
 
 
 def compute_ld_scores_with_annotations_from_donor_data(
@@ -1959,9 +1962,9 @@ def estimate_celltype_specific_heritability(
         elif value is not None:
             cmd += f" --{flag} {value}"
 
-    if run:
-        file_paths = [sumstats_file, ref_ld_chr, w_ld_chr, ref_ld_chr_cts]
+    file_paths = [sumstats_file, ref_ld_chr, w_ld_chr, ref_ld_chr_cts]
 
+    if run:
         logger.info(f"Running cell-type-specific heritability analysis: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
 
@@ -1971,6 +1974,4 @@ def estimate_celltype_specific_heritability(
             "files_created": [f"{out_prefix}.cell_type_results.txt", f"{out_prefix}.log"],
         }
     else:
-        file_paths = [sumstats_file, ref_ld_chr, w_ld_chr, ref_ld_chr_cts]
-        volumes = runner._infer_volumes_from_paths(*file_paths)
-        return {"command": runner._build_container_command(cmd, volumes) if runner.execution_mode != "local" else cmd}
+        return {"command": runner._build_container_command(cmd, file_paths)}
