@@ -115,10 +115,10 @@ class LDSCRunner:
         """Build docker or singularity command with volumes"""
         if self.config["execution_mode"] == "local":
             return base_command
-        
+
         if file_paths is None:
             file_paths = []
-        
+
         volumes = self._infer_volumes_from_paths(*file_paths)
 
         container_command = base_command
@@ -158,6 +158,8 @@ class LDSCRunner:
         """
         if file_paths is None:
             file_paths = []
+        if os.getcwd() not in file_paths:
+            file_paths.append(os.getcwd())
 
         if self.config["execution_mode"] == "local":
             result = subprocess.run(base_command, shell=True, check=check, capture_output=True, text=True)

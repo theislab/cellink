@@ -168,7 +168,16 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, har
     return gdata
 
 
-def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_bgen(
+    path: str | Path = None,
+    metafile_path: str | Path = None,
+    sample_path: str | Path = None,
+    *,
+    var_rename=None,
+    obs_rename=None,
+    hard_call=True,
+    **kwargs,
+) -> AnnData:
     """Read bgen Format
 
     Params
@@ -184,6 +193,6 @@ def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard
     """
     from sgkit.io import bgen as sg_bgen
 
-    sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
+    sgkit_dataset = sg_bgen.read_bgen(path=path, metafile_path=metafile_path, sample_path=sample_path, **kwargs)
     gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
     return gdata
