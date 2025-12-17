@@ -1,13 +1,14 @@
 import importlib
 from typing import Any
 
-__all__ = ["MILDataset", "mil_collate_fn", "DonorMILModel"]
+__all__ = ["MILDataset", "mil_collate_fn", "GeneticsDataset", "genetics_collate_fn"]
 
 # map public names to their source submodule
 _submodules = {
     "MILDataset": "dataset",
     "mil_collate_fn": "dataset",
-    "DonorMILModel": "model",
+    "GeneticsDataset": "dataset",
+    "genetics_collate_fn": "dataset",
 }
 
 
