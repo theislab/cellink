@@ -124,14 +124,12 @@ def _get_obs_field(
         for k in key:
             arr = _get_obs_field(data, k, mask=mask, force=force)
             if arr is not None:
-                if arr.ndim == 1:
-                    arr = arr.reshape(-1, 1)
                 arrays.append(arr)
 
         if not arrays:
             return None
 
-        return np.concatenate(arrays, axis=1)
+        return np.concatenate(arrays, axis=0)
 
     if isinstance(data, MuData):
         for mod in data.mod.values():
@@ -290,9 +288,7 @@ class MILDataset(Dataset):
             "donor_y": torch.tensor(donor_y, dtype=torch.float32),
             "donor_batch": torch.tensor(donor_batch, dtype=torch.float32) if donor_batch is not None else None,
             "donor_cat_covs": torch.tensor(donor_cat_covs, dtype=torch.float32) if donor_cat_covs is not None else None,
-            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32)
-            if donor_cont_covs is not None
-            else None,
+            "donor_cont_covs": torch.tensor(donor_cont_covs, dtype=torch.float32) if donor_cont_covs is not None else None,
             "donor_indices": torch.tensor(donor_indices, dtype=torch.float32) if donor_indices is not None else None,
             "cell_x": torch.tensor(cell_x, dtype=torch.float32),
             "cell_y": torch.tensor(cell_y, dtype=torch.float32) if cell_y is not None else None,
@@ -408,10 +404,7 @@ class GeneticsDataset(Dataset):
         self.data = data
         self.layer = layer
 
-        if id_key is not None:
-            self.all_ids = _get_obs_field(id_key, force=True)
-        else:
-            self.all_ids = np.arange(len(data))
+        self.all_ids = _get_obs_field(self.data, self.id_key, force=True)
 
         if split_ids is not None:
             self.selected_ids = np.array(split_ids)
