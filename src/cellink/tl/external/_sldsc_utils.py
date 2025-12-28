@@ -484,7 +484,8 @@ def _compute_specificity(mean_expr_df: pd.DataFrame) -> pd.DataFrame:
 def _safe_filename(s: str) -> str:
     """Convert string to safe filename."""
     s = str(s).strip().replace(" ", "_")
-    return re.sub(r"[^\w\.-]+", "_", s)
+    s = s.replace("(", "_").replace(")", "_")
+    return re.sub(r"[^\w\.]+", "_", s)
 
 
 def generate_gene_coord_file(

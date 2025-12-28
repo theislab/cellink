@@ -121,8 +121,9 @@ class LDSCRunner:
             file_paths = []
 
         volumes = self._infer_volumes_from_paths(*file_paths)
+        container_command = self._rewrite_paths_in_command(base_command, volumes)
 
-        container_command = base_command
+        #container_command = base_command
         for host_path, container_path in volumes.items():
             container_command = str(container_command).replace(str(host_path), str(container_path))
 
@@ -131,7 +132,7 @@ class LDSCRunner:
             for host_path, container_path in volumes.items():
                 volume_args.extend(["-v", f"{host_path}:{container_path}"])
 
-            cmd = ["docker", "run", "--rm", *volume_args, "-w", "/data", self.config["docker_image"], base_command]
+            cmd = ["docker", "run", "--rm", *volume_args, "-w", "/data", self.config["docker_image"], container_command]
             return " ".join(cmd)
 
         elif self.config["execution_mode"] == "singularity":
@@ -139,19 +140,20 @@ class LDSCRunner:
             for host_path, container_path in volumes.items():
                 bind_args.extend(["-B", f"{host_path}:{container_path}"])
 
-            cmd = ["singularity", "exec", *bind_args, self.config["singularity_image"], base_command]
+            cmd = ["singularity", "exec", *bind_args, self.config["singularity_image"], container_command]
             return " ".join(cmd)
 
-        return container_command
+        return base_command
 
     def _rewrite_paths_in_command(self, command: str, volumes: dict[str, str]) -> str:
+        prefix_tokens = ["--bfile", "--out", "--ref-ld-chr", "--w-ld-chr", "--frqfile-chr", "--ref-ld-chr-cts", "--annot-file"]
         tokens = shlex.split(command)
         rewritten = []
 
-        for token in tokens:
+        for token_i, token in enumerate(tokens):
             new_token = token
 
-            if os.path.exists(token):
+            if os.path.exists(token) or (token_i > 1 and tokens[token_i-1] in prefix_tokens):
                 abs_path = os.path.abspath(token)
 
                 for host_path, container_path in volumes.items():
@@ -189,14 +191,7 @@ class LDSCRunner:
             if result.stderr:
                 logger.warning(result.stderr)
         else:
-            volumes = self._infer_volumes_from_paths(*file_paths)
-
-            #container_command = base_command
-            container_command = _rewrite_paths_in_command(base_command, volumes)
-            for host_path, container_path in volumes.items():
-                container_command = str(container_command).replace(str(host_path), str(container_path))
-
-            full_command = self._build_container_command(container_command, volumes)
+            full_command = self._build_container_command(base_command, file_paths)
 
             logger.info(f"Executing: {full_command}")
             result = subprocess.run(full_command, shell=True, check=check, capture_output=True, text=True)
