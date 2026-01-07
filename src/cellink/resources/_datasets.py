@@ -1,27 +1,20 @@
-import hashlib
 import logging
 import os
-import shutil
-import subprocess
-from os.path import expanduser, join
-from pathlib import Path
-from urllib.request import urlretrieve
 
 import anndata as ad
 import pandas as pd
-import yaml
 
 import cellink as cl
-from .._core import DonorData
-from cellink.resources._utils import get_data_home, _download_file, _run, _load_config
+from cellink._core import DonorData
+from cellink.io import read_h5_dd, read_zarr_dd
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
+from cellink.resources._utils import _download_file, _load_config, _run, get_data_home
 
 logging.basicConfig(level=logging.INFO)
 
+
 def get_1000genomes(
-    config_path: str = "./cellink/resources/config/1000genomes.yaml",
-    data_home: str | None = None,
-    verify_checksum=True
+    config_path: str = "./cellink/resources/config/1000genomes.yaml", data_home: str | None = None, verify_checksum=True
 ) -> ad.AnnData:
     """
     Download and preprocess the 1000 Genomes Project genotype data.
@@ -87,7 +80,7 @@ def get_1000genomes(
 def get_onek1k(
     config_path: str = "./cellink/resources/config/onek1k.yaml",
     data_home: str | None = None,
-    verify_checksum: bool = True
+    verify_checksum: bool = True,
 ) -> DonorData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.
@@ -165,6 +158,7 @@ def get_onek1k(
         DATA / "pcdir" / "OneK1K.noGP.filtered.pruned.eigenvec", sep=r"\s+", index_col=1, header=None
     ).drop(columns=0)
     gdata.obsm["gPCs"] = gpcs.loc[gdata.obs_names]
+    gdata.obsm["gPCs"].columns = gdata.obsm["gPCs"].columns.astype(str)
 
     gdata.uns["kinship"] = pd.read_csv(
         DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel", delimiter="\t", header=None
@@ -191,6 +185,100 @@ def get_onek1k(
     return dd
 
 
+def get_dummy_onek1k(
+    config_path: str = "./cellink/resources/config/dummy_onek1k.yaml",
+    data_home: str | None = None,
+    verify_checksum: bool = True,
+) -> DonorData:
+    """
+    Download and load the dummy OneK1K dataset.
+
+    This function downloads a pre-processed subset of the OneK1K dataset containing:
+    - Full chromosome 22 genotype data
+    - 0.1% sample of SNPs from chromosomes 1-21
+    - ~100 donors (randomly sampled)
+    - All cell types and expression data preserved
+    - **Gene annotations pre-included** (GAnn.start, GAnn.end, GAnn.chrom)
+    - **Only QTL-relevant genes** (chr 1-22, within ±1Mb of any SNP)
+
+    The dummy dataset is ideal for tutorials, testing, and demonstrations as it is
+    ~100x smaller than the full OneK1K dataset while maintaining the same structure
+    and API. Unlike the full dataset, gene annotations are already included,
+    eliminating the need for pybiomart calls in tutorials.
+
+    Parameters
+    ----------
+    config_path : str, default="./cellink/resources/config/dummy_onek1k.yaml"
+        Path to the YAML configuration file listing the remote dummy dataset file.
+    data_home : str or None, optional
+        Directory where data should be stored. If None, uses the default `cellink`
+        data directory.
+    verify_checksum : bool, default=True
+        If True, verifies the checksum of the downloaded file.
+
+    Returns
+    -------
+    cellink.DonorData
+        A `DonorData` object containing preprocessed genotype (`G`) and expression
+        (`C`) data, along with kinship and principal component metadata. Gene
+        annotations are already included in `dd.C.var`.
+
+    Examples
+    --------
+    >>> from cellink.resources import get_dummy_onek1k
+    >>> dd = get_dummy_onek1k()
+    >>> print(dd.shape)  # (n_donors, n_snps, n_cells, n_genes)
+    >>> # Gene annotations are already included!
+    >>> print(dd.C.var[[GAnn.start, GAnn.end, GAnn.chrom]].head())
+
+    Notes
+    -----
+    The dummy dataset maintains the same structure as the full OneK1K dataset:
+    - dd.G: Genotype data (donors x SNPs)
+    - dd.C: Single-cell expression data (cells x genes)
+    - dd.G.obsm["gPCs"]: Genotype principal components
+    - dd.G.uns["kinship"]: Kinship matrix
+    - dd.C.var[GAnn.start/end/chrom]: Gene annotations (pre-included!)
+
+    The dataset is provided as a single file (.dd.h5 or .dd.zarr) that can be
+    quickly downloaded and loaded without additional preprocessing.
+
+    Key differences from full dataset:
+    - Gene annotations are pre-included (no pybiomart needed)
+    - Only genes on chromosomes 1-22 are included
+    - Only genes within ±1Mb of any SNP (QTL-relevant)
+    - Reduces gene count from ~20k to ~5-10k for faster processing
+
+    See Also
+    --------
+    get_onek1k : Load the full OneK1K dataset
+    """
+    data_home = get_data_home(data_home)
+    DATA = data_home / "dummy_onek1k"
+    DATA.mkdir(exist_ok=True)
+
+    config = _load_config(config_path)
+
+    file_info = config["remote_files"][0]
+    filename = file_info["filename"]
+    checksum = file_info.get("checksum") if verify_checksum else None
+
+    file_path = DATA / filename
+    _download_file(file_info["url"], file_path, checksum)
+
+    if filename.endswith(".dd.h5"):
+        dd = read_h5_dd(str(file_path))
+    elif filename.endswith(".dd.zarr"):
+        dd = read_zarr_dd(str(file_path))
+    else:
+        raise ValueError(f"Unsupported file format: {filename}")
+
+    logging.info(f"Loaded dummy OneK1K dataset: {dd.shape}")
+
+    return dd
+
+
 if __name__ == "__main__":
+    get_dummy_onek1k()
     get_onek1k()
     get_1000genomes()
