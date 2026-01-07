@@ -1,0 +1,31 @@
+gene_loc:
+  GRCh37:
+    url: "https://vu.data.surf.nl/public.php/dav/files/Pj2orwuF2JYyKxq/?accept=zip"
+    filename: "NCBI37.3.gene.loc"
+    description: "Gene location file for GRCh37/hg19"
+  GRCh38:
+    url: "https://vu.data.surf.nl/public.php/dav/files/yj952iHqy5anYhH/?accept=zip"
+    filename: "NCBI38.gene.loc"
+    description: "Gene location file for GRCh38/hg38"
+reference_data:
+  EUR:
+    url: "https://vu.data.surf.nl/public.php/dav/files/VZNByNwpD8qqINe/?accept=zip"
+    description: "1000 Genomes Phase 3 European reference panel"
+    files:
+      - "g1000_eur.bed"
+      - "g1000_eur.bim"
+      - "g1000_eur.fam"
+  EAS:
+    url: "https://vu.data.surf.nl/public.php/dav/files/dz6PYdKOi3xVqHn/?accept=zip"
+    description: "1000 Genomes Phase 3 East Asian reference panel"
+    files:
+      - "g1000_eas.bed"
+      - "g1000_eas.bim"
+      - "g1000_eas.fam"
+  AFR:
+    url: "https://vu.data.surf.nl/public.php/dav/files/ePXET6IWVTwTes4/?accept=zip"
+    description: "1000 Genomes Phase 3 African reference panel"
+    files:
+      - "g1000_afr.bed"
+      - "g1000_afr.bim"
+      - "g1000_afr.fam"
