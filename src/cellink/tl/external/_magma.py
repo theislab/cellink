@@ -16,12 +16,12 @@ logger = logging.getLogger(__name__)
 def load_magma_config(config_file: str) -> dict:
     """
     Load MAGMA reference file URLs from YAML configuration.
-    
+
     Parameters
     ----------
     config_file : str
         Path to YAML configuration file.
-        
+
     Returns
     -------
     dict
@@ -37,14 +37,14 @@ def get_gene_id_mapping(
 ) -> pd.DataFrame:
     """
     Get gene ID mapping from Ensembl using pybiomart.
-    
+
     Parameters
     ----------
     genome_build : str
         Genome build version ('GRCh37' or 'GRCh38').
     gene_id_type : str
         Type of gene ID to use as index: 'entrez', 'ensembl', or 'gene_name'.
-        
+
     Returns
     -------
     pd.DataFrame
@@ -57,24 +57,24 @@ def get_gene_id_mapping(
             "pybiomart is required for gene ID mapping. "
             "Install it with: pip install pybiomart"
         )
-    
+
     logger.info(f"Fetching gene ID mappings from Ensembl ({genome_build})")
-    
+
     if genome_build == "GRCh37":
         host = 'http://grch37.ensembl.org'
     elif genome_build == "GRCh38":
         host = 'http://www.ensembl.org'
     else:
         raise ValueError(f"Invalid genome_build: {genome_build}")
-    
+
     server = Server(host=host)
     dataset = server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl']
     mapping_df = dataset.query(
         attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id']
     )
 
-    mapping_df = mapping_df.rename(columns={"Gene stable ID": "ensembl_gene_id", 
-                                            "Gene name": "external_gene_name", 
+    mapping_df = mapping_df.rename(columns={"Gene stable ID": "ensembl_gene_id",
+                                            "Gene name": "external_gene_name",
                                             "NCBI gene (formerly Entrezgene) ID": "entrezgene_id"})
 
     mask = ~mapping_df["entrezgene_id"].isna()
@@ -85,7 +85,7 @@ def get_gene_id_mapping(
 
     mapping_df = mapping_df.dropna(subset=['entrezgene_id'])
     mapping_df['entrezgene_id'] = mapping_df['entrezgene_id'].astype(int)
-    
+
     if gene_id_type == "entrez":
         mapping_df = mapping_df.set_index('entrezgene_id')
     elif gene_id_type == "ensembl":
@@ -97,7 +97,7 @@ def get_gene_id_mapping(
             f"Invalid gene_id_type: {gene_id_type}. "
             "Options: 'entrez', 'ensembl', 'gene_name'"
         )
-    
+
     logger.info(f"Retrieved {len(mapping_df)} gene mappings")
     return mapping_df
 
@@ -110,10 +110,10 @@ def convert_gene_loc_file(
 ) -> Path:
     """
     Convert gene location file to use different gene ID types.
-    
+
     The original MAGMA gene location files use Entrez Gene IDs. This function
     converts them to use Ensembl Gene IDs or Gene Names if desired.
-    
+
     Parameters
     ----------
     gene_loc_file : Path
@@ -124,7 +124,7 @@ def convert_gene_loc_file(
         Genome build version ('GRCh37' or 'GRCh38').
     gene_id_type : str
         Target gene ID type: 'entrez', 'ensembl', or 'gene_name'.
-        
+
     Returns
     -------
     Path
@@ -133,18 +133,18 @@ def convert_gene_loc_file(
     if gene_id_type == "entrez":
         logger.info("Using original Entrez Gene IDs")
         return gene_loc_file
-    
+
     logger.info(f"Converting gene location file to {gene_id_type} IDs")
-    
+
     gene_loc = pd.read_csv(
         gene_loc_file,
         sep=r'\s+',
         header=None,
         names=['entrez_id', 'chr', 'start', 'end', 'strand', 'gene_name']
     )
-    
+
     mapping_df = get_gene_id_mapping(genome_build=genome_build, gene_id_type="entrez")
-    
+
     if gene_id_type == "ensembl":
         gene_loc = gene_loc.merge(
             mapping_df[['ensembl_gene_id']],
@@ -156,17 +156,17 @@ def convert_gene_loc_file(
         gene_loc['new_id'] = gene_loc['ensembl_gene_id']
     elif gene_id_type == "gene_name":
         gene_loc['new_id'] = gene_loc['gene_name']
-    
+
     output_df = gene_loc[['new_id', 'chr', 'start', 'end', 'strand', 'gene_name']]
     output_df.columns = ['gene_id', 'chr', 'start', 'end', 'strand', 'gene_name']
-    
+
     output_df.to_csv(output_file, sep='\t', header=False, index=False)
-    
+
     logger.info(
         f"Converted {len(output_df)} genes from Entrez to {gene_id_type} IDs"
     )
     logger.info(f"Converted gene location file: {output_file}")
-    
+
     return output_file
 
 def download_magma_references(
@@ -212,7 +212,7 @@ def download_magma_references(
     ...     genome_build="GRCh38",
     ...     gene_id_type="ensembl"
     ... )
-    
+
     >>> # Download gene locations and EUR reference panel
     >>> gene_loc, ref_prefix = download_magma_references(
     ...     genome_build="GRCh38",
@@ -225,16 +225,16 @@ def download_magma_references(
     For lightweight analyses or tutorials, it's recommended to:
     1. Download only the gene location file (reference_panel=None)
     2. Use genotypes from your DonorData object as the LD reference
-    
+
     This avoids downloading large reference panels (~1GB) and uses your actual
     study population for LD estimation, which may be more appropriate.
     """
     data_home = get_data_home(data_home)
     magma_dir = data_home / "magma_references"
     magma_dir.mkdir(exist_ok=True, parents=True)
-    
+
     config = load_magma_config(config_file)
-    
+
     if genome_build not in config["gene_loc"]:
         raise ValueError(
             f"Invalid genome_build: {genome_build}. "
@@ -255,11 +255,11 @@ def download_magma_references(
         with zipfile.ZipFile(gene_loc_zip, "r") as zip_ref:
             zip_ref.extractall(magma_dir)
 
-        gene_loc_zip.unlink() 
+        gene_loc_zip.unlink()
         logger.info(f"Gene location file ready: {gene_loc_file}")
     else:
         logger.info(f"Using cached gene location file: {gene_loc_file}")
-    
+
     if gene_id_type != "entrez":
         converted_file = magma_dir / f"{genome_build}_{gene_id_type}.gene.loc"
         if not converted_file.exists():
@@ -300,7 +300,7 @@ def download_magma_references(
             with zipfile.ZipFile(ref_zip, "r") as zip_ref:
                 zip_ref.extractall(magma_dir)
 
-            ref_zip.unlink() 
+            ref_zip.unlink()
             logger.info(f"Reference panel ready: {ref_prefix}")
         else:
             logger.info(f"Using cached reference panel: {ref_prefix}")
@@ -363,7 +363,7 @@ def prepare_magma_inputs_from_dd(
     ...     output_prefix="trait_magma",
     ...     gene_id_type="ensembl"
     ... )
-    >>> 
+    >>>
     >>> # Then run MAGMA:
     >>> # magma --annotate --snp-loc {snp_loc} --gene-loc {gene_loc} --out {output_prefix}
     >>> # magma --bfile {ld_ref} --pval {pval} --gene-annot {output_prefix}.genes.annot --out {output_prefix}.genes
@@ -398,7 +398,7 @@ def prepare_magma_inputs_from_dd(
             "chr": "CHR",
             "pval": "P",
         }
-        
+
     identifier_columns = ["variant_id", "rsID", "SNP"]
     has_valid_identifier = any(
         col in gwas_sumstats.columns and gwas_sumstats[col].notna().any()
@@ -632,11 +632,11 @@ def run_magma_pipeline(
     --------
     >>> from cellink.resources import get_dummy_onek1k
     >>> from cellink.tl.external import run_magma_pipeline
-    >>> 
+    >>>
     >>> # Load data
     >>> dd = get_dummy_onek1k()
     >>> gwas_df = pd.read_csv("gwas_sumstats.txt", sep="\t")
-    >>> 
+    >>>
     >>> # Run complete MAGMA pipeline with Ensembl gene IDs
     >>> results_file = run_magma_pipeline(
     ...     dd,
@@ -646,7 +646,7 @@ def run_magma_pipeline(
     ...     n_samples=100000,
     ...     magma_bin="./magma/magma"
     ... )
-    >>> 
+    >>>
     >>> # Load results
     >>> magma_results = pd.read_csv(results_file, sep=r'\s+')
     """
