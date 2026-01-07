@@ -485,7 +485,7 @@ def _safe_filename(s: str) -> str:
     """Convert string to safe filename."""
     s = str(s).strip().replace(" ", "_")
     s = s.replace("(", "_").replace(")", "_")
-    return re.sub(r"[^\w\.]+", "_", s)
+    return re.sub(r"[^\w\.\+\-]+", "_", s)
 
 
 def generate_gene_coord_file(
