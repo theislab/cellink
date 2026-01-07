@@ -1,0 +1,4 @@
+remote_files:
+  - filename: dummy_onek1k.dd.h5
+    url: https://drive.usercontent.google.com/download?id=1vmTh3JiLhX9Z2uwm92RWFRX6O89S_xqh&export=download&confirm=t
+    checksum: "4e918e55755041635fa82302ec0809797a53f89d816edb769850a59a9b855992"
