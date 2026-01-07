@@ -31,11 +31,11 @@ def run_seismic(
 ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, dict]]:
     """
     Run seismic analysis to link cell types with GWAS traits using single-cell data.
-    
+
     seismic (Single-cEll dIsease-relevance statIstical testing via Multi-resolution
     Cell-type specificity) identifies cell type-trait associations and influential
     genes driving these associations.
-    
+
     Parameters
     ----------
     adata : AnnData
@@ -67,20 +67,20 @@ def run_seismic(
         Whether to plot top associations.
     plot_influential : bool, default=True
         Whether to plot influential genes (if computed).
-    
+
     Returns
     -------
     pd.DataFrame or tuple
         If influential_genes=False: DataFrame with cell type-trait associations
         If influential_genes=True: tuple of (associations_df, dict of influential_genes_dfs)
-    
+
     Raises
     ------
     RuntimeError
         If R or required R packages are not available.
     ValueError
         If cell_type_col is not in adata.obs.
-    
+
     Examples
     --------
     >>> # Basic seismic analysis
@@ -89,7 +89,7 @@ def run_seismic(
     ...     magma_file="trait.genes.out",
     ...     cell_type_col="cell_type",
     ... )
-    
+
     >>> # With influential gene analysis
     >>> associations, influential = run_seismic(
     ...     dd,
@@ -100,53 +100,53 @@ def run_seismic(
     """
     if cell_type_col not in adata.obs.columns:
         raise ValueError(f"Cell type column '{cell_type_col}' not found in adata.obs")
-    
+
     if prefix is None:
         prefix = "seismic"
-    
+
     logger.info("Preparing data for seismic analysis")
-      
+
     logger.info("Filtering cells and genes")
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
-    
+
     adata = adata[~adata.obs[cell_type_col].isna()].copy()
-    
+
     if "log1p" not in adata.uns_keys():
         logger.info("Log-normalizing data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
     logger.info("Exporting data for R")
-    
+
     if issparse(adata.X):
         expr_matrix = adata.X.T.toarray()
     else:
         expr_matrix = adata.X.T
-    
+
     expr_df = pd.DataFrame(
         expr_matrix,
         index=adata.var_names,
         columns=adata.obs_names
     )
-    
+
     expr_file = f"{prefix}_expression.csv.gz"
     expr_df.to_csv(expr_file, compression='gzip')
     logger.info(f"Saved expression matrix: {expr_file}")
-    
+
     metadata_file = f"{prefix}_metadata.csv"
     adata.obs[[cell_type_col]].to_csv(metadata_file)
     logger.info(f"Saved cell metadata: {metadata_file}")
-    
+
     r_script = f"{prefix}_seismic.R"
-    
+
     if influential_genes:
         if influential_cell_types is None:
             inf_celltypes_str = "NULL"
         else:
             inf_celltypes_vec = "c(" + ", ".join([f'"{ct}"' for ct in influential_cell_types]) + ")"
             inf_celltypes_str = inf_celltypes_vec
-    
+
     r_code = f'''
 library(seismicGWAS)
 library(SingleCellExperiment)
@@ -180,7 +180,7 @@ cat("Computing cell type-trait associations...\\n")
 ct_associations <- get_ct_trait_associations(sscore_hsa, magma_df)
 
 # Save associations
-write.table(ct_associations, "{prefix}_associations.tsv", 
+write.table(ct_associations, "{prefix}_associations.tsv",
             sep="\\t", row.names=FALSE, quote=FALSE)
 
 cat("Saved associations to {prefix}_associations.tsv\\n")
@@ -191,7 +191,7 @@ cat("Saved associations to {prefix}_associations.tsv\\n")
 {"dev.off()" if plot_associations else ""}
 
 '''
-    
+
     if influential_genes:
         r_code += f'''
 cat("Computing influential genes...\\n")
@@ -211,13 +211,13 @@ for (ct in sig_celltypes) {{
     cat(paste0("  Processing ", ct, "...\\n"))
     tryCatch({{
         inf_genes <- find_inf_genes(ct, sscore_hsa, magma_df)
-        
+
         # Save results
         safe_ct <- gsub(" ", "_", ct)
-        write.table(inf_genes, 
+        write.table(inf_genes,
                     paste0("{prefix}_influential_", safe_ct, ".tsv"),
                     sep="\\t", row.names=FALSE, quote=FALSE)
-        
+
         # Plot if requested
         {"png(paste0('" + prefix + "_influential_', safe_ct, '.png'), width=800, height=600)" if plot_influential else ""}
         {"plot_inf_genes(inf_genes, num_labels=10)" if plot_influential else ""}
@@ -227,16 +227,16 @@ for (ct in sig_celltypes) {{
     }})
 }}
 '''
-    
+
     r_code += '''
 cat("Analysis complete!\\n")
 '''
-    
+
     with open(r_script, 'w') as f:
         f.write(r_code)
-    
+
     logger.info(f"Created R script: {r_script}")
-    
+
     logger.info("Running seismic analysis in R...")
     try:
         result = subprocess.run(
@@ -251,10 +251,10 @@ cat("Analysis complete!\\n")
     except subprocess.CalledProcessError as e:
         logger.error(f"R script failed: {e.stderr}")
         raise RuntimeError(f"Seismic analysis failed: {e.stderr}")
-    
+
     logger.info("Reading results")
     associations_df = pd.read_csv(f"{prefix}_associations.tsv", sep="\t")
-    
+
     if not save_results:
         import os
         for f in [expr_file, metadata_file, r_script]:
@@ -262,21 +262,21 @@ cat("Analysis complete!\\n")
                 os.remove(f)
             except:
                 pass
-    
+
     influential_results = {}
     if influential_genes:
         if influential_cell_types is None:
             sig_celltypes = associations_df[associations_df['FDR'] < 0.05]['cell_type'].tolist()
         else:
             sig_celltypes = influential_cell_types
-        
+
         for ct in sig_celltypes:
             safe_ct = ct.replace(' ', '_')
             inf_file = f"{prefix}_influential_{safe_ct}.tsv"
             if Path(inf_file).exists():
                 inf_df = pd.read_csv(inf_file, sep="\t")
                 influential_results[ct] = inf_df
-    
+
     if influential_genes:
         return associations_df, influential_results
     else:
