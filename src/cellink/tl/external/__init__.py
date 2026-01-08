@@ -1,10 +1,13 @@
 import importlib
 from typing import Any
 
-from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
 from ._ld import calculate_ld
 from ._pc import calculate_pcs
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
+from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
+from ._scdrs import run_scdrs
+from ._seismic import run_seismic
+from ._magma import run_magma_pipeline
 
 __all__ = [
     "read_jaxqtl_results",
@@ -14,6 +17,9 @@ __all__ = [
     "read_tensorqtl_results",
     "run_tensorqtl",
     "run_mixmil",
+    "run_scdrs",
+    "run_seismic",
+    "run_magma_pipeline",
 ]
 
 

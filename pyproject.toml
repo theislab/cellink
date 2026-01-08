@@ -99,6 +99,9 @@ optional-dependencies.tensorqtl = [
   "tensorqtl",
   #"plink2"
 ]
+optional-dependencies.tensorqtl = [
+  "scdrs",
+]
 optional-dependencies.test = [
   "coverage",
   "pytest",
