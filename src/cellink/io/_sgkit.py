@@ -20,18 +20,6 @@ warnings.filterwarnings(
 )
 
 
-def _get_snp_index(var: pd.DataFrame) -> pd.Index:
-    df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
-    index = df.apply("_".join, axis=1)
-    return pd.Index(index, name=VAnn.index)
-
-
-def _to_df_only_dim(gdata, dims):
-    df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
-    df.index = df.index.astype(str)
-    return df
-
-
 @dataclass(frozen=True)
 class SgDims:
     """Dims in SgKit Zarr Format"""
@@ -61,18 +49,16 @@ SGVAR_TO_GDATA = {
     "variant_contig": VAnn.contig,
 }
 
-
-# TODO
 def _get_snp_index(var: pd.DataFrame) -> pd.Index:
-    # Expect var to have columns named: contig/contig mapping already applied to 'chrom'
-    # Use a0,a1,pos to create index "chrom_pos_a0_a1"
-    parts = []
-    for c in ("chrom", "pos", "a0", "a1"):
-        if c not in var.columns:
-            # fill with empty string
-            var[c] = ""
-    idx = var[["chrom", "pos", "a0", "a1"]].astype(str).apply("_".join, axis=1)
-    return pd.Index(idx, name="snp_id")
+    df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
+    index = df.apply("_".join, axis=1)
+    return pd.Index(index, name=VAnn.index)
+
+
+def _to_df_only_dim(gdata, dims):
+    df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
+    df.index = df.index.astype(str)
+    return df
 
 
 def _collapse_multiallelic_dosage_scalar(ds_array: da.Array) -> da.Array:
@@ -205,32 +191,6 @@ def from_sgkit_dataset(
     var_df = var_df.rename(columns=var_rename)
     var_df.columns = var_df.columns.str.replace("variant_", "")
 
-    """
-    try:
-        obs_df = ds.drop_dims({SgDims.variants}).to_dataframe()
-        obs_df = obs_df.rename(columns=obs_rename)
-        obs_df.index = obs_df.index.astype(str)
-        obs_df.index.name = "sample"
-    except Exception:
-        if "samples" in ds.coords:
-            samples_idx = asarray(ds.coords["samples"]).astype(str)
-            obs_df = pd.DataFrame(index=samples_idx)
-            obs_df.index.name = "sample"
-        else:
-            n_samples = int(ds.sizes.get("samples", 0))
-            obs_df = pd.DataFrame(index=[f"sample_{i}" for i in range(n_samples)])
-            obs_df.index.name = "sample"
-
-    try:
-        var_df = ds.drop_dims({SgDims.samples}).to_dataframe()
-        var_df = var_df.rename(columns=var_rename)
-        var_df.index = var_df.index.astype(str)
-    except Exception:
-        n_variants = int(ds.sizes.get("variants", 0))
-        var_df = pd.DataFrame(index=[f"var_{i}" for i in range(n_variants)])
-        var_df.index.name = "variant"
-    """
-
     if alleles_arr is not None:
         var_df["a0"] = alleles_arr[:, 0]
         if alleles_arr.shape[1] > 1:
@@ -283,7 +243,8 @@ def from_sgkit_dataset(
 
     if phased_da is not None:
         adata.uns["has_phased_flag"] = True
-        adata.layers["PHASED_FLAG"] = phased_da.data.T
+        for h in range(ploidy):
+            adata.layers[f"PHASE_{h}"] = phased_da.data[:, :, h].T
     else:
         adata.uns["has_phased_flag"] = False
 
