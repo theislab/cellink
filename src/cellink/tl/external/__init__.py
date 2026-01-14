@@ -4,6 +4,13 @@ from typing import Any
 from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
 from ._ld import calculate_ld
 from ._pc import calculate_pcs
+from ._saigeqtl import (
+    configure_saigeqtl_runner,
+    get_saigeqtl_runner,
+    make_group_file,
+    read_saigeqtl_results,
+    run_saigeqtl,
+)
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 
 __all__ = [
@@ -14,6 +21,11 @@ __all__ = [
     "read_tensorqtl_results",
     "run_tensorqtl",
     "run_mixmil",
+    "configure_saigeqtl_runner",
+    "get_saigeqtl_runner",
+    "read_saigeqtl_results",
+    "make_group_file",
+    "run_saigeqtl",
 ]
 
 
