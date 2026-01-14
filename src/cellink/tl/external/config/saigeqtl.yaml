@@ -1,0 +1,6 @@
+execution_mode: local
+rscript_path: Rscript
+step1_script: step1_fitNULLGLMM_qtl.R
+step2_script: step2_tests_qtl.R
+step3_script: step3_gene_pvalue_qtl.R
+makegroup_script: makeGroupFile.R
