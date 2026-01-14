@@ -173,7 +173,7 @@ def download_magma_references(
     genome_build: str = "GRCh38",
     reference_panel: str = None,
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    config_file: str = "configs/magma.yaml", #TODO
+    config_file: str = "configs/magma.yaml",
     data_home: str | Path | None = None,
 ) -> Tuple[Path, Path]:
     """
@@ -364,14 +364,11 @@ def prepare_magma_inputs_from_dd(
     ...     gene_id_type="ensembl"
     ... )
     >>>
-    >>> # Then run MAGMA:
-    >>> # magma --annotate --snp-loc {snp_loc} --gene-loc {gene_loc} --out {output_prefix}
-    >>> # magma --bfile {ld_ref} --pval {pval} --gene-annot {output_prefix}.genes.annot --out {output_prefix}.genes
 
     Notes
     -----
     This function is designed to make MAGMA analysis easy with cellink's DonorData:
-    - Uses your actual genotypes for LD estimation (more appropriate than 1000G)
+    - Uses your actual genotypes for LD estimation 
     - Handles all file conversions automatically
     - Downloads only the necessary gene location file
     - Supports different gene ID types (Entrez, Ensembl, Gene Name)
@@ -385,7 +382,7 @@ def prepare_magma_inputs_from_dd(
     gene_loc_file, _ = download_magma_references(
         genome_build=genome_build,
         gene_id_type=gene_id_type,
-        reference_panel=None,  # Don't download reference panel
+        reference_panel=None,  
         config_file=config_file,
     )
 
