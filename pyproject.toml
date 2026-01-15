@@ -99,7 +99,7 @@ optional-dependencies.tensorqtl = [
   "tensorqtl",
   #"plink2"
 ]
-optional-dependencies.tensorqtl = [
+optional-dependencies.scdrs = [
   "scdrs",
 ]
 optional-dependencies.test = [
