@@ -75,9 +75,9 @@ class LDSCRunner:
 
         volumes[os.getcwd()] = "/data"
 
-        cellink_data_path = str(get_data_home(data_home))
-        if os.path.exists(cellink_data_path):
-            volumes[cellink_data_path] = "/cellink_data"
+        #cellink_data_path = get_data_home(data_home)
+        #if os.path.exists(cellink_data_path):
+        #    volumes[cellink_data_path] = "/cellink_data"
 
         for file_path in file_paths:
             if file_path: 

@@ -1,5 +1,5 @@
 execution_mode: singularity
-singularity_image: docker://zijingliu/ldsc
+singularity_image: /project/genomics/ayshan/containers/ldsc.sif
 ldsc_command: /ldsc/ldsc.py
 make_annot_command: /ldsc/make_annot.py
 munge_command: /ldsc/munge_sumstats.py
