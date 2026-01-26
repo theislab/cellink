@@ -8,6 +8,11 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
+import os
+import h5py
+import numexpr as ne
+from tqdm import tqdm
+
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +95,7 @@ def preprocess_for_sldsc(
     -------
     AnnData, pd.DataFrame, pd.DataFrame
         - Filtered AnnData object
-        - Mean log expression per cell type (genes x cell types)
+        - Cluster-normalized-to-1000 matrix and specificity derived from that (genes x cell types)
         - Specificity scores per cell type (genes x cell types)
         Returns None if inplace=True.
 
@@ -115,10 +120,7 @@ def preprocess_for_sldsc(
     if celltype_col not in adata.obs.columns:
         raise ValueError(f"Column '{celltype_col}' not found in adata.obs")
 
-    if log_transform:
-        logger.info("Applying log1p transformation")
-        sc.pp.log1p(adata)
-        logger.info("Log1p applied.")
+
 
     if fetch_annotation:
         anno_df = _fetch_ensembl_annotation(genome_build=genome_build, gene_identifier_mode=gene_identifier_mode)
@@ -171,10 +173,7 @@ def preprocess_for_sldsc(
     else:
         masks["expressed"] = pd.Series(True, index=adata.var_names)
 
-    masks["unique"] = ~adata.var[gene_col].duplicated(
-        keep="first"
-    )  # TODO: Does this make sense and not rather the sum?
-    logger.info(f"Unique gene names: {masks['unique'].sum()}")
+    masks["unique"] = pd.Series(True, index=adata.var_names)
 
     if filter_mhc and all(c for c in [chr_col, start_col, end_col]):
         in_mhc_chr = adata.var[chr_col] == str(mhc_chr)
@@ -196,11 +195,103 @@ def preprocess_for_sldsc(
 
     adata = adata[:, mask_keep.values].copy()
 
+
+    if log_transform:
+        # Work with categorical clusters
+        clusters_cat = adata.obs[celltype_col].astype("category")
+        cluster_names = clusters_cat.cat.categories.to_list()
+        n_clusters = len(cluster_names)
+        n_cells, n_genes = adata.shape
+        logger.info(f"n_cells = {n_cells}, n_genes = {n_genes}, n_clusters = {n_clusters}")
+
+        # matrix: genes × clusters
+        avg_matrix = np.zeros((n_genes, n_clusters), dtype=np.float64)
+        X = adata.X # could be csr_matrix or dense
+
+        
+        # Compute per-cluster log1p mean
+        logger.info("Applying log1p transformation")
+        for j, cl in enumerate(tqdm(cluster_names, desc="Aggregating clusters")):
+            # indices of cells in this cluster
+            idx = np.where(clusters_cat.values == cl)[0]
+            if idx.size == 0:
+            # no cells in this cluster (shouldn't usually happen, but just in case)
+                avg_matrix[:, j] = 0.0
+                continue
+
+            # subset expression for these cells: shape (n_cells_in_cluster, n_genes)
+            X_sub = X[idx, :]
+
+            # Convert to dense if sparse
+            if hasattr(X_sub, "toarray"):
+                X_sub = X_sub.toarray()
+
+            # log1p transform and average over cells (axis 0, since rows=cells, cols=genes)
+            # Using numexpr to speed up log1p and sum
+            # log1p(X_sub) is applied per element; sum over cells => axis=0 => length n_genes
+            # careful: numexpr works on 1D or 2D arrays; we keep it 2D here
+            log1p_X_sub = ne.evaluate("log1p(X_sub)")
+            avg_expr = log1p_X_sub.mean(axis=0)  # 1D, length n_genes
+
+            # Store as genes × clusters → [gene, cluster_index]
+            avg_matrix[:, j] = avg_expr
+        
+        df = pd.DataFrame(
+            avg_matrix,
+            index=adata.var_names,      # genes as rows
+            columns=cluster_names       # clusters as columns
+        )
+
+        logger.info("Log1p applied.")
+
+
+    if not log_transform:
+        raise ValueError("This preprocessing path expects log_transform=True (needs cluster-level log1p matrix).")
+
+    # Wide table from the matrix you computed
+    exp_wide = df.copy().reset_index()
+    exp_wide = exp_wide.rename(columns={"index": "gene"})
+
+    # If reset_index() produced column named "index" instead:
+    if "gene" not in exp_wide.columns and "index" in exp_wide.columns:
+        exp_wide = exp_wide.rename(columns={"index": "gene"})
+
+    clusters = [c for c in exp_wide.columns if c != "gene"]
+
+    # copy wide table
+    exp = exp_wide.copy()
+
+    # add_count(gene)
+    exp["n"] = exp.groupby("gene")["gene"].transform("count")
+
+    # keep only genes with n == 1  (THIS is stricter than your old "unique" mask)
+    exp = exp.loc[exp["n"] == 1].drop(columns=["n"])
+
+    # gather/melt to long
+    exp = exp.melt(
+        id_vars="gene",
+        var_name="ClusterID",   # cluster name
+        value_name="Expr_sum_mean"  # your log1p mean expression
+    )
+
     logger.info(f"Computing mean expression for {celltype_col}")
-    mean_expr_df = _compute_celltype_means(adata, celltype_col)
+    # normalize within each cluster to sum to 1000
+    exp["Expr_sum_mean"] = (
+        exp["Expr_sum_mean"] * 1000.0 /
+        exp.groupby("ClusterID")["Expr_sum_mean"].transform("sum")
+    )
+    mean_expr_df = exp.pivot(index="gene", columns="ClusterID", values="Expr_sum_mean")
+
 
     logger.info("Computing specificity scores")
-    specificity_df = _compute_specificity(mean_expr_df)
+
+    # specificity: fraction of gene's total that comes from this cluster
+    exp["specificity"] = (
+        exp["Expr_sum_mean"] /
+        exp.groupby("gene")["Expr_sum_mean"].transform("sum")
+    )
+    specificity_df = exp.pivot(index="gene", columns="ClusterID", values="specificity")
+
 
     if not ((specificity_df.values >= 0) & (specificity_df.values <= 1)).all():
         logger.warning("Some specificity values outside [0, 1] range")
@@ -220,7 +311,8 @@ def generate_sldsc_genesets(
     *,
     out_dir: str | Path,
     top_frac: float = 0.10,
-    gene_col: str | None = "gene",
+    gene_col: str | None = "gene",          # e.g. "gene" (symbols) OR "ensembl_gene_id"
+    accession_col: str | None = None,       # if you have an explicit Ensembl ID column, pass it (recommended)
     remove_version_suffix: bool = True,
     include_control: bool = True,
     overwrite: bool = False,
@@ -228,68 +320,99 @@ def generate_sldsc_genesets(
     """
     Generate cell-type-specific gene sets for S-LDSC analysis.
 
-    Creates .GeneSet files for each cell type containing top N% genes by specificity,
-    using Ensembl gene IDs (accessions) as required by LDSC.
-
-    Parameters
-    ----------
-    specificity_df
-        DataFrame of specificity scores (genes × cell types).
-        Index should be numeric positions matching adata.var indices.
-    adata
-        AnnData object containing gene annotations.
-    out_dir
-        Output directory for .GeneSet files.
-    top_frac
-        Fraction of genes to select per cell type (e.g., 0.10 for top 10%).
-    gene_col
-        Column name for gene symbols or IDs.
-    remove_version_suffix
-        Whether to remove version suffixes from gene names or gene IDs (e.g., ENSG00000123456.7 → ENSG00000123456).
-    include_control
-        Whether to create a Control.GeneSet file containing all genes.
-    overwrite
-        Whether to overwrite existing output directory.
-
-    Returns
-    -------
-    pd.DataFrame
-        Summary table with columns: cell_type, n_genes, output_path.
-
-    Raises
-    ------
-    ValueError
-        If accession_col not found in adata.var or if specificity_df index is invalid.
-    FileExistsError
-        If out_dir exists and overwrite=False.
-
-    Examples
-    --------
-    >>> summary = generate_sldsc_genesets(specificity_df, adata, out_dir="ldsc_genesets", top_frac=0.10)
-    >>> print(summary)
+    Expects specificity_df to be genes × cell types, indexed by gene identifiers
+    (symbols or Ensembl IDs). Writes one .GeneSet per cell type containing top N%
+    genes by specificity, using accession (typically Ensembl gene IDs).
     """
     out_dir = Path(out_dir)
 
-    if gene_col not in adata.var.columns:
-        raise ValueError(f"Column '{gene_col}' not found in adata.var")
-    adata.var["gene_upper"] = adata.var[gene_col].str.upper()
-    if remove_version_suffix:
-        logger.info("Removing version suffixes from Gene IDs")
-        adata.var["gene_upper"] = adata.var["gene_upper"].str.replace(r"\..*$", "", regex=True)
-    specificity_df.index = specificity_df.index.str.upper()
+    # ---- Safety checks ----
+    if specificity_df.index.name != "gene":
+        # not required, but helps debugging
+        logger.info(f"specificity_df index name is '{specificity_df.index.name}', expected 'gene' (ok).")
 
     if out_dir.exists() and not overwrite:
         raise FileExistsError(f"Output directory {out_dir} already exists. Set overwrite=True to proceed.")
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Writing gene sets to {out_dir}")
 
-    overlap = specificity_df.index.intersection(adata.var["gene_upper"])
-    if overlap.empty:
-        raise ValueError("No overlapping genes found between specificity_df and adata.var")
-    logger.info(f"Overlapping genes: {len(overlap)}/{specificity_df.shape[0]}")
+    # ---- Build mapping from specificity_df genes -> accessions to write ----
+    spec_genes = pd.Index(specificity_df.index.astype(str))
 
-    specificity_df = specificity_df.loc[overlap]
+    # Normalize the specificity_df index
+    spec_upper = spec_genes.str.upper()
+    if remove_version_suffix:
+        spec_upper = spec_upper.str.replace(r"\..*$", "", regex=True)
 
+    # Case 1: specificity_df already contains Ensembl IDs and you want to write them as-is.
+    # We detect this if most genes look like ENSG...
+    ensembl_like = spec_upper.str.match(r"^ENSG\d+$", na=False).mean() > 0.5
+
+    # If user provided accession_col, use it as the authoritative output IDs
+    if accession_col is not None:
+        if accession_col not in adata.var.columns:
+            raise ValueError(f"Column '{accession_col}' not found in adata.var")
+
+        acc = adata.var[accession_col].astype(str).str.upper()
+        if remove_version_suffix:
+            acc = acc.str.replace(r"\..*$", "", regex=True)
+
+        # Decide what to match on (gene_col or var_names)
+        if gene_col is not None and gene_col in adata.var.columns:
+            key = adata.var[gene_col].astype(str).str.upper()
+            if remove_version_suffix:
+                key = key.str.replace(r"\..*$", "", regex=True)
+        else:
+            key = pd.Index(adata.var_names.astype(str)).str.upper()
+            if remove_version_suffix:
+                key = key.str.replace(r"\..*$", "", regex=True)
+
+        map_df = pd.DataFrame({"key": key.values, "accession": acc.values}).dropna()
+        map_df = map_df.drop_duplicates(subset=["key"], keep="first")
+
+        # Map specificity genes -> accession
+        gene_to_acc = pd.Series(map_df["accession"].values, index=map_df["key"].values)
+        accessions = gene_to_acc.reindex(spec_upper)
+
+        overlap_mask = accessions.notna()
+        if overlap_mask.sum() == 0:
+            raise ValueError("No overlapping genes between specificity_df and adata.var mapping (accession_col).")
+
+        logger.info(f"Overlapping genes after mapping: {overlap_mask.sum()}/{len(specificity_df)}")
+        specificity_df = specificity_df.loc[overlap_mask.values]
+        accessions = accessions.loc[overlap_mask.values]
+
+        # Replace index with accessions (what LDSC wants)
+        specificity_df = specificity_df.copy()
+        specificity_df.index = accessions.values
+
+    else:
+        # No accession_col supplied.
+        # If specificity_df already looks like Ensembl IDs, just use it.
+        if ensembl_like:
+            logger.info("specificity_df index looks like Ensembl IDs; using them directly.")
+            specificity_df = specificity_df.copy()
+            specificity_df.index = spec_upper.values
+        else:
+            # Fall back to matching against adata.var[gene_col] and writing those IDs.
+            if gene_col is None or gene_col not in adata.var.columns:
+                raise ValueError(
+                    "specificity_df index does not look like Ensembl IDs, and no valid gene_col/accession_col provided."
+                )
+
+            adata_key = adata.var[gene_col].astype(str).str.upper()
+            if remove_version_suffix:
+                adata_key = adata_key.str.replace(r"\..*$", "", regex=True)
+
+            overlap = spec_upper.intersection(pd.Index(adata_key))
+            if overlap.empty:
+                raise ValueError("No overlapping genes found between specificity_df index and adata.var[gene_col].")
+
+            logger.info(f"Overlapping genes: {len(overlap)}/{specificity_df.shape[0]}")
+            specificity_df = specificity_df.loc[spec_upper.isin(overlap).values].copy()
+            specificity_df.index = spec_upper[spec_upper.isin(overlap)].values  # normalized
+
+    # ---- Select top genes per cell type ----
     n_genes = specificity_df.shape[0]
     k = max(1, int(np.ceil(top_frac * n_genes)))
     logger.info(f"Selecting top {k} genes ({top_frac*100:.1f}%) per cell type")
@@ -308,6 +431,7 @@ def generate_sldsc_genesets(
         summary.append({"cell_type": celltype, "n_genes": len(top_genes), "output_path": str(out_path)})
         logger.debug(f"Wrote {len(top_genes)} genes for {celltype}")
 
+    # ---- Control geneset ----
     if include_control:
         control_path = out_dir / "Control.GeneSet"
         with open(control_path, "w") as f:
@@ -317,8 +441,8 @@ def generate_sldsc_genesets(
 
     summary_df = pd.DataFrame(summary)
     logger.info(f"Generated {len(summary)} cell-type-specific gene sets")
-
     return summary_df
+
 
 
 def _fetch_ensembl_annotation(
@@ -368,19 +492,29 @@ def _fetch_ensembl_annotation(
     ]
 
     logger.info(f"Fetching gene annotations from {genome_build}...")
-    anno = dataset.query(attributes=attributes)
+    anno = dataset.query(attributes=attributes, use_attr_names=True)
 
-    anno = anno.rename(
-        columns={
-            "HGNC symbol": "hgnc_symbol",
-            "Gene name": "external_gene_name",
-            "Gene stable ID": "ensembl_gene_id",
-            "Chromosome/scaffold name": "chrom",
-            "Gene start (bp)": "start",
-            "Gene end (bp)": "end",
-            "Gene type": "gene_biotype",
-        }
-    )
+    anno.columns = [c.strip() for c in anno.columns]
+
+    anno = anno.rename(columns={
+        # Pretty BioMart labels
+        "HGNC symbol": "hgnc_symbol",
+        "Gene name": "external_gene_name",
+        "Gene stable ID": "ensembl_gene_id",
+        "Chromosome/scaffold name": "chrom",
+        "Gene start (bp)": "start",
+        "Gene end (bp)": "end",
+        "Gene type": "gene_biotype",
+
+        # Attribute-name style (very common with GRCh38)
+        "hgnc_symbol": "hgnc_symbol",
+        "external_gene_name": "external_gene_name",
+        "ensembl_gene_id": "ensembl_gene_id",
+        "chromosome_name": "chrom",
+        "start_position": "start",
+        "end_position": "end",
+        "gene_biotype": "gene_biotype",
+    })
 
     if gene_identifier_mode == "name":
         anno["gene"] = anno["hgnc_symbol"].replace("", pd.NA)
