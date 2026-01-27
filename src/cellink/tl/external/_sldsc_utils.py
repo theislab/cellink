@@ -3,16 +3,12 @@ import re
 from pathlib import Path
 from typing import Literal
 
+import numexpr as ne
 import numpy as np
 import pandas as pd
-import scanpy as sc
 from anndata import AnnData
 from scipy import sparse
-import os
-import h5py
-import numexpr as ne
 from tqdm import tqdm
-
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +116,6 @@ def preprocess_for_sldsc(
     if celltype_col not in adata.obs.columns:
         raise ValueError(f"Column '{celltype_col}' not found in adata.obs")
 
-
-
     if fetch_annotation:
         anno_df = _fetch_ensembl_annotation(genome_build=genome_build, gene_identifier_mode=gene_identifier_mode)
         if gene_col is None:
@@ -195,7 +189,6 @@ def preprocess_for_sldsc(
 
     adata = adata[:, mask_keep.values].copy()
 
-
     if log_transform:
         # Work with categorical clusters
         clusters_cat = adata.obs[celltype_col].astype("category")
@@ -206,16 +199,15 @@ def preprocess_for_sldsc(
 
         # matrix: genes × clusters
         avg_matrix = np.zeros((n_genes, n_clusters), dtype=np.float64)
-        X = adata.X # could be csr_matrix or dense
+        X = adata.X  # could be csr_matrix or dense
 
-        
         # Compute per-cluster log1p mean
         logger.info("Applying log1p transformation")
         for j, cl in enumerate(tqdm(cluster_names, desc="Aggregating clusters")):
             # indices of cells in this cluster
             idx = np.where(clusters_cat.values == cl)[0]
             if idx.size == 0:
-            # no cells in this cluster (shouldn't usually happen, but just in case)
+                # no cells in this cluster (shouldn't usually happen, but just in case)
                 avg_matrix[:, j] = 0.0
                 continue
 
@@ -235,15 +227,14 @@ def preprocess_for_sldsc(
 
             # Store as genes × clusters → [gene, cluster_index]
             avg_matrix[:, j] = avg_expr
-        
+
         df = pd.DataFrame(
             avg_matrix,
-            index=adata.var_names,      # genes as rows
-            columns=cluster_names       # clusters as columns
+            index=adata.var_names,  # genes as rows
+            columns=cluster_names,  # clusters as columns
         )
 
         logger.info("Log1p applied.")
-
 
     if not log_transform:
         raise ValueError("This preprocessing path expects log_transform=True (needs cluster-level log1p matrix).")
@@ -270,28 +261,20 @@ def preprocess_for_sldsc(
     # gather/melt to long
     exp = exp.melt(
         id_vars="gene",
-        var_name="ClusterID",   # cluster name
-        value_name="Expr_sum_mean"  # your log1p mean expression
+        var_name="ClusterID",  # cluster name
+        value_name="Expr_sum_mean",  # your log1p mean expression
     )
 
     logger.info(f"Computing mean expression for {celltype_col}")
     # normalize within each cluster to sum to 1000
-    exp["Expr_sum_mean"] = (
-        exp["Expr_sum_mean"] * 1000.0 /
-        exp.groupby("ClusterID")["Expr_sum_mean"].transform("sum")
-    )
+    exp["Expr_sum_mean"] = exp["Expr_sum_mean"] * 1000.0 / exp.groupby("ClusterID")["Expr_sum_mean"].transform("sum")
     mean_expr_df = exp.pivot(index="gene", columns="ClusterID", values="Expr_sum_mean")
-
 
     logger.info("Computing specificity scores")
 
     # specificity: fraction of gene's total that comes from this cluster
-    exp["specificity"] = (
-        exp["Expr_sum_mean"] /
-        exp.groupby("gene")["Expr_sum_mean"].transform("sum")
-    )
+    exp["specificity"] = exp["Expr_sum_mean"] / exp.groupby("gene")["Expr_sum_mean"].transform("sum")
     specificity_df = exp.pivot(index="gene", columns="ClusterID", values="specificity")
-
 
     if not ((specificity_df.values >= 0) & (specificity_df.values <= 1)).all():
         logger.warning("Some specificity values outside [0, 1] range")
@@ -311,8 +294,8 @@ def generate_sldsc_genesets(
     *,
     out_dir: str | Path,
     top_frac: float = 0.10,
-    gene_col: str | None = "gene",          # e.g. "gene" (symbols) OR "ensembl_gene_id"
-    accession_col: str | None = None,       # if you have an explicit Ensembl ID column, pass it (recommended)
+    gene_col: str | None = "gene",  # e.g. "gene" (symbols) OR "ensembl_gene_id"
+    accession_col: str | None = None,  # if you have an explicit Ensembl ID column, pass it (recommended)
     remove_version_suffix: bool = True,
     include_control: bool = True,
     overwrite: bool = False,
@@ -495,24 +478,26 @@ def _fetch_ensembl_annotation(
 
     anno.columns = [c.strip() for c in anno.columns]
 
-    anno = anno.rename(columns={
-        #BioMart labels
-        "HGNC symbol": "hgnc_symbol",
-        "Gene name": "external_gene_name",
-        "Gene stable ID": "ensembl_gene_id",
-        "Chromosome/scaffold name": "chrom",
-        "Gene start (bp)": "start",
-        "Gene end (bp)": "end",
-        "Gene type": "gene_biotype",
-        # Attribute-name style
-        "hgnc_symbol": "hgnc_symbol",
-        "external_gene_name": "external_gene_name",
-        "ensembl_gene_id": "ensembl_gene_id",
-        "chromosome_name": "chrom",
-        "start_position": "start",
-        "end_position": "end",
-        "gene_biotype": "gene_biotype",
-    })
+    anno = anno.rename(
+        columns={
+            # BioMart labels
+            "HGNC symbol": "hgnc_symbol",
+            "Gene name": "external_gene_name",
+            "Gene stable ID": "ensembl_gene_id",
+            "Chromosome/scaffold name": "chrom",
+            "Gene start (bp)": "start",
+            "Gene end (bp)": "end",
+            "Gene type": "gene_biotype",
+            # Attribute-name style
+            "hgnc_symbol": "hgnc_symbol",
+            "external_gene_name": "external_gene_name",
+            "ensembl_gene_id": "ensembl_gene_id",
+            "chromosome_name": "chrom",
+            "start_position": "start",
+            "end_position": "end",
+            "gene_biotype": "gene_biotype",
+        }
+    )
 
     if gene_identifier_mode == "name":
         anno["gene"] = anno["hgnc_symbol"].replace("", pd.NA)

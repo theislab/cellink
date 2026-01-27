@@ -57,13 +57,7 @@ SGVAR_TO_GDATA = {
 
 
 def from_sgkit_dataset(
-    sgkit_dataset: xr.Dataset, 
-    *, var_rename: 
-    dict = None, 
-    obs_rename: 
-    dict = None, 
-    hard_call: 
-    bool = True
+    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None, hard_call: bool = True
 ) -> AnnData:
     """Read SgKit Zarr Format
 
@@ -134,14 +128,7 @@ def from_sgkit_dataset(
     return gdata
 
 
-def read_sgkit_zarr(
-    path: str | Path, 
-    *, 
-    var_rename=None, 
-    obs_rename=None, 
-    hard_call=True, 
-    **kwargs
-) -> AnnData:
+def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -160,14 +147,7 @@ def read_sgkit_zarr(
     return gdata
 
 
-def read_plink(
-    path: str | Path = None, 
-    *, 
-    var_rename=None, 
-    obs_rename=None, 
-    hard_call=True, 
-    **kwargs
-) -> AnnData:
+def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
     """Read Plink Format
 
     Params

@@ -1,14 +1,11 @@
 import logging
 import os
-import subprocess
 from typing import Any
-import shlex
 
 import yaml
 
 from cellink._core import DonorData
 from cellink.io import to_plink
-from cellink.resources._utils import get_data_home
 from cellink.tl._runner import BaseToolRunner
 
 logger = logging.getLogger(__name__)
@@ -18,12 +15,7 @@ class LDSCRunner(BaseToolRunner):
     """LDSC Runner with support for local, docker, and singularity"""
 
     def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
-        required_fields = [
-            "execution_mode", 
-            "ldsc_command", 
-            "make_annot_command", 
-            "munge_command"
-        ]
+        required_fields = ["execution_mode", "ldsc_command", "make_annot_command", "munge_command"]
         prefix_tokens = []
         super().__init__(config_path, config_dict, required_fields, prefix_tokens)
 

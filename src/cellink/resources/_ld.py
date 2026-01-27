@@ -1,9 +1,8 @@
 import shutil
 import tarfile
+from pathlib import Path
 
 import pandas as pd
-from pathlib import Path
-from typing import Optional, Tuple, Union
 
 from cellink.resources._utils import _download_file, _load_config, get_data_home
 
@@ -63,7 +62,7 @@ def get_1000genomes_ld_scores(
     Download, extract, and load precomputed 1000 Genomes linkage disequilibrium (LD) scores.
 
     This function downloads population-specific LD scores from the 1000 Genomes project,
-    extracts them to a local directory, and concatenates chromosome-wise annotation and 
+    extracts them to a local directory, and concatenates chromosome-wise annotation and
     LD score files into pandas DataFrames.
 
     Parameters
@@ -89,7 +88,7 @@ def get_1000genomes_ld_scores(
             Concatenated LD score files for all chromosomes.
         - prefix : str
             File name prefix used in the extracted data.
-        
+
         If `return_path=True`, returns `(DATA, prefix)`:
         - DATA : pathlib.Path
             Path to the directory containing extracted files.
@@ -150,7 +149,7 @@ def get_1000genomes_ld_weights(
     Download, extract, and load precomputed 1000 Genomes LD weights.
 
     This function downloads population-specific LD weights from the 1000 Genomes project,
-    extracts them to a local directory, and concatenates chromosome-wise weight files 
+    extracts them to a local directory, and concatenates chromosome-wise weight files
     into a single pandas DataFrame.
 
     Parameters
@@ -173,7 +172,7 @@ def get_1000genomes_ld_weights(
         - None : placeholder for compatibility with LD scores interface.
         - weights : pd.DataFrame
             Concatenated LD weight files for all chromosomes.
-        
+
         If `return_path=True`, returns `(DATA, prefix)`:
         - DATA : pathlib.Path
             Path to the directory containing extracted files.
@@ -215,6 +214,7 @@ def get_1000genomes_ld_weights(
 
     return annot, weights
 
+
 def get_1000genomes_plink_files(
     config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
     population: str = "EUR",
@@ -225,6 +225,7 @@ def get_1000genomes_plink_files(
     Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
     This function downloads population-specific PLINK files from the 1000 Genomes project,
     extracts them to a local directory, and returns the path to the extracted files.
+
     Parameters
     ----------
     config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
@@ -235,6 +236,7 @@ def get_1000genomes_plink_files(
         Root directory where data will be stored. Defaults to user-specific cache directory.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist locally.
+
     Returns
     -------
     - pathlib.Path
@@ -242,10 +244,12 @@ def get_1000genomes_plink_files(
         Files are named as: {prefix}{chrom}.bed/bim/fam where chrom ranges from 1-22.
     - prefix : str
         File name prefix used in the extracted data.
+
     Raises
     ------
     ValueError
         If `population` is not supported in the configuration.
+
     Examples
     --------
     >>> plink_dir = get_1000genomes_plink_files(population="EUR")
@@ -269,6 +273,7 @@ def get_1000genomes_plink_files(
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     return DATA, prefix
+
 
 if __name__ == "__main__":
     annot, ldscores, prefix = get_1000genomes_ld_scores(population="EUR")
