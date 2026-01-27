@@ -6,8 +6,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-# TODO: HOW is MAGMA CALLED THEN?
-def load_ensembl_to_entrez_map(
+def _load_ensembl_to_entrez_map(
     map_tsv: str | Path,
 ) -> pd.Series:  # TODO: Is this a private function or not. Where is this used? Can't find any anywhere this is called?
     """
@@ -96,7 +95,7 @@ def genesets_dir_to_entrez_gmt(
     # ---- Load offline map if provided ----
     ens2ent = None
     if ensembl_to_entrez_tsv is not None:
-        ens2ent = load_ensembl_to_entrez_map(ensembl_to_entrez_tsv)
+        ens2ent = _load_ensembl_to_entrez_map(ensembl_to_entrez_tsv)
         logger.info(f"Loaded Ensembl→Entrez map with {ens2ent.shape[0]} entries")
 
     # ---- Optional online fallback ----
