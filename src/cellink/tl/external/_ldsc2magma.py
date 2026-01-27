@@ -1,17 +1,21 @@
 import logging
 from pathlib import Path
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-#TODO: HOW is MAGMA CALLED THEN?
-def load_ensembl_to_entrez_map(map_tsv: str | Path) -> pd.Series: #TODO: Is this a private function or not. Where is this used? Can't find any anywhere this is called?
+
+# TODO: HOW is MAGMA CALLED THEN?
+def load_ensembl_to_entrez_map(
+    map_tsv: str | Path,
+) -> pd.Series:  # TODO: Is this a private function or not. Where is this used? Can't find any anywhere this is called?
     """
-    Load a mapping TSV with columns: 
+    Load a mapping TSV with columns:
       ensembl_gene_id   entrez_id
     Returns a Series indexed by ENSG (upper, no version) with values as string Entrez IDs.
     """
-    #TODO EXPAND ON DOCUMENTATION IF PUBLIC FUNCTION
+    # TODO EXPAND ON DOCUMENTATION IF PUBLIC FUNCTION
     map_tsv = Path(map_tsv)
     df = pd.read_csv(map_tsv, sep="\t", dtype=str)
 
@@ -60,7 +64,7 @@ def genesets_dir_to_entrez_gmt(
     output_basename: str = "genesets.gmt",
 ) -> Path:
     """
-    Convert *.GeneSet (Ensembl IDs) -> MAGMA .gmt with Entrez IDs. 
+    Convert *.GeneSet (Ensembl IDs) -> MAGMA .gmt with Entrez IDs.
 
     Defaults:
       - reads from ./ldsc_genesets
@@ -70,7 +74,7 @@ def genesets_dir_to_entrez_gmt(
     Preferred: provide ensembl_to_entrez_tsv for offline mapping.
     Optional: allow_mygene_fallback=True to query mygene.info (needs internet).
     """
-    #TODO EXPAND ON DOCUMENTATION SINCE PUBLIC FUNCTION
+    # TODO EXPAND ON DOCUMENTATION SINCE PUBLIC FUNCTION
     geneset_dir = Path(geneset_dir).resolve()
 
     # ---- Default output location: sibling magma_genesets next to ldsc_genesets ----
@@ -100,6 +104,7 @@ def genesets_dir_to_entrez_gmt(
     if allow_mygene_fallback:
         try:
             import mygene  # type: ignore
+
             mg = mygene.MyGeneInfo()
         except Exception as e:
             raise ImportError("allow_mygene_fallback=True requires 'mygene' (pip install mygene).") from e
@@ -124,7 +129,7 @@ def genesets_dir_to_entrez_gmt(
 
         if ens2ent is not None:
             mapped = ens2ent.reindex(ens_genes)
-            for g, e in zip(ens_genes, mapped.values):
+            for g, e in zip(ens_genes, mapped.values, strict=False):
                 if pd.isna(e) or str(e) in ["", "nan", "None"]:
                     missing.append(g)
                 else:
@@ -132,9 +137,10 @@ def genesets_dir_to_entrez_gmt(
         else:
             missing = ens_genes[:]  # everything missing if no offline map
 
-    
         # mygene fallback for missing
-        if mg is not None and missing: #TODO: Let's instead of mygene rely on biomart mappings used throughout the package, e.g. in _sldsc_utils.py
+        if (
+            mg is not None and missing
+        ):  # TODO: Let's instead of mygene rely on biomart mappings used throughout the package, e.g. in _sldsc_utils.py
             res = mg.querymany(
                 missing,
                 scopes="ensembl.gene",
@@ -155,11 +161,7 @@ def genesets_dir_to_entrez_gmt(
             if "entrezgene" in res.columns:
                 # Normalize query ids
                 res["query_norm"] = (
-                    res["query"]
-                    .astype(str)
-                    .str.strip()
-                    .str.upper()
-                    .str.replace(r"\..*$", "", regex=True)
+                    res["query"].astype(str).str.strip().str.upper().str.replace(r"\..*$", "", regex=True)
                 )
 
                 # Keep only rows with an actual entrezgene value
@@ -188,7 +190,6 @@ def genesets_dir_to_entrez_gmt(
                             continue
                     else:
                         entrez.append(str(e))
-
 
         # De-dup / sort output
         if dedup_genes:
@@ -223,7 +224,8 @@ def genesets_dir_to_entrez_gmt(
     logger.info(f"Wrote {n_written} gene sets to {out_gmt} (skipped {n_skipped})")
     return Path(out_gmt)
 
-#TODO: REMOVE THIS MAIN BLOCK IF THIS IS A PRIVATE MODULE
+
+# TODO: REMOVE THIS MAIN BLOCK IF THIS IS A PRIVATE MODULE
 if __name__ == "__main__":
     import argparse
 
