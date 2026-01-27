@@ -15,6 +15,21 @@ from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
 from ._scdrs import run_scdrs
 from ._seismic import run_seismic
 from ._magma import run_magma_pipeline
+from ._ldsc import (
+    compute_ld_scores_with_annotations_from_bimfile,
+    compute_ld_scores_with_annotations_from_donor_data,
+    configure_ldsc_runner,
+    estimate_celltype_specific_heritability,
+    estimate_genetic_correlation,
+    estimate_heritability,
+    estimate_ld_scores_from_bimfile,
+    estimate_ld_scores_from_donor_data,
+    make_annot_from_bimfile,
+    make_annot_from_donor_data,
+    munge_sumstats,
+)
+from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, preprocess_for_sldsc
+from ._ldsc2magma import load_ensembl_to_entrez_map, genesets_dir_to_entrez_gmt
 
 __all__ = [
     "read_jaxqtl_results",
