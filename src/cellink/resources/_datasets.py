@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 
 import anndata as ad
 import pandas as pd
@@ -14,7 +15,10 @@ logging.basicConfig(level=logging.INFO)
 
 
 def get_1000genomes(
-    config_path: str = "./cellink/resources/config/1000genomes.yaml", data_home: str | None = None, verify_checksum=True
+    config_path: str = "./cellink/resources/config/1000genomes.yaml",
+    data_home: str | None = None,
+    verify_checksum: bool = True,
+    rerun_preprocessing: bool = False,
 ) -> ad.AnnData:
     """
     Download and preprocess the 1000 Genomes Project genotype data.
@@ -57,7 +61,10 @@ def get_1000genomes(
 
     gdata_list = []
     for chromosome in list(range(1, 23)):
-        if not os.path.isdir(DATA / "ALL.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcz"):
+        if (
+            not os.path.isdir(DATA / "ALL.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcz")
+            or rerun_preprocessing
+        ):
             _run(
                 f"vcf2zarr explode ALL.chr{chromosome}.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz ALL.chr{chromosome}.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.icf",
                 cwd=DATA,
@@ -81,6 +88,7 @@ def get_onek1k(
     config_path: str = "./cellink/resources/config/onek1k.yaml",
     data_home: str | None = None,
     verify_checksum: bool = True,
+    rerun_preprocessing: bool = False,
 ) -> DonorData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.
@@ -88,6 +96,9 @@ def get_onek1k(
     This function downloads genotype and expression files listed in a YAML configuration,
     optionally verifies checksums, converts VCF files to Zarr format, performs PLINK preprocessing
     including filtering, pruning, and kinship computation, and loads the dataset into a `DonorData` object.
+
+    Genotype preprocessing **requires PLINK** and is only performed if preprocessed
+    outputs are not already present.
 
     Additionally, it:
     - Performs liftover to hg19 coordinates for variant positions.
@@ -118,6 +129,8 @@ def get_onek1k(
         If preprocessing steps (VCF conversion, PLINK operations, or liftover) fail.
     ValueError
         If variant liftover or donor alignment cannot be performed.
+    EnvironmentError
+        If PLINK is required for preprocessing but is not available on PATH.
     """
     data_home = get_data_home(data_home)
     DATA = data_home / "onek1k"
@@ -130,7 +143,9 @@ def get_onek1k(
         checksum = file.get("checksum") if verify_checksum else None
         _download_file(file["url"], DATA / file["filename"], checksum)
 
-    if not os.path.isdir(DATA / "OneK1K.noGP.vcz"):
+    if not os.path.isdir(DATA / "OneK1K.noGP.vcz") or rerun_preprocessing:
+        if shutil.which("plink") is None:
+            raise OSError("PLINK is required for OneK1K preprocessing but was not found on PATH. ")
         _run("vcf2zarr explode OneK1K.noGP.vcf.gz OneK1K.noGP.icf", cwd=DATA)
         _run("vcf2zarr encode OneK1K.noGP.icf OneK1K.noGP.vcz", cwd=DATA)
 
