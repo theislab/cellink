@@ -62,7 +62,7 @@ def get_1000genomes(
     gdata_list = []
     for chromosome in list(range(1, 23)):
         if (
-            not os.path.isdir(DATA / "ALL.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcz")
+            not os.path.isdir(DATA / f"ALL.chr{chromosome}.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcz")
             or rerun_preprocessing
         ):
             _run(
