@@ -1,7 +1,10 @@
 import warnings
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+import dask.array as da
+import numpy as np
 import pandas as pd
 import sgkit as sg
 import xarray as xr
@@ -15,18 +18,6 @@ warnings.filterwarnings(
     message="The return type of `Dataset.dims` will be changed",
     category=FutureWarning,
 )
-
-
-def _get_snp_index(var: pd.DataFrame) -> pd.Index:
-    df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
-    index = df.apply("_".join, axis=1)
-    return pd.Index(index, name=VAnn.index)
-
-
-def _to_df_only_dim(gdata, dims):
-    df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
-    df.index = df.index.astype(str)
-    return df
 
 
 @dataclass(frozen=True)
@@ -47,6 +38,9 @@ class SgVars:
     filter_id: str = "filter_id"  # maps variant_filter to filter name
     genotype: str = "call_genotype"
     genotype_alt: str = "call_genotype_probability"
+    dosage: str = "call_DS"
+    mask: str = "call_genotype_mask"
+    phased: str = "call_genotype_phased"
 
 
 SGVAR_TO_GDATA = {
@@ -55,80 +49,231 @@ SGVAR_TO_GDATA = {
     "variant_contig": VAnn.contig,
 }
 
+def _get_snp_index(var: pd.DataFrame) -> pd.Index:
+    df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
+    index = df.apply("_".join, axis=1)
+    return pd.Index(index, name=VAnn.index)
+
+
+def _to_df_only_dim(gdata, dims):
+    df = gdata.drop_dims(set(gdata.sizes.keys()).difference({dims})).to_dataframe()
+    df.index = df.index.astype(str)
+    return df
+
+
+def _collapse_multiallelic_dosage_scalar(ds_array: da.Array) -> da.Array:
+    """
+    ds_array: dask array with shape either (variants, samples) (biallelic scalar DS)
+              or (variants, samples, n_alt) (vector DS).
+    Returns collapsed scalar DS (variants, samples) by summing over alt axis if exists.
+    """
+    if ds_array.ndim == 2:
+        return ds_array
+    return ds_array.sum(axis=-1)
+
+
+def _collapse_multiallelic_ac_scalar_from_gt(gt_array: da.Array, mask_array: da.Array | None = None) -> da.Array:
+    """
+    gt_array: dask array (variants, samples, ploidy)
+    returns scalar allele-count of ALT (non-zero allele indices) per variant/sample
+    shape -> (variants, samples)
+    If mask_array provided (same shape), set entries with any masked allele to nan.
+    """
+    alt_count = (gt_array > 0).sum(axis=-1).astype("int16")
+    if mask_array is not None:
+        any_missing = mask_array.any(axis=-1)
+        alt_count = alt_count.astype("float32")
+        alt_count = da.where(any_missing, da.full_like(alt_count, np.nan, dtype="float32"), alt_count)
+    return alt_count
+
 
 def from_sgkit_dataset(
-    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None, hard_call: bool = True
+    sgkit_dataset: xr.Dataset,
+    *,
+    var_rename: dict | None = None,
+    obs_rename: dict | None = None,
+    X_field: str = "GT",
+    load_call_fields: Iterable[str] | None = None,
 ) -> AnnData:
-    """Read SgKit Zarr Format
+    """
+    Convert an sgkit xarray.Dataset to AnnData.
 
-    Params
-    ------
+    Parameters
+    ----------
     sgkit_dataset
-        sgkit's xarray datastructure
+        xarray.Dataset from sgkit (lazy/dask-backed)
     var_rename
-        mapping from sgkit's variant annotation keys to desired gdata.var column
+        mapping from sgkit variant keys (e.g., 'variant_position') to var column names
     obs_rename
-        mapping from sgkit's sample annotation keys to desired gdata.obs column
-    hard_call
-        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+        mapping for sample-level annotations
+    X_field
+        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
+        - "DS": scalar dosage (call_DS collapsed across alts) -> X
+        - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
+        - "MASK": fraction of masked allele copies per (variant,sample)
+        - "AC": alias for "GT"
+        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    load_call_fields
+        iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
+    load_call_fields = None if load_call_fields is None else set(load_call_fields)
 
-    if SgVars.genotype in sgkit_dataset:
-        X = sgkit_dataset[SgVars.genotype].data.sum(-1).T
-    elif SgVars.genotype_alt in sgkit_dataset:
-        prob = sgkit_dataset[SgVars.genotype_alt].data
-        if hard_call:
-            # hard-call
-            X = prob.argmax(-1).T
-        else:
-            # dosage/additive encoding
-            X = (prob[..., 1] + 2 * prob[..., 2]).T
+    ds = sgkit_dataset
+
+    alleles_da = ds.data_vars.get(SgVars.alleles, None)
+    if alleles_da is None:
+        n_alleles = 2
+        alleles_arr = None
     else:
-        raise KeyError("No genotype or genotype_probability found in dataset.")
+        alleles_arr = asarray(alleles_da)
+        n_alleles = int(alleles_arr.shape[1])
 
-    obs = _to_df_only_dim(sgkit_dataset, SgDims.samples)
-    obs = obs.rename(columns=obs_rename)
-    obs.columns = obs.columns.str.replace("sample_", "")
-    obs = obs.set_index("id")
-    obs.index.name = DAnn.donor
+    n_alt = max(0, n_alleles - 1)
 
-    var = _to_df_only_dim(sgkit_dataset, SgDims.variants)
-    var = var.rename(columns=var_rename)
-    var.columns = var.columns.str.replace("variant_", "")
+    gt_da = ds.data_vars.get(SgVars.genotype, None)
+    gp_da = ds.data_vars.get(SgVars.genotype_alt, None)
+    ds_da = ds.data_vars.get(SgVars.dosage, None)
+    mask_da = ds.data_vars.get(SgVars.mask, None)
+    phased_da = ds.data_vars.get(SgVars.phased, None)
 
-    contig_mapping = dict(enumerate(asarray(sgkit_dataset[SgVars.contig_label])))
-    var[VAnn.chrom] = var[VAnn.contig].map(contig_mapping)
+    inferred_ploidy = None
+    if gt_da is not None:
+        if gt_da.ndim != 3:
+            raise ValueError(f"Unexpected genotype array ndim: {gt_da.ndim}, expected 3 (variants, samples, ploidy).")
+        inferred_ploidy = int(gt_da.sizes.get("ploidy", gt_da.shape[-1]))
 
-    alleles = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+    X = None
+    if X_field in ("GT", "AC"):
+        if gt_da is None:
+            warnings.warn("Requested X_field='GT' but call_genotype is not present. X will be unset.", UserWarning)
+            X = None
+        else:
+            gt_da_data: da.Array = gt_da.data
+            mask_data = mask_da.data if mask_da is not None else None
+            ac_scalar = _collapse_multiallelic_ac_scalar_from_gt(gt_da_data, mask_data)
+            X = ac_scalar.T
 
-    a0_a1 = alleles[:, :2]
-    var[[VAnn.a0, VAnn.a1]] = a0_a1
-    if alleles.shape[1] > 2:
-        var[[f"{VAnn.asymb}{i}" for i in range(alleles[:, 2:].shape[1])]] = alleles[:, 2:]
-    # var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+    elif X_field == "DS":
+        if ds_da is None:
+            warnings.warn("Requested X_field='DS' but call_DS is not present. X will be unset.", UserWarning)
+            X = None
+        else:
+            ds_data = ds_da.data
+            ds_scalar = _collapse_multiallelic_dosage_scalar(ds_data)
+            X = ds_scalar.T
 
-    first_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
-    var = var[first_cols + [c for c in var.columns if c not in first_cols]]
+    elif X_field == "GP":
+        if gp_da is None:
+            warnings.warn("Requested X_field='GP' but call_genotype_probability not present. X unset.", UserWarning)
+            X = None
+        else:
+            gp_data = gp_da.data
+            state_idx = gp_data.argmax(axis=-1)
+            if "genotype_state_allele" in gp_da.attrs:
+                alleles_state = np.asarray(gp_da.attrs["genotype_state_allele"])
+                alt_count_state = (alleles_state > 0).sum(axis=1)
+                X = da.take(alt_count_state, state_idx).T
+            else:
+                X = state_idx.T
+    else:
+        raise ValueError(f"Unknown X_field: {X_field!r}. Must be one of GT/DS/GP/AC.")
 
-    var.index = _get_snp_index(var)
+    obs_df = _to_df_only_dim(sgkit_dataset, SgDims.samples)
+    obs_df = obs_df.rename(columns=obs_rename)
+    obs_df.columns = obs_df.columns.str.replace("sample_", "")
+    obs_df = obs_df.set_index("id")
+    obs_df.index.name = DAnn.donor
 
-    varm = {}
-    if SgVars.filter in sgkit_dataset and SgVars.filter_id in sgkit_dataset:
-        filters = pd.DataFrame(
-            asarray(sgkit_dataset[SgVars.filter]),
-            columns=asarray(sgkit_dataset[SgVars.filter_id]),
-            index=var.index,
-        )
-        varm["filter"] = filters
+    var_df = _to_df_only_dim(sgkit_dataset, SgDims.variants)
+    var_df = var_df.rename(columns=var_rename)
+    var_df.columns = var_df.columns.str.replace("variant_", "")
 
-    gdata = AnnData(X=X, obs=obs, var=var, varm=varm)
+    if alleles_arr is not None:
+        var_df["a0"] = alleles_arr[:, 0]
+        if alleles_arr.shape[1] > 1:
+            var_df["a1"] = alleles_arr[:, 1]
+        if alleles_arr.shape[1] > 2:
+            for ai in range(2, alleles_arr.shape[1]):
+                var_df[f"a{ai}"] = alleles_arr[:, ai]
 
-    return gdata
+    if SgVars.contig_label in ds.data_vars:
+        contigs = asarray(ds[SgVars.contig_label])
+        if "variant_contig" in ds.data_vars:
+            vc = asarray(ds["variant_contig"])
+            try:
+                var_df["chrom"] = pd.Index(vc).map(dict(enumerate(contigs)))
+            except Exception:
+                var_df["chrom"] = vc
+        else:
+            pass
+
+    var_df.index = _get_snp_index(var_df)
+
+    if X is None:
+        n_samples = int(ds.sizes.get("samples", 0))
+        X_for_adata = da.empty((n_samples, 0), dtype="float32")
+    else:
+        X_for_adata = X
+
+    adata = AnnData(X=X_for_adata, obs=obs_df, var=var_df)
+
+    for key, da_var in ds.data_vars.items():
+        if not key.startswith("call_"):
+            continue
+        if load_call_fields is not None and key not in load_call_fields:
+            continue
+        if X_field == "GT" and key == SgVars.genotype:
+            continue
+        if X_field == "DS" and key == SgVars.dosage:
+            continue
+        if X_field == "GP" and key == SgVars.genotype_prob:
+            continue
+
+        if da_var.data.T.ndim == 2:
+            adata.layers[key.replace("call_", "").upper()] = da_var.data.T
+        else:
+            adata.uns[key.replace("call_", "").upper()] = da_var.data.T
+
+    adata.uns["n_alt"] = n_alt
+    if inferred_ploidy is not None:
+        adata.uns["ploidy"] = inferred_ploidy
+
+    if phased_da is not None:
+        adata.uns["has_phased_flag"] = True
+        for h in range(ploidy):
+            adata.layers[f"PHASE_{h}"] = phased_da.data[:, :, h].T
+    else:
+        adata.uns["has_phased_flag"] = False
+
+    adata.uns["has_genotype"] = gt_da is not None
+    adata.uns["has_genotype_probability"] = gp_da is not None
+    adata.uns["has_DS"] = ds_da is not None
+    adata.uns["has_mask"] = mask_da is not None
+
+    if gt_da is not None:
+        adata.uns["raw_call_genotype"] = gt_da.data
+    if gp_da is not None:
+        adata.uns["raw_call_genotype_probability"] = gp_da.data
+    if ds_da is not None:
+        adata.uns["raw_call_DS"] = ds_da.data
+    if mask_da is not None:
+        adata.uns["raw_call_genotype_mask"] = mask_da.data
+
+    return adata
 
 
-def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_sgkit_zarr(
+    path: str | Path,
+    *,
+    var_rename=None,
+    obs_rename=None,
+    X_field: str = "GT",
+    load_call_fields: Iterable[str] | None = None,
+    **kwargs,
+) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -139,15 +284,33 @@ def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
-    hard_call
-        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    X_field
+        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
+        - "DS": scalar dosage (call_DS collapsed across alts) -> X
+        - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
+        - "MASK": fraction of masked allele copies per (variant,sample)
+        - "AC": alias for "GT"
+        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    load_call_fields
+        iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+    )
     return gdata
 
 
-def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_plink(
+    path: str | Path = None,
+    *,
+    var_rename=None,
+    obs_rename=None,
+    X_field: str = "GT",
+    load_call_fields: Iterable[str] | None = None,
+    **kwargs,
+) -> AnnData:
     """Read Plink Format
 
     Params
@@ -158,17 +321,35 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, har
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
-    hard_call
-        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    X_field
+        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
+        - "DS": scalar dosage (call_DS collapsed across alts) -> X
+        - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
+        - "MASK": fraction of masked allele copies per (variant,sample)
+        - "AC": alias for "GT"
+        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    load_call_fields
+        iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
     from sgkit.io import plink as sg_plink
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+    )
     return gdata
 
 
-def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_bgen(
+    path: str | Path = None,
+    *,
+    var_rename=None,
+    obs_rename=None,
+    X_field: str = "GT",
+    load_call_fields: Iterable[str] | None = None,
+    **kwargs,
+) -> AnnData:
     """Read bgen Format
 
     Params
@@ -179,11 +360,21 @@ def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
-    hard_call
-        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    X_field
+        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
+        - "DS": scalar dosage (call_DS collapsed across alts) -> X
+        - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
+        - "MASK": fraction of masked allele copies per (variant,sample)
+        - "AC": alias for "GT"
+        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    load_call_fields
+        iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
     from sgkit.io import bgen as sg_bgen
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+    )
     return gdata
