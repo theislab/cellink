@@ -57,7 +57,12 @@ SGVAR_TO_GDATA = {
 
 
 def from_sgkit_dataset(
-    sgkit_dataset: xr.Dataset, *, var_rename: dict = None, obs_rename: dict = None, hard_call: bool = True
+    sgkit_dataset: xr.Dataset, 
+    *, 
+    var_rename: dict = None, 
+    obs_rename: dict = None, 
+    hard_call: bool = True, 
+    keep_multiallelic: bool = False,
 ) -> AnnData:
     """Read SgKit Zarr Format
 
@@ -71,6 +76,8 @@ def from_sgkit_dataset(
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    keep_multiallelic
+        if True, stores extra alternate alleles beyond ALT1; default is False
     """
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
@@ -101,13 +108,26 @@ def from_sgkit_dataset(
     contig_mapping = dict(enumerate(asarray(sgkit_dataset[SgVars.contig_label])))
     var[VAnn.chrom] = var[VAnn.contig].map(contig_mapping)
 
+    """
     alleles = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
 
     a0_a1 = alleles[:, :2]
     var[[VAnn.a0, VAnn.a1]] = a0_a1
     if alleles.shape[1] > 2:
         var[[f"{VAnn.asymb}{i}" for i in range(alleles[:, 2:].shape[1])]] = alleles[:, 2:]
+    """
     # var[[VAnn.a0, VAnn.a1]] = asarray(sgkit_dataset[SgVars.alleles]).astype(str)
+    alleles = sgkit_dataset[SgVars.alleles]
+
+    a0 = alleles.isel(alleles=0).astype(str).compute()
+    a1 = alleles.isel(alleles=1).astype(str).compute()
+    var[VAnn.a0] = a0.values
+    var[VAnn.a1] = a1.values
+
+    if keep_multiallelic and alleles.sizes["alleles"] > 2:
+        for i in range(2, alleles.sizes["alleles"]):
+            col = alleles.isel(alleles=i).astype(str).compute()
+            var[f"{VAnn.asymb}{i-2}"] = col.values
 
     first_cols = [VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]
     var = var[first_cols + [c for c in var.columns if c not in first_cols]]
@@ -128,7 +148,7 @@ def from_sgkit_dataset(
     return gdata
 
 
-def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_call=True, keep_multiallelic=False, **kwargs) -> AnnData:
     """Read SgKit Zarr Format
 
     Params
@@ -143,11 +163,11 @@ def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
     return gdata
 
 
-def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, keep_multiallelic=False, **kwargs) -> AnnData:
     """Read Plink Format
 
     Params
@@ -164,11 +184,11 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, har
     from sgkit.io import plink as sg_plink
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
     return gdata
 
 
-def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, **kwargs) -> AnnData:
+def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard_call=True, keep_multiallelic=False, **kwargs) -> AnnData:
     """Read bgen Format
 
     Params
@@ -185,5 +205,5 @@ def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard
     from sgkit.io import bgen as sg_bgen
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
     return gdata
