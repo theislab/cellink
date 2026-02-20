@@ -41,14 +41,19 @@ dependencies = [
   "requests",
   "rich",
   "scanpy",
+  "xarray",
   # for debug logging (referenced from the issue template)
   "session-info",
-  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
-  "bio2zarr[all]",
 ]
 
 optional-dependencies.datasets = [
   "liftover",
+  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
+  "bio2zarr[all]",
+]
+
+optional-dependencies.pgen = [
+  "pgenlib",
 ]
 
 optional-dependencies.dev = [
@@ -194,3 +199,6 @@ skip = [
   "docs/references.md",
   "docs/notebooks/example.ipynb",
 ]
+
+[project.scripts]
+cellink-pgen = "cellink.cli.pgen:main"
