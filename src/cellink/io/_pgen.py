@@ -3,7 +3,7 @@ import gc
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 import anndata as ad
 import dask.array as da
@@ -106,6 +106,7 @@ def stream_pgen_to_zarr(
     compressor: str = "zstd",
     compression_level: int = 7,
     sparse: bool = False,
+    sparse_format: Literal["csc", "csr"] = "csc",
 ) -> ad.AnnData:
     """
     Stream one or more PGEN files → a single Zarr v3 AnnData-compatible store.
@@ -139,6 +140,11 @@ def stream_pgen_to_zarr(
         If True, accumulate a scipy CSR matrix and write as AnnData sparse X.
         If False (default), stream directly into a dense Zarr dataset.
         Use sparse=True for rare variants (low density); dense for common.
+    sparse_format : {"csc", "csr"}
+        Sparse matrix format when ``sparse=True``. Default is 'csc', which is
+        more efficient for variant-wise access (e.g. association tests, per-variant
+        filtering). Use 'csr' if your workload is primarily sample-wise (e.g.
+        per-sample operations).
 
     Returns
     -------
@@ -218,6 +224,9 @@ def stream_pgen_to_zarr(
     )
 
     if sparse:
+        if sparse_format not in ("csr", "csc"):
+            raise ValueError(f"sparse_format must be 'csr' or 'csc', got {sparse_format!r}")
+
         csr_chunks: list[sp.csr_matrix] = []
 
         for (reader, n_raw, base), nv in zip(readers, n_variants_per_file):
@@ -243,7 +252,7 @@ def stream_pgen_to_zarr(
                         gc.collect()
 
         logger.info(f"Stacking {len(csr_chunks)} CSR chunks ...")
-        X = sp.hstack(csr_chunks, format="csr")
+        X = sp.hstack(csr_chunks, format=sparse_format)
         del csr_chunks
         logger.info(
             f"Sparse X: {X.shape}, nnz={X.nnz:,}, "
@@ -302,57 +311,3 @@ def stream_pgen_to_zarr(
         zarr.consolidate_metadata(root.store)
 
     logger.info(f"✓ Done → {output_path}")
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Stream one or more PGEN files → single AnnData Zarr v3",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Single pgen, dense
-  python pgen2anndata.py common.pgen -o common.zarr
-
-  # Single pgen, sparse (rare variants)
-  python pgen2anndata.py rare.pgen -o rare.zarr --sparse
-
-  # Multiple pgens (same samples, different variant sets) → one AnnData
-  python pgen2anndata.py rare.pgen common.pgen -o combined.zarr
-        """,
-    )
-    parser.add_argument("pgen_path", nargs="+", help="Path(s) to .pgen file(s)")
-    parser.add_argument("-o", "--output", required=True, help="Output Zarr directory")
-    parser.add_argument("--max-variants", type=int)
-    parser.add_argument("--max-samples", type=int)
-    parser.add_argument("--chunk-samples", type=int, default=4096)
-    parser.add_argument("--chunk-variants", type=int, default=2048)
-    parser.add_argument("--memory-limit", type=float, default=10.0)
-    parser.add_argument("--compressor", choices=["zstd", "lz4", "zlib"], default="zstd")
-    parser.add_argument("--compression-level", type=int, default=7, choices=range(1, 10))
-    parser.add_argument("--sparse", action="store_true",
-                        help="Write X as sparse CSR (recommended for rare variants)")
-
-    args = parser.parse_args()
-
-    pgen_input = args.pgen_path[0] if len(args.pgen_path) == 1 else args.pgen_path
-
-    try:
-        stream_pgen_to_zarr(
-            pgen_input,
-            args.output,
-            max_variants=args.max_variants,
-            max_samples=args.max_samples,
-            chunk_samples=args.chunk_samples,
-            chunk_variants=args.chunk_variants,
-            memory_limit_gb=args.memory_limit,
-            compressor=args.compressor,
-            compression_level=args.compression_level,
-            sparse=args.sparse,
-        )
-        return 0
-    except Exception as e:
-        logger.error(f"Failed: {e}", exc_info=True)
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())

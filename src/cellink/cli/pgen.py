@@ -42,6 +42,7 @@ def main() -> int:
     parser.add_argument("--compressor", choices=["zstd", "lz4", "zlib"], default="zstd")
     parser.add_argument("--compression-level", type=int, default=7, choices=range(1, 10))
     parser.add_argument("--sparse", action="store_true")
+    parser.add_argument("--sparse-format", choices=["csr", "csc"], default="csc", help="Sparse matrix format for --sparse mode (default: csc, better for variant-wise access)")
 
     args = parser.parse_args()
 
@@ -58,6 +59,7 @@ def main() -> int:
         compressor=args.compressor,
         compression_level=args.compression_level,
         sparse=args.sparse,
+        sparse_format=args.sparse_format,
     )
 
     return 0
