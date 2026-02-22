@@ -6,10 +6,11 @@ import anndata as ad
 import pandas as pd
 
 import cellink as cl
-from cellink._core import DonorData
 from cellink.io import read_h5_dd, read_zarr_dd
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 from cellink.resources._utils import _download_file, _load_config, _run, get_data_home
+
+from .._core import DonorData
 
 logging.basicConfig(level=logging.INFO)
 
