@@ -2,7 +2,7 @@ import logging
 import subprocess
 import sys
 from pathlib import Path
-from typing import Tuple, Literal
+from typing import Tuple, Literal, Optional, Union
 
 import pandas as pd
 import yaml
@@ -307,119 +307,97 @@ def download_magma_references(
 
     return gene_loc_file, ref_prefix
 
-def prepare_magma_inputs_from_dd(
-    dd: DonorData,
+def prepare_magma_inputs(
     gwas_sumstats: pd.DataFrame,
     output_prefix: str = "magma_input",
     genome_build: str = "GRCh38",
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    use_genotypes_for_ld: bool = True,
+    ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
+    dd: DonorData = None,                                  
+    reference_panel: Optional[str] = None,    # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
+    external_ld_prefix: Optional[Union[str, Path]] = None,  # only if ld_source="external"
     col_mapping: dict = None,
     config_file: str = "configs/magma.yaml",
-) -> Tuple[Path, Path, Path, Path]:
+) -> Tuple[Path, Path, Path, Optional[Path]]:
     """
-    Prepare all input files needed for MAGMA analysis using DonorData genotypes.
-
-    This function creates:
-    1. SNP location file from GWAS summary statistics
-    2. P-value file from GWAS summary statistics
-    3. PLINK files from DonorData genotypes (for LD reference)
-    4. Downloads gene location file if needed
+    Prepare all input files needed for MAGMA analysis.
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing genotype data (dd.G).
     gwas_sumstats : pd.DataFrame
-        GWAS summary statistics with columns: ['SNP', 'CHR', 'BP', 'P']
-        or ['rsID', 'Chromosome', 'BP', 'P.value'].
-    output_prefix : str, default='magma_input'
+        GWAS summary statistics. Must contain SNP/rsID, CHR/chromosome, BP/base_pair_location, P/p_value.
+    output_prefix : str
         Prefix for output files.
-    genome_build : str, default='GRCh38'
-        Genome build version ('GRCh37' or 'GRCh38').
-    gene_id_type : str, default='ensembl'
-        Gene ID type to use: 'entrez', 'ensembl', or 'gene_name'.
-    use_genotypes_for_ld : bool, default=True
-        If True, export DonorData genotypes as PLINK files for LD reference.
-        If False, you'll need to provide a reference panel separately.
+    genome_build : str
+        'GRCh37' or 'GRCh38'.
+    gene_id_type : str
+        Gene ID type: 'entrez', 'ensembl', or 'gene_name'.
+    ld_source : str or None
+        How to provide the LD reference for MAGMA gene analysis:
+        - 'dd_genotypes'   : export genotypes from a DonorData object (requires `dd`)
+        - 'reference_panel': download a 1000G panel (requires `reference_panel`)
+        - 'external'       : use pre-built PLINK files you already have (requires `external_ld_prefix`)
+        - None             : skip LD reference — you must supply it yourself to run_magma_gene_analysis
+    dd : DonorData, optional
+        Required only when ld_source='dd_genotypes'.
+    reference_panel : str, optional
+        Population code ('EUR', 'EAS', 'AFR'). Required only when ld_source='reference_panel'.
+    external_ld_prefix : str or Path, optional
+        Path prefix of existing PLINK files (.bed/.bim/.fam). Required only when ld_source='external'.
     col_mapping : dict, optional
-        Dictionary to map column names in GWAS summary statistics to standard names.
-        Default maps common variants of SNP, CHR, BP, and P column names.
-        Example: {"variant_id": "SNP", "chromosome": "CHR", "p_value": "P"}
-    config_file : str, default='configs/magma.yaml'
-        Path to YAML configuration file with reference URLs.
+        Rename GWAS columns to standard names {'source_col': 'target_col'}.
+        Default handles common variants of SNP, CHR, BP, P column names.
+    config_file : str
+        Path to YAML config with reference URLs.
 
     Returns
     -------
-    tuple of Path
-        (snp_loc_file, pval_file, gene_loc_file, ld_reference_prefix)
-
-    Examples
-    --------
-    >>> # Prepare all inputs using your genotypes with Ensembl gene IDs
-    >>> snp_loc, pval, gene_loc, ld_ref = prepare_magma_inputs_from_dd(
-    ...     dd,
-    ...     gwas_df,
-    ...     output_prefix="trait_magma",
-    ...     gene_id_type="ensembl"
-    ... )
-    >>>
-
-    Notes
-    -----
-    This function is designed to make MAGMA analysis easy with cellink's DonorData:
-    - Uses your actual genotypes for LD estimation 
-    - Handles all file conversions automatically
-    - Downloads only the necessary gene location file
-    - Supports different gene ID types (Entrez, Ensembl, Gene Name)
+    snp_loc_file, pval_file, gene_loc_file, ld_ref_prefix
+        ld_ref_prefix is None when ld_source=None.
     """
-    logger.info("Preparing MAGMA input files from DonorData")
+    if ld_source == "dd_genotypes" and dd is None:
+        raise ValueError("ld_source='dd_genotypes' requires a DonorData object via `dd`")
+    if ld_source == "reference_panel" and reference_panel is None:
+        raise ValueError("ld_source='reference_panel' requires a population code via `reference_panel`")
+    if ld_source == "external" and external_ld_prefix is None:
+        raise ValueError("ld_source='external' requires PLINK file prefix via `external_ld_prefix`")
 
-    output_dir = Path(output_prefix).parent if Path(output_prefix).parent != Path('.') else Path.cwd()
+    output_dir = Path(output_prefix).parent
     output_dir.mkdir(exist_ok=True, parents=True)
 
     logger.info("Downloading/checking gene location file")
     gene_loc_file, _ = download_magma_references(
         genome_build=genome_build,
         gene_id_type=gene_id_type,
-        reference_panel=None,  
+        reference_panel=None,
         config_file=config_file,
     )
 
-    logger.info("Preparing SNP location and p-value files")
-
     if col_mapping is None:
-        col_mapping = {
-            "rsID": "SNP",
-            "variant_id": "SNP",
-            "chr": "CHR",
-            "pval": "P",
-        }
+        col_mapping = {"rsID": "SNP", "variant_id": "SNP", "chr": "CHR", "pval": "P"}
+
+    df = gwas_sumstats.copy()
 
     identifier_columns = ["variant_id", "rsID", "SNP"]
     has_valid_identifier = any(
-        col in gwas_sumstats.columns and gwas_sumstats[col].notna().any()
+        col in df.columns and df[col].notna().any()
         for col in identifier_columns
     )
     if not has_valid_identifier:
-        gwas_sumstats["SNP"] = (
-            gwas_sumstats["chromosome"].astype(str)
-            + "_"
-            + gwas_sumstats["base_pair_location"].astype(str)
-            + "_"
-            + gwas_sumstats["effect_allele"].astype(str)
-            + "_"
-            + gwas_sumstats["other_allele"].astype(str)
+        df["SNP"] = (
+            df["chromosome"].astype(str) + "_"
+            + df["base_pair_location"].astype(str) + "_"
+            + df["effect_allele"].astype(str) + "_"
+            + df["other_allele"].astype(str)
         )
 
-    df = gwas_sumstats.copy()
     df = df.rename(columns=col_mapping)
 
     required_cols = ["SNP", "CHR", "BP", "P"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(
-            f"Missing required columns in GWAS summary statistics: {missing_cols}\n"
+            f"Missing required columns after renaming: {missing_cols}\n"
             f"Available columns: {df.columns.tolist()}"
         )
 
@@ -434,27 +412,54 @@ def prepare_magma_inputs_from_dd(
     logger.info(f"Created p-value file: {pval_file}")
 
     ld_ref_prefix = None
-    if use_genotypes_for_ld:
-        logger.info("Exporting genotypes to PLINK format for LD reference")
+
+    if ld_source == "dd_genotypes":
+        logger.info("Exporting DonorData genotypes to PLINK format for LD reference")
         ld_ref_prefix = Path(f"{output_prefix}_ld_ref")
 
         import numpy as np
+        from cellink.io import to_plink
 
         maf = dd.G.X.sum(axis=0) / (2 * dd.G.n_obs)
         maf = np.minimum(maf, 1 - maf)
         common_variants = maf > 0.01
 
-        if common_variants.sum() < len(maf):
-            logger.info(
-                f"Filtering to {common_variants.sum()} common variants (MAF > 0.01) "
-                f"from {len(maf)} total variants"
-            )
-            gdata_filtered = dd.G[:, common_variants].copy()
-        else:
-            gdata_filtered = dd.G
-
-        to_plink(gdata_filtered, str(ld_ref_prefix))
+        gdata = dd.G[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.G
+        logger.info(
+            f"Exporting {common_variants.sum()} common variants (MAF > 0.01) "
+            f"out of {len(maf)} total"
+        )
+        to_plink(gdata, str(ld_ref_prefix))
         logger.info(f"Created PLINK files: {ld_ref_prefix}.{{bed,bim,fam}}")
+
+    elif ld_source == "reference_panel":
+        logger.info(f"Downloading 1000G reference panel: {reference_panel}")
+        _, ld_ref_prefix = download_magma_references(
+            genome_build=genome_build,
+            reference_panel=reference_panel,
+            gene_id_type=gene_id_type,
+            config_file=config_file,
+        )
+
+    elif ld_source == "external":
+        ld_ref_prefix = Path(external_ld_prefix)
+
+        missing_plink = [
+            str(ld_ref_prefix.with_suffix(ext))
+            for ext in [".bed", ".bim", ".fam"]
+            if not ld_ref_prefix.with_suffix(ext).exists()
+        ]
+        if missing_plink:
+            raise FileNotFoundError(
+                f"External LD reference PLINK files not found: {missing_plink}"
+            )
+        logger.info(f"Using external LD reference: {ld_ref_prefix}")
+
+    elif ld_source is None:
+        logger.info(
+            "No LD reference prepared. You must supply `ld_reference_prefix` "
+            "manually when calling run_magma_gene_analysis."
+        )
 
     return snp_loc_file, pval_file, gene_loc_file, ld_ref_prefix
 
@@ -579,83 +584,101 @@ def run_magma_gene_analysis(
     return results_file
 
 def run_magma_pipeline(
-    dd: DonorData,
     gwas_sumstats: pd.DataFrame,
     output_prefix: str = "magma_results",
     genome_build: str = "GRCh38",
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
     window_size: Tuple[int, int] = (35, 10),
     n_samples: int = None,
+    ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
+    dd=None,
+    reference_panel: Optional[str] = None,
+    external_ld_prefix: Optional[Union[str, Path]] = None,
     col_mapping: dict = None,
     config_file: str = "configs/magma.yaml",
     magma_bin: str = "magma",
 ) -> Path:
     """
-    Complete MAGMA pipeline: prepare inputs, annotate, and analyze.
-
-    This is a convenience function that runs the complete MAGMA workflow
-    using genotypes from DonorData as the LD reference.
+    Complete MAGMA pipeline: prepare inputs, annotate SNPs, and run gene analysis.
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing genotype data.
     gwas_sumstats : pd.DataFrame
-        GWAS summary statistics with columns: ['SNP', 'CHR', 'BP', 'P'].
-    output_prefix : str, default='magma_results'
+        GWAS summary statistics.
+    output_prefix : str
         Prefix for all output files.
-    genome_build : str, default='GRCh37'
-        Genome build version ('GRCh37' or 'GRCh38').
-    gene_id_type : str, default='ensembl'
-        Gene ID type to use: 'entrez', 'ensembl', or 'gene_name'.
-    window_size : tuple of int, default=(35, 10)
-        Window around genes in kilobases (upstream, downstream).
+    genome_build : str
+        'GRCh37' or 'GRCh38'.
+    gene_id_type : str
+        Gene ID type: 'entrez', 'ensembl', or 'gene_name'.
+    window_size : tuple of int
+        Upstream/downstream window in kilobases for SNP-to-gene annotation.
     n_samples : int
-        Sample size for the GWAS.
+        GWAS sample size.
+    ld_source : str or None
+        LD reference strategy — see prepare_magma_inputs for full docs.
+        - 'dd_genotypes'   : use genotypes from DonorData (pass `dd`)
+        - 'reference_panel': download a 1000G panel (pass `reference_panel`)
+        - 'external'       : use existing PLINK files (pass `external_ld_prefix`)
+        - None             : raises an error — LD reference is required for gene analysis
+    dd : DonorData, optional
+        Required when ld_source='dd_genotypes'.
+    reference_panel : str, optional
+        Required when ld_source='reference_panel'. Options: 'EUR', 'EAS', 'AFR'.
+    external_ld_prefix : str or Path, optional
+        Required when ld_source='external'. Path prefix of PLINK files.
     col_mapping : dict, optional
-        Dictionary to map column names in GWAS summary statistics.
-        If None, uses default mapping for common column name variants.
-    config_file : str, default='configs/magma.yaml'
-        Path to YAML configuration file with reference URLs.
-    magma_bin : str, default='magma'
-        Path to MAGMA binary. Can be 'magma' if in PATH, or a full path like './magma/magma'.
+        Column rename mapping for GWAS sumstats.
+    config_file : str
+        Path to YAML config.
+    magma_bin : str
+        Path to MAGMA binary.
 
     Returns
     -------
     Path
-        Path to the final gene-level results file (.genes.out).
+        Path to gene-level results file (.genes.out).
 
     Examples
     --------
-    >>> from cellink.resources import get_dummy_onek1k
-    >>> from cellink.tl.external import run_magma_pipeline
-    >>>
-    >>> # Load data
-    >>> dd = get_dummy_onek1k()
-    >>> gwas_df = pd.read_csv("gwas_sumstats.txt", sep="\t")
-    >>>
-    >>> # Run complete MAGMA pipeline with Ensembl gene IDs
-    >>> results_file = run_magma_pipeline(
-    ...     dd,
-    ...     gwas_df,
-    ...     output_prefix="t2d_magma",
-    ...     gene_id_type="ensembl",
-    ...     n_samples=100000,
-    ...     magma_bin="./magma/magma"
+    >>> # Using your own cohort's genotypes
+    >>> results = run_magma_pipeline(
+    ...     gwas_df, output_prefix="t2d", n_samples=100000,
+    ...     ld_source="dd_genotypes", dd=my_donor_data,
+    ...     magma_bin="./magma/magma",
     ... )
-    >>>
-    >>> # Load results
-    >>> magma_results = pd.read_csv(results_file, sep=r'\s+')
-    """
-    logger.info("Starting MAGMA pipeline")
 
-    snp_loc, pval, gene_loc, ld_ref = prepare_magma_inputs_from_dd(
-        dd=dd,
+    >>> # Using a downloaded 1000G panel
+    >>> results = run_magma_pipeline(
+    ...     gwas_df, output_prefix="t2d", n_samples=100000,
+    ...     ld_source="reference_panel", reference_panel="EUR",
+    ... )
+
+    >>> # Using your own pre-built PLINK reference
+    >>> results = run_magma_pipeline(
+    ...     gwas_df, output_prefix="t2d", n_samples=100000,
+    ...     ld_source="external", external_ld_prefix="/data/my_ref_panel",
+    ... )
+    """
+    if ld_source is None:
+        raise ValueError(
+            "ld_source is required for run_magma_pipeline. Choose one of: "
+            "'dd_genotypes', 'reference_panel', 'external'.\n"
+            "For manual control, call prepare_magma_inputs + run_magma_annotation "
+            "+ run_magma_gene_analysis separately."
+        )
+
+    logger.info(f"Starting MAGMA pipeline (ld_source='{ld_source}')")
+
+    snp_loc, pval, gene_loc, ld_ref = prepare_magma_inputs(
         gwas_sumstats=gwas_sumstats,
         output_prefix=output_prefix,
         genome_build=genome_build,
         gene_id_type=gene_id_type,
-        use_genotypes_for_ld=True,
+        ld_source=ld_source,
+        dd=dd,
+        reference_panel=reference_panel,
+        external_ld_prefix=external_ld_prefix,
         col_mapping=col_mapping,
         config_file=config_file,
     )
@@ -678,5 +701,4 @@ def run_magma_pipeline(
     )
 
     logger.info(f"MAGMA pipeline complete! Results: {results_file}")
-
     return results_file
