@@ -566,7 +566,7 @@ def run_magma_gene_analysis(
     cmd = [
         magma_bin,
         "--bfile", str(ld_reference_prefix),
-        "--pval", str(pval_file), "N=", str(n_samples),
+        "--pval", str(pval_file), f"N={str(n_samples)}",
         "--gene-annot", str(annotation_file),
         "--out", f"{output_prefix}",
     ]
