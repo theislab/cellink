@@ -106,6 +106,7 @@ optional-dependencies.tensorqtl = [
 ]
 optional-dependencies.scdrs = [
   "scdrs",
+  "numpy<2.0.0",
 ]
 optional-dependencies.test = [
   "coverage",
