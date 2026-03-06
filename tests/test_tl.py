@@ -13,7 +13,10 @@ from cellink.tl import (
     aggregate_annotations_for_varm,
     combine_annotations,
     run_vep,
+    subset_genomic_region,
+    subset_gene,
 )
+
 
 DATA = Path("tests/data")
 CONFIG = Path("configs")
@@ -81,3 +84,22 @@ def test_aggregate_annotations_for_varm(gdata, sample_vep_annos):
         )
         id_cols = [AAnn.index]
         assert len(gdata.uns["variant_annotation_vep"].reset_index()[id_cols].drop_duplicates()) == len(res.index)
+
+def test_get_genomic_region_nosubset(gdata):
+    chrom = gdata.var['chrom'].iloc[0]
+    start = gdata.var['pos'].min()
+    end = gdata.var['pos'].max() + 1
+
+    subset_gdata = subset_genomic_region(gdata, chrom, start, end)
+
+    assert subset_gdata.shape[1] == gdata.shape[1]
+
+
+def test_get_genomic_region_subset(gdata):
+    chrom = gdata.var['chrom'].iloc[0]
+    start = gdata.var['pos'].min() + 1
+    end = gdata.var['pos'].max()
+
+    subset_gdata = subset_genomic_region(gdata, chrom, start, end)
+
+    assert subset_gdata.shape[1] < gdata.shape[1]
