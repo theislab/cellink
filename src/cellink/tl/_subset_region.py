@@ -49,6 +49,8 @@ def subset_gene(gdata, gene_id: str or list):
     Returns:
     Subsetted Anndata object containing only variants annotated to the specified gene.
     """
+    if "variant_annotation_vep" not in gdata.uns:
+        raise ValueError("VEP annotations must be added to gdata before subsetting by gene. Please run add_vep_annos_to_gdata() first.")
     # Ensure that the 'gene_id' column is present in gdata.var
     if 'gene_id' not in gdata.uns["variant_annotation_vep"].reset_index().columns:
         raise ValueError("gdata.uns['variant_annotation_vep'] must contain 'gene_id' column. Have you added VEP annotations to gdata?")
@@ -62,5 +64,6 @@ def subset_gene(gdata, gene_id: str or list):
     subset_mask_var = gdata.var_names.isin(subset_variants)
     # Subset the Anndata object
     subset_gdata = gdata[:, subset_mask_var].copy()
-    
+    subset_gdata.uns["variant_annotation_vep"] = gdata.uns["variant_annotation_vep"].reset_index().loc[subset_mask_uns].copy()
+    #subset_gdata.uns = gdata.uns[subset_mask_uns].copy()  # Copy uns to preserve annotations
     return subset_gdata
