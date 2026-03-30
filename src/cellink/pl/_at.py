@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from adjustText import adjust_text
-from matplotlib.patches import Rectangle
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from scipy.stats import beta
 
 from cellink._core.data_fields import VAnn
@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO)
 def qq(
     pvals_df: pd.DataFrame,
     pval_col: str = "pv_adj",
-    group_col: str = "group",
+    group_col: str | None = None,
     figsize: tuple = None,
     labelsize: int = None,
     titlesize: int = None,
@@ -78,17 +78,24 @@ def qq(
 
     if pval_col not in pvals_df.columns:
         raise ValueError(f"pval_col '{pval_col}' not found in DataFrame columns")
-    if group_col not in pvals_df.columns:
+    if group_col is not None and group_col not in pvals_df.columns:
         raise ValueError(f"group_col '{group_col}' not found in DataFrame columns")
 
-    filtered = pvals_df.dropna(subset=[pval_col, group_col])
+    if group_col is not None:
+        filtered = pvals_df.dropna(subset=[pval_col, group_col])
+    else:
+        filtered = pvals_df.dropna(subset=[pval_col])
     filtered = filtered[(filtered[pval_col] > 0) & (filtered[pval_col] <= 1)]
 
     if filtered.empty:
         raise ValueError("No valid p-values after filtering.")
 
-    groups = filtered[group_col].unique()
-    n_groups = len(groups)
+    if group_col is not None:
+        groups = filtered[group_col].unique()
+        n_groups = len(groups)
+    else:
+        groups = [None]
+        n_groups = 1
 
     def qq_single(ax, pvals, title=None, show_ci=True):
         pvals_sorted = np.sort(pvals)
