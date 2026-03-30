@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
-import sgkit as sg
+
 import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
@@ -162,6 +162,11 @@ def read_sgkit_zarr(path: str | Path, *, var_rename=None, obs_rename=None, hard_
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
+    try:
+        import sgkit as sg
+    except ImportError:
+        raise ImportError("sgkit is required for `read_sgkit_zarr`. Install with `pip install cellink[datasets]`.")
+
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
     gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
     return gdata
@@ -181,7 +186,10 @@ def read_plink(path: str | Path = None, *, var_rename=None, obs_rename=None, har
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
-    from sgkit.io import plink as sg_plink
+    try:
+        from sgkit.io import plink as sg_plink
+    except ImportError:
+        raise ImportError("sgkit is required for `read_plink`. Install with `pip install cellink[datasets]`.")
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
     gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
@@ -202,7 +210,11 @@ def read_bgen(path: str | Path = None, *, var_rename=None, obs_rename=None, hard
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     """
-    from sgkit.io import bgen as sg_bgen
+    try:
+        from sgkit.io import bgen as sg_bgen
+    except ImportError:
+        raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.")
+
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
     gdata = from_sgkit_dataset(sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call, keep_multiallelic=keep_multiallelic)
