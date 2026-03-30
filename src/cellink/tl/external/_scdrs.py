@@ -158,7 +158,7 @@ def run_scdrs(
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
         sc.pp.highly_variable_genes(adata, n_top_genes=2000)
-        sc.pp.scale(adata)
+        sc.pp.scale(adata, max_value=10)
         sc.tl.pca(adata, n_comps=n_pcs)
 
     covariate_list = []
