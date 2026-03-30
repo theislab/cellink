@@ -1,0 +1,7 @@
+execution_mode: singularity
+rscript_path: /app/.pixi/envs/default/bin/Rscript
+singularity_image: docker://wzhou88/saigeqtl
+step1_script: /app/extdata/step1_fitNULLGLMM_qtl.R
+step2_script: /app/extdata/step2_tests_qtl.R
+step3_script: /app/extdata/step3_gene_pvalue_qtl.R
+makegroup_script: /app/extdata/makeGroupFile.R

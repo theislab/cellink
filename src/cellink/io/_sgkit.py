@@ -6,7 +6,7 @@ from pathlib import Path
 import dask.array as da
 import numpy as np
 import pandas as pd
-import sgkit as sg
+
 import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
@@ -93,6 +93,8 @@ def from_sgkit_dataset(
     var_rename: dict | None = None,
     obs_rename: dict | None = None,
     X_field: str = "GT",
+    hard_call: bool = True, 
+    keep_multiallelic: bool = False,
     load_call_fields: Iterable[str] | None = None,
 ) -> AnnData:
     """
@@ -105,7 +107,7 @@ def from_sgkit_dataset(
     var_rename
         mapping from sgkit variant keys (e.g., 'variant_position') to var column names
     obs_rename
-        mapping for sample-level annotations
+        mapping from sgkit's sample annotation keys to desired gdata.obs column
     X_field
         One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
         - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
@@ -114,6 +116,10 @@ def from_sgkit_dataset(
         - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
         - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    keep_multiallelic
+        if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
@@ -192,13 +198,13 @@ def from_sgkit_dataset(
     var_df.columns = var_df.columns.str.replace("variant_", "")
 
     if alleles_arr is not None:
-        var_df["a0"] = alleles_arr[:, 0]
+        var_df[VAnn.a0] = alleles_arr[:, 0]
         if alleles_arr.shape[1] > 1:
-            var_df["a1"] = alleles_arr[:, 1]
-        if alleles_arr.shape[1] > 2:
+            var_df[VAnn.a1] = alleles_arr[:, 1]
+        if keep_multiallelic and alleles_arr.shape[1] > 2:
             for ai in range(2, alleles_arr.shape[1]):
                 var_df[f"a{ai}"] = alleles_arr[:, ai]
-
+        
     if SgVars.contig_label in ds.data_vars:
         contigs = asarray(ds[SgVars.contig_label])
         if "variant_contig" in ds.data_vars:
@@ -243,6 +249,7 @@ def from_sgkit_dataset(
 
     if phased_da is not None:
         adata.uns["has_phased_flag"] = True
+        ploidy = inferred_ploidy if inferred_ploidy is not None else phased_da.shape[-1]
         for h in range(ploidy):
             adata.layers[f"PHASE_{h}"] = phased_da.data[:, :, h].T
     else:
@@ -271,6 +278,8 @@ def read_sgkit_zarr(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
+    hard_call=True, 
+    keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
 ) -> AnnData:
@@ -292,12 +301,21 @@ def read_sgkit_zarr(
         - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
         - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    keep_multiallelic
+        if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
+    try:
+        import sgkit as sg
+    except ImportError:
+        raise ImportError("sgkit is required for `read_sgkit_zarr`. Install with `pip install cellink[datasets]`.")
+
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
     gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
     )
     return gdata
 
@@ -308,6 +326,8 @@ def read_plink(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
+    hard_call=True, 
+    keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
 ) -> AnnData:
@@ -329,14 +349,21 @@ def read_plink(
         - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
         - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    keep_multiallelic
+        if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
-    from sgkit.io import plink as sg_plink
+    try:
+        from sgkit.io import plink as sg_plink
+    except ImportError:
+        raise ImportError("sgkit is required for `read_plink`. Install with `pip install cellink[datasets]`.")
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
     gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
     )
     return gdata
 
@@ -347,6 +374,8 @@ def read_bgen(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
+    hard_call=True, 
+    keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
 ) -> AnnData:
@@ -368,13 +397,20 @@ def read_bgen(
         - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
         - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+    hard_call
+        if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
+    keep_multiallelic
+        if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
-    from sgkit.io import bgen as sg_bgen
+    try:
+        from sgkit.io import bgen as sg_bgen
+    except ImportError:
+        raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.")
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
     gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, load_call_fields=load_call_fields
+        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
     )
     return gdata
