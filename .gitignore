@@ -194,3 +194,5 @@ data
 *.code-workspace
 
 _build/*
+.tmp_annbatch
+lightning_logs

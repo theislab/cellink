@@ -87,6 +87,9 @@ optional-dependencies.ldsc = [
 optional-dependencies.mixmil = [
   "mixmil",
 ]
+optional-dependencies.annbatch = [
+  "annbatch[torch,zarrs]>=0.1.2; python_version >= '3.12'",
+]
 optional-dependencies.ml = [
   "pytorch-lightning",
 ]

@@ -30,7 +30,8 @@ class DonorMILModel(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.donor_encoder = nn.Linear(n_input_donor, n_hidden)
+        self.use_donor_encoder = n_input_donor is not None and n_input_donor > 0
+        self.donor_encoder = nn.Linear(n_input_donor, n_hidden) if self.use_donor_encoder else None
         self.cell_encoder = nn.Sequential(
             nn.Linear(n_input_cell, n_hidden),
             nn.ReLU(),
@@ -43,9 +44,8 @@ class DonorMILModel(pl.LightningModule):
             nn.Linear(64, 1)
         )
 
-        self.classifier = nn.Sequential(
-            nn.Linear(n_hidden * 2, n_output)
-        )
+        classifier_input = n_hidden * 2 if self.use_donor_encoder else n_hidden
+        self.classifier = nn.Sequential(nn.Linear(classifier_input, n_output))
 
     def forward(self, batch):
         """
@@ -66,10 +66,7 @@ class DonorMILModel(pl.LightningModule):
             Output logits of shape (B, n_output), representing the predicted target
             for each donor.
         """
-        donor_x = batch["donor_x"].float()                 # shape: (B, D_donor)
         cell_x_list = batch["cell_x"]                      # list of (N_i, D_cell)
-
-        h_donor = self.donor_encoder(donor_x)              # shape: (B, H)
 
         h_cell_list = []
         for i in range(len(cell_x_list)):
@@ -81,7 +78,14 @@ class DonorMILModel(pl.LightningModule):
 
         h_cell = torch.stack(h_cell_list)                  # shape: (B, H)
 
-        combined = torch.cat([h_donor, h_cell], dim=-1)    # shape: (B, H*2)
+        if self.use_donor_encoder:
+            donor_x = batch.get("donor_x")
+            if donor_x is None:
+                raise ValueError("`donor_x` is required when `n_input_donor` is set.")
+            h_donor = self.donor_encoder(donor_x.float())  # shape: (B, H)
+            combined = torch.cat([h_donor, h_cell], dim=-1)
+        else:
+            combined = h_cell
         logits = self.classifier(combined)                 # shape: (B, n_output)
         return logits
 
