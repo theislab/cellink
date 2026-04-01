@@ -14,7 +14,6 @@ import zarr
 from anndata.experimental import read_dispatched
 from anndata.io import read_elem
 from tqdm.auto import tqdm
-from zarr.codecs import BloscCodec, BloscShuffle
 
 logging.basicConfig(
     level=logging.INFO,
@@ -154,7 +153,8 @@ def stream_pgen_to_zarr(
         import pgenlib
     except ImportError:
         raise ImportError("pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`.")
-
+    from zarr.codecs import BloscCodec, BloscShuffle
+    
     if isinstance(pgen_path, str):
         pgen_paths = [pgen_path]
     else:
