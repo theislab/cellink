@@ -42,6 +42,7 @@ dependencies = [
   "rich",
   "scanpy",
   "xarray",
+  "zarr>=3",
   # for debug logging (referenced from the issue template)
   "session-info",
 ]

@@ -249,9 +249,14 @@ def from_sgkit_dataset(
 
     if phased_da is not None:
         adata.uns["has_phased_flag"] = True
-        ploidy = inferred_ploidy if inferred_ploidy is not None else phased_da.shape[-1]
-        for h in range(ploidy):
-            adata.layers[f"PHASE_{h}"] = phased_da.data[:, :, h].T
+        phased_data = phased_da.data
+        if phased_data.ndim == 3:
+            ploidy = inferred_ploidy if inferred_ploidy is not None else phased_data.shape[-1]
+            for h in range(ploidy):
+                adata.layers[f"PHASE_{h}"] = phased_data[:, :, h].T
+        else:
+            # 2D (variants, samples) — single phased flag per call
+            adata.layers["PHASE_0"] = phased_data.T
     else:
         adata.uns["has_phased_flag"] = False
 
