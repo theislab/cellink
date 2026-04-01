@@ -105,7 +105,7 @@ class DonorMILModel(pl.LightningModule):
         torch.Tensor
             The computed MSE loss for the batch.
         """
-        y = batch["donor_y"].float()
+        y = batch["donor_y"].float().squeeze(-1)
         y_hat = self(batch).squeeze(-1)
         loss = F.mse_loss(y_hat, y)
         self.log("train_loss", loss)
@@ -127,7 +127,7 @@ class DonorMILModel(pl.LightningModule):
         None
             Logs validation loss to PyTorch Lightning without returning a value.
         """
-        y = batch["donor_y"].float()
+        y = batch["donor_y"].float().squeeze(-1)
         y_hat = self(batch).squeeze(-1)
         loss = F.mse_loss(y_hat, y)
         self.log("val_loss", loss)

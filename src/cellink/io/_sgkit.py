@@ -87,6 +87,13 @@ def _collapse_multiallelic_ac_scalar_from_gt(gt_array: da.Array, mask_array: da.
     return alt_count
 
 
+def _transpose_call_data(array: da.Array) -> da.Array:
+    if array.ndim < 2:
+        return array
+    axes = (1, 0, *range(2, array.ndim))
+    return array.transpose(axes)
+
+
 def from_sgkit_dataset(
     sgkit_dataset: xr.Dataset,
     *,
@@ -235,13 +242,14 @@ def from_sgkit_dataset(
             continue
         if X_field == "DS" and key == SgVars.dosage:
             continue
-        if X_field == "GP" and key == SgVars.genotype_prob:
+        if X_field == "GP" and key == SgVars.genotype_alt:
             continue
 
-        if da_var.data.T.ndim == 2:
-            adata.layers[key.replace("call_", "").upper()] = da_var.data.T
+        call_data = _transpose_call_data(da_var.data)
+        if call_data.ndim == 2:
+            adata.layers[key.replace("call_", "").upper()] = call_data
         else:
-            adata.uns[key.replace("call_", "").upper()] = da_var.data.T
+            adata.uns[key.replace("call_", "").upper()] = call_data
 
     adata.uns["n_alt"] = n_alt
     if inferred_ploidy is not None:
@@ -249,9 +257,13 @@ def from_sgkit_dataset(
 
     if phased_da is not None:
         adata.uns["has_phased_flag"] = True
-        ploidy = inferred_ploidy if inferred_ploidy is not None else phased_da.shape[-1]
-        for h in range(ploidy):
-            adata.layers[f"PHASE_{h}"] = phased_da.data[:, :, h].T
+        phased_data = _transpose_call_data(phased_da.data)
+        if phased_data.ndim == 3:
+            ploidy = inferred_ploidy if inferred_ploidy is not None else phased_data.shape[-1]
+            for h in range(ploidy):
+                adata.layers[f"PHASE_{h}"] = phased_data[:, :, h]
+        else:
+            adata.uns["raw_call_genotype_phased"] = phased_data
     else:
         adata.uns["has_phased_flag"] = False
 
