@@ -43,12 +43,15 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 
 - **[Variant Preprocessing & Annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html):** Tools for quality control, annotation (VCF export/import), and selection of genetic variants.
 - **Specialized Downstream Analysis:** Easily perform complex genetic analyses on single-cell expression data, including:
-    - [eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html).
+    - [Pseudobulk eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html).
     - [Rare variant association studies](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html).
     - [Clumping & pruning](https://cellink-docs.readthedocs.io/en/latest/tutorials/clumping_pruning.html).
     - [Colocalization analysis](https://cellink-docs.readthedocs.io/en/latest/tutorials/colocalization.html).
+    - [Integrating GWAS with Single-Cell](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_saigeqtl.html).
+    - [Integrating GWAS with Spatial](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html).
+    - [Integrating DonorData with EHR data](https://cellink-docs.readthedocs.io/en/latest/tutorials/ehrdataset.html).
 - **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis
-  tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html) and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
+  tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html), [eQTL analysis with SAIGEQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)  and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
 
 ## 🚀 Getting Started
 
