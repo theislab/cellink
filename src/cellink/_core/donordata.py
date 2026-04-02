@@ -150,8 +150,8 @@ class DonorData:
         for m in [self.G, self.C]:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")
-        with zarr.open(path, mode="w") as f:
-            self._write_dd(f)
+        f = zarr.open(path, mode="w")
+        self._write_dd(f)
 
     def _ensure_extension(self, path: str, ext: str) -> str:
         """Ensure the given path ends with the desired extension."""

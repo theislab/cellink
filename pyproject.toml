@@ -42,6 +42,7 @@ dependencies = [
   "rich",
   "scanpy",
   "xarray",
+  "zarr>=3",
   # for debug logging (referenced from the issue template)
   "session-info",
 ]
@@ -63,6 +64,7 @@ optional-dependencies.dev = [
 ]
 optional-dependencies.doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",
+  "linkify-it-py",
   "ipykernel",
   "ipython",
   "myst-nb>=1.1",
