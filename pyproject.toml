@@ -54,6 +54,7 @@ optional-dependencies.datasets = [
 
 optional-dependencies.pgen = [
   "pgenlib",
+  "zarr>3",
 ]
 
 optional-dependencies.dev = [
