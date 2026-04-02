@@ -11,7 +11,7 @@ burden_testing
 clumping_pruning
 colocalization
 scdrs_seismic
-<!-- ldsc_duncan_merge_anndatas -->
+gsmap
 single_cell_eqtl_saigeqtl
 ehrdataset
 run_dataloader

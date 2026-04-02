@@ -14,7 +14,9 @@ from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
 from ._scdrs import run_scdrs
 from ._seismic import run_seismic
+from ._gsmap import load_gsmap_results, format_gsmap_sumstats
 from ._magma import run_magma_pipeline
+
 
 __all__ = [
     "read_jaxqtl_results",
@@ -26,6 +28,8 @@ __all__ = [
     "run_mixmil",
     "run_scdrs",
     "run_seismic",
+    "load_gsmap_results",
+    "format_gsmap_sumstats",
     "run_magma_pipeline",
     "configure_saigeqtl_runner",
     "get_saigeqtl_runner",
