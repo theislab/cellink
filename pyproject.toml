@@ -55,6 +55,7 @@ optional-dependencies.datasets = [
 
 optional-dependencies.pgen = [
   "pgenlib",
+  "zarr>3",
 ]
 
 optional-dependencies.dev = [
@@ -63,6 +64,7 @@ optional-dependencies.dev = [
 ]
 optional-dependencies.doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",
+  "linkify-it-py",
   "ipykernel",
   "ipython",
   "myst-nb>=1.1",
