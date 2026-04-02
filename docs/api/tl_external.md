@@ -22,4 +22,6 @@
    tl.external.get_saigeqtl_runner
    tl.external.make_group_file
    tl.external.read_saigeqtl_results
+   tl.external.load_gsmap_results
+   tl.external.format_gsmap_sumstats
 ```
