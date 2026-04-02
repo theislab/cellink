@@ -163,8 +163,8 @@ def read_zarr_dd(path: str) -> DonorData:
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
         
-    with zarr.open(path, mode="r") as f:
-        return _read_dd(f)
+    f = zarr.open(path, mode="r")
+    return _read_dd(f)
 
 
 def read_dd(path: str, fmt: str = None) -> DonorData:
