@@ -8,6 +8,8 @@
    :toctree: ../generated/
 
    resources.get_1000genomes
+   resources.get_1000genomes_grch38
+   resources.get_dummy_onek1k
    resources.get_onek1k
    resources.get_eqtl_catalog_dataset_associations
    resources.get_eqtl_catalog_datasets
