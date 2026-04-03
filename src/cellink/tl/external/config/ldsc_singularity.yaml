@@ -1,0 +1,5 @@
+execution_mode: singularity
+singularity_image: ldsc.sif #TODO CHANGED THIS FROM /project/genomics/ayshan/containers/ldsc.sif to ldsc.sif, so it's general for everyone - Try to put a symlink there
+ldsc_command: /ldsc/ldsc.py
+make_annot_command: /ldsc/make_annot.py
+munge_command: /ldsc/munge_sumstats.py
