@@ -8,4 +8,4 @@ from ._gwas_prs_qtl import (
     get_pgs_catalog_score,
     get_pgs_catalog_scores,
 )
-from ._ld import get_1000genomes_ld_scores, get_1000genomes_ld_weights
+from ._ld import get_1000genomes_ld_scores, get_1000genomes_ld_weights, get_1000genomes_plink_files

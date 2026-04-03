@@ -131,6 +131,14 @@ remote_files:
   - filename: "ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz.tbi"
     url: "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr22.phase3_shapeit2_mvncall_integrated_v5b.20130502.genotypes.vcf.gz.tbi"
     checksum: "27de6b77af65d300bb968e8e372439deb949389e4395eb0dd251f9ba7d73bbed"
+plink_files:
+  prefix: 1000G.EUR.QC.
+  EUR:
+    filename: "1000G_Phase3_plinkfiles.tgz"
+    url: "https://zenodo.org/records/7796478/files/1000G_Phase3_plinkfiles.tgz?download=1"
+  EAS:
+    filename: "1000G_Phase3_EAS_plinkfiles.tgz"
+    url: "https://zenodo.org/records/7796478/files/1000G_Phase3_EAS_plinkfiles.tgz?download=1"
 ld_scores:
   prefix: baselineLD.
   EUR:

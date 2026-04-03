@@ -375,6 +375,8 @@ def read_plink(
 
 def read_bgen(
     path: str | Path = None,
+    metafile_path: str | Path = None,
+    sample_path: str | Path = None,
     *,
     var_rename=None,
     obs_rename=None,
@@ -415,7 +417,5 @@ def read_bgen(
         raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.")
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
-    gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
-    )
+    gdata = from_sgkit_dataset(sgkit_dataset, metafile_path=metafile_path, sample_path=sample_path, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
     return gdata
