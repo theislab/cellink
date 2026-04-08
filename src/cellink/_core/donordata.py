@@ -80,6 +80,11 @@ class DonorData:
 
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
+        # Deferred obs filter for lazy G: applying fancy row-indexing on a dask array
+        # before var-slicing forces materialising a large intermediate.  We store the
+        # desired donor subset here and apply it in-memory inside to_memory(), AFTER
+        # the cheap var-slice has already narrowed the columns.
+        self._lazy_G_obs_filter: pd.Index | None = None
         self._match_donors(G, C)
         self.uns = uns
 
@@ -97,7 +102,16 @@ class DonorData:
                 self.donor_id,
             )
         if not keep_donors.equals(G_idx):
-            G = G[keep_donors]
+            if _has_dask_X(G):
+                # Defer obs-filtering for lazy G.  Applying a fancy row-index on a
+                # dask array before a column-slice forces dask to materialise the
+                # full row-filtered intermediate (all columns) before selecting the
+                # target columns — potentially reading gigabytes of data.
+                # We record keep_donors and apply the filter cheaply in to_memory()
+                # once only the needed columns have been loaded.
+                self._lazy_G_obs_filter = keep_donors
+            else:
+                G = G[keep_donors]
 
         keep_cells = C.obs[self.donor_id].isin(keep_donors)
         if not keep_cells.all():
@@ -124,13 +138,22 @@ class DonorData:
         If G is already in memory, returns ``self`` unchanged.
         For lazy (dask-backed) G, calls ``.to_memory()`` on G to load
         X into RAM. C is always in-memory already.
+
+        When an obs filter was deferred (to avoid expensive dask fancy row-indexing
+        before column-slicing), it is applied here in-memory after the var-slice
+        has already narrowed the columns.
         """
         if not self._lazy:
             return self
+        # Materialise self._G — this is the var-sliced lazy G WITHOUT any obs filter,
+        # so dask only reads the needed column chunks (fast).
         G_mem = self._G.to_memory() if hasattr(self._G, "to_memory") else self._G.copy()
         # read_lazy → to_memory() can lose the obs index name; restore it
         if G_mem.obs.index.name is None and self.donor_id is not None:
             G_mem.obs.index.name = self.donor_id
+        # Apply the deferred obs filter in-memory (cheap: array already small).
+        if self._lazy_G_obs_filter is not None:
+            G_mem = G_mem[self._lazy_G_obs_filter]
         return DonorData(
             G=G_mem,
             C=self._C,
@@ -257,6 +280,7 @@ class DonorData:
     def G(self, value: AnnData | MuData) -> None:
         if not isinstance(value, AnnData | MuData):
             raise ValueError("G must be an AnnData or MuData object")
+        self._lazy_G_obs_filter = None  # reset — new G takes over
         self._G = value
         self._match_donors(self._G, self._C)
 
@@ -281,7 +305,7 @@ class DonorData:
         C_obs: slice = slice(None),
         C_var: slice = slice(None),
     ):
-        _G = self.G[G_obs]
+        _G = self._G[G_obs]
         _G = _G[:, G_var]
         _C = self.C[C_obs]
         _C = _C[:, C_var]
@@ -301,8 +325,9 @@ class DonorData:
             (idx,) if isinstance(idx, str) else idx for idx in key
         )  # needed because Mudata[str] looks up modalities
         key = key + (slice(None),) * (4 - len(key))
-        # Only slice if key is not slice(None)
-        _G = self.G[key[0]] if key[0] is not slice(None) else self.G
+        # Slice self._G directly (not self.G) so the deferred obs-filter view is never
+        # embedded into a new lazy dask chain — that would recreate the bottleneck.
+        _G = self._G[key[0]] if key[0] is not slice(None) else self._G
         _G = _G[:, key[1]] if key[1] is not slice(None) else _G
         _C = self.C[key[2]] if key[2] is not slice(None) else self.C
         _C = _C[:, key[3]] if key[3] is not slice(None) else _C
@@ -430,9 +455,10 @@ class DonorData:
 
     def prep_repr(self) -> str:
         """String representation of DonorData showing side-by-side dd.G and dd.C views."""
+        n_G_obs, n_G_vars, n_C_obs, n_C_vars = self.shape
         # Split the representations into lines
-        G_lines, G_highlight = _anndata_repr(self.G, self.G.n_obs, self.G.n_vars, self._var_dims_to_sync)
-        C_lines, C_highlight = _anndata_repr(self.C, self.C.n_obs, self.C.n_vars, [self.donor_id])
+        G_lines, G_highlight = _anndata_repr(self.G, n_G_obs, n_G_vars, self._var_dims_to_sync)
+        C_lines, C_highlight = _anndata_repr(self.C, n_C_obs, n_C_vars, [self.donor_id])
 
         def pad_lists(l1, l2):
             max_lines = max(len(l1), len(l2))
@@ -468,7 +494,7 @@ class DonorData:
         n_cells_per_donor = self.C.obs[self.donor_id].value_counts()
         min_n_cells, max_n_cells = n_cells_per_donor.min(), n_cells_per_donor.max()
         header_line = Text(
-            f"DonorData(n_donors={self.G.shape[0]:,}, "
+            f"DonorData(n_donors={n_G_obs:,}, "
             f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
             f"donor_id='{self.donor_id}')",
             style=HIGHLIGHT_COLOR,
@@ -497,7 +523,14 @@ class DonorData:
 
     @property
     def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        return *self.G.shape, *self.C.shape
+        # When an obs filter is deferred for lazy G, self._G still has all donors;
+        # report the filtered count so dd.shape[0] is always meaningful.
+        n_G_obs = (
+            len(self._lazy_G_obs_filter)
+            if (self._lazy and self._lazy_G_obs_filter is not None)
+            else self._G.shape[0]
+        )
+        return n_G_obs, self._G.shape[1], *self._C.shape
 
 
 def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
