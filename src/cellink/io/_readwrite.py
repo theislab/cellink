@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import logging
 import warnings
 
 import h5py
@@ -12,6 +15,8 @@ from mudata._core.io import _read_h5mu_mod
 from mudata._core.mudata import ModDict, MuData
 
 from .._core import DonorData
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -205,7 +210,7 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
     >>> dd = read_dd("donor_data.dd.zarr")
     >>> dd = read_dd("custom_data.h5", fmt="h5")
     """
-    
+
     if fmt is None:
         if path.endswith(".h5") or path.endswith(".dd.h5"):
             fmt = "h5"
@@ -220,3 +225,93 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
         return read_zarr_dd(path)
     else:
         raise ValueError("Unknown format: use 'h5' or 'zarr'.")
+
+
+def read_lazy_dd(
+    path: str,
+    G_reader: str = "auto",
+    load_annotation_index: bool = True,
+) -> DonorData:
+    """Read a DonorData zarr store with G loaded lazily (dask-backed).
+
+    G is kept lazy so that its X matrix is never fully materialised.
+    C is loaded eagerly into memory (typically much smaller).
+
+    Parameters
+    ----------
+    path : str
+        Path to a ``.dd.zarr`` DonorData store.
+    G_reader : {'auto', 'read_lazy', 'read_pgen_zarr'}, default 'auto'
+        How to open G lazily.
+
+        - ``'read_lazy'``: uses :func:`anndata.experimental.read_lazy`
+          (requires zarr-backed AnnData written by anndata >=0.11).
+        - ``'read_pgen_zarr'``: uses :func:`cellink.io.read_pgen_zarr`
+          (for stores written by :func:`stream_pgen_to_zarr`).
+        - ``'auto'``: tries ``read_lazy`` first, falls back to ``read_pgen_zarr``.
+    load_annotation_index : bool, default True
+        Passed to ``anndata.experimental.read_lazy`` for faster var indexing.
+
+    Returns
+    -------
+    DonorData
+        A DonorData with ``dd.is_lazy == True``.  Call ``dd.to_memory()``
+        or ``dd[obs_slice, var_slice].to_memory()`` to materialise subsets.
+
+    Examples
+    --------
+    >>> dd = read_lazy_dd("cardinal.dd.zarr")
+    >>> dd.is_lazy
+    True
+    >>> sub = dd[:, var_mask].to_memory()
+    """
+    import anndata as ad
+
+    path = str(path)
+    f = zarr.open(path, mode="r")
+    donor_id = f.attrs.get("donor_id", "donor_id")
+    var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
+
+    uns = {}
+    uns_group = f.get("uns")
+    if uns_group:
+        for key in uns_group:
+            try:
+                uns[key] = uns_group[key][()]
+            except Exception:
+                logger.debug(f"Skipped loading uns['{key}'] (may be large or non-array)")
+
+    # --- Load C eagerly ---
+    C = ad.read_zarr(f"{path}/C") if "C" in f else read_elem(f["C"])
+
+    # --- Load G lazily ---
+    G = None
+    g_path = f"{path}/G"
+
+    if G_reader in ("auto", "read_lazy"):
+        try:
+            from anndata.experimental import read_lazy
+
+            G = read_lazy(g_path, load_annotation_index=load_annotation_index)
+            logger.info("Loaded G lazily via anndata.experimental.read_lazy")
+        except Exception as e:
+            if G_reader == "read_lazy":
+                raise
+            logger.debug(f"read_lazy failed ({e}), trying read_pgen_zarr")
+
+    if G is None and G_reader in ("auto", "read_pgen_zarr"):
+        from cellink.io._pgen import read_pgen_zarr
+
+        G = read_pgen_zarr(g_path)
+        logger.info("Loaded G lazily via read_pgen_zarr")
+
+    if G is None:
+        raise ValueError(f"Could not load G lazily with reader={G_reader!r}")
+
+    return DonorData(
+        G=G,
+        C=C,
+        donor_id=donor_id,
+        var_dims_to_sync=var_dims_to_sync,
+        uns=uns,
+    )

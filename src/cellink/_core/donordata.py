@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import h5py
+import numpy as np
 import pandas as pd
 import scanpy as sc
 import zarr
@@ -21,6 +22,16 @@ from rich.text import Text
 from cellink._core.data_fields import DAnn
 
 logger = logging.getLogger(__name__)
+
+
+def _has_dask_X(adata: AnnData) -> bool:
+    """Check if an AnnData has a dask-backed X matrix (lazy loading)."""
+    try:
+        import dask.array as da
+
+        return isinstance(adata.X, da.Array)
+    except ImportError:
+        return False
 
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
@@ -54,10 +65,18 @@ class DonorData:
     ):
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
-        if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
-            raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
-        if donor_id != G.obs.index.name:
-            G.obs = G.obs.set_index(donor_id)
+
+        self._lazy = _has_dask_X(G) if isinstance(G, AnnData) else False
+
+        if isinstance(G.obs, pd.DataFrame):
+            if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
+                raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
+            if donor_id != G.obs.index.name:
+                G.obs = G.obs.set_index(donor_id)
+        else:
+            # Lazy AnnData (e.g. from read_lazy) — obs is xarray-backed.
+            # donor_id must already be the obs index (obs_names).
+            logger.debug("G.obs is not a pandas DataFrame; assuming donor_id is the obs index.")
 
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
@@ -65,7 +84,7 @@ class DonorData:
         self.uns = uns
 
     def _match_donors(self, G: AnnData | MuData, C: AnnData | MuData) -> None:
-        G_idx = G.obs.index
+        G_idx = pd.Index(G.obs_names)
         C_idx = pd.Index(C.obs[self.donor_id].unique())
         keep_donors = G_idx.intersection(C_idx)
 
@@ -77,14 +96,14 @@ class DonorData:
                 ),
                 self.donor_id,
             )
-        if not keep_donors.equals(G.obs_names):
+        if not keep_donors.equals(G_idx):
             G = G[keep_donors]
 
         keep_cells = C.obs[self.donor_id].isin(keep_donors)
         if not keep_cells.all():
             C = C[keep_cells]
 
-        # Sort cells by donor order
+        # Sort cells by donor order (only C — G order is kept as-is)
         sorted_cells = C.obs.iloc[
             pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort()
         ].index
@@ -94,7 +113,38 @@ class DonorData:
         self._C = C
         self._G = G
 
+    @property
+    def is_lazy(self) -> bool:
+        """Whether G has a dask-backed X matrix (lazy loading)."""
+        return self._lazy
+
+    def to_memory(self) -> DonorData:
+        """Return a new DonorData with G materialised into memory.
+
+        If G is already in memory, returns ``self`` unchanged.
+        For lazy (dask-backed) G, calls ``.to_memory()`` on G to load
+        X into RAM. C is always in-memory already.
+        """
+        if not self._lazy:
+            return self
+        G_mem = self._G.to_memory() if hasattr(self._G, "to_memory") else self._G.copy()
+        # read_lazy → to_memory() can lose the obs index name; restore it
+        if G_mem.obs.index.name is None and self.donor_id is not None:
+            G_mem.obs.index.name = self.donor_id
+        return DonorData(
+            G=G_mem,
+            C=self._C,
+            donor_id=self.donor_id,
+            var_dims_to_sync=self._var_dims_to_sync,
+            uns=self.uns,
+        )
+
     def copy(self) -> DonorData:
+        if self._lazy:
+            # For lazy G, don't materialise — just ensure C is not a view
+            if self._C.is_view:
+                self._C = self._C.copy()
+            return self
         if self._G.is_view:
             self._G = self._G.copy()
         if self._C.is_view:
@@ -319,6 +369,12 @@ class DonorData:
             verbose:
                 Whether to print verbose output. Defaults to False.
         """
+        if self._lazy:
+            raise RuntimeError(
+                "Cannot aggregate on a lazy DonorData. "
+                "Call dd.to_memory() first or subset with dd[...].to_memory()."
+            )
+
         if filter_key is not None:
             assert filter_value is not None, "filter_value must be provided if filter_key is provided"
 
