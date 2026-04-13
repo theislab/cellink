@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from cellink import DonorData
-from cellink.io import from_sgkit_dataset, read_bgen, read_h5_dd, read_plink, read_sgkit_zarr, read_zarr_dd, to_plink
-
+from cellink.io import from_sgkit_dataset, read_bgen, read_h5_dd, read_plink, read_sgkit_zarr, read_zarr_dd, to_plink, write_variants_to_vcf
+from anndata.experimental import read_lazy
+from anndata import read_zarr
 DATA = Path("tests/data")
 
 
@@ -72,3 +73,18 @@ def test_read_zarr_dd(tmp_path, adata, gdata):
 
     assert dd_loaded.C.shape == dd.C.shape
     assert dd_loaded.G.shape == dd.G.shape
+
+@pytest.mark.slow
+def test_export_vcf(tmp_path, gdata, adata):
+    output_path_zarr = tmp_path / "donordata.dd.zarr"
+    output_path_vcf = tmp_path / "exported.vcf"
+    output_path_vcf_lazy = tmp_path / "exported_lazy.vcf"
+    gdata.write_zarr(output_path_zarr)
+    gdata_loaded = read_zarr(output_path_zarr)
+    gdata_loaded_lazy = read_lazy(output_path_zarr)
+    dd_loaded = DonorData(G=gdata_loaded, C=adata)
+    dd_loaded_lazy = DonorData(G=gdata_loaded_lazy, C=adata)
+    write_variants_to_vcf(dd_loaded.G, out_file = output_path_vcf)
+    write_variants_to_vcf(dd_loaded_lazy.G, out_file = output_path_vcf_lazy)
+    with open(output_path_vcf, 'r') as f1, open(output_path_vcf_lazy, 'r') as f2:
+        assert f1.read() == f2.read()

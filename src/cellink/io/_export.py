@@ -5,7 +5,7 @@ import numpy as np
 import xarray as xr
 from anndata import AnnData
 from pandas_plink import write_plink1_bin
-
+from anndata import _core
 from cellink._core.data_fields import DAnn, VAnn
 
 logging.basicConfig(
@@ -158,8 +158,15 @@ def write_variants_to_vcf(gdata, out_file="variants.vcf") -> None:
     out_file : str
         output file. By default "variants.vcf"
     """
-    logger.info(f"number of variants to annotate: {len(gdata.var)}")
-    var_df = gdata.var.reset_index()[[VAnn.chrom, VAnn.pos, VAnn.index, VAnn.a0, VAnn.a1]]
+    
+    if type(gdata.var) == _core.xarray.Dataset2D:# when gdata object is loaded lazily
+        logger.info(f"using lazy loading")
+        logger.info(f"number of variants to annotate: {gdata.var.shape[0]}")
+        var_df = gdata.var[[VAnn.chrom, VAnn.pos, VAnn.index, VAnn.a0, VAnn.a1]].to_memory().reset_index(names = VAnn.index)
+        var_df = var_df[[VAnn.chrom, VAnn.pos, VAnn.index, VAnn.a0, VAnn.a1]]
+    else:     
+        logger.info(f"number of variants to annotate: {len(gdata.var)}")
+        var_df = gdata.var.reset_index()[[VAnn.chrom, VAnn.pos, VAnn.index, VAnn.a0, VAnn.a1]]
     var_df[["QUAL", "FILTER", "INFO"]] = ". . .".split()
     logger.info(f"Writing variants to {out_file}")
     with open(out_file, "w") as f:
