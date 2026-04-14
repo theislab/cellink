@@ -38,7 +38,7 @@ def subset_genomic_region(gdata, chrom, start, end):
     
     return subset_gdata
 
-def subset_gene(gdata, gene_id: str or list):
+def subset_gene(gdata, gene_id: str or list, gene_snp_map = "variant_annotation_vep"):
     """
     Subset the gdata object to only include variants that are annotated to a specific gene.
     It is required that vep annotations have already been added to gdata and that  'gene_id' is present in gdata.uns["variant_annotation_vep"]
@@ -49,21 +49,21 @@ def subset_gene(gdata, gene_id: str or list):
     Returns:
     Subsetted Anndata object containing only variants annotated to the specified gene.
     """
-    if "variant_annotation_vep" not in gdata.uns:
+    if gene_snp_map not in gdata.uns:
         raise ValueError("VEP annotations must be added to gdata before subsetting by gene. Please run add_vep_annos_to_gdata() first.")
     # Ensure that the 'gene_id' column is present in gdata.var
-    if 'gene_id' not in gdata.uns["variant_annotation_vep"].reset_index().columns:
-        raise ValueError("gdata.uns['variant_annotation_vep'] must contain 'gene_id' column. Have you added VEP annotations to gdata?")
+    if 'gene_id' not in gdata.uns[gene_snp_map].reset_index().columns:
+        raise ValueError("gdata.uns[gene_snp_map] must contain 'gene_id' column. Have you added VEP annotations to gdata?")
     
     # Subset the variants based on the specified gene_id
     if isinstance(gene_id, list):
-        subset_mask_uns = gdata.uns["variant_annotation_vep"].reset_index()["gene_id"].isin(gene_id)
+        subset_mask_uns = gdata.uns[gene_snp_map].reset_index()["gene_id"].isin(gene_id)
     else:
-        subset_mask_uns = gdata.uns["variant_annotation_vep"].reset_index()["gene_id"] == gene_id
-    subset_variants = gdata.uns["variant_annotation_vep"].reset_index()[subset_mask_uns]["snp_id"].unique()
+        subset_mask_uns = gdata.uns[gene_snp_map].reset_index()["gene_id"] == gene_id
+    subset_variants = gdata.uns[gene_snp_map].reset_index()[subset_mask_uns]["snp_id"].unique()
     subset_mask_var = gdata.var_names.isin(subset_variants)
     # Subset the Anndata object
     subset_gdata = gdata[:, subset_mask_var].copy()
-    subset_gdata.uns["variant_annotation_vep"] = gdata.uns["variant_annotation_vep"].reset_index().loc[subset_mask_uns].copy()
+    subset_gdata.uns[gene_snp_map] = gdata.uns[gene_snp_map].reset_index().loc[subset_mask_uns].copy()
     #subset_gdata.uns = gdata.uns[subset_mask_uns].copy()  # Copy uns to preserve annotations
     return subset_gdata
