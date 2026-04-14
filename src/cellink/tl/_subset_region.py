@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+from cellink._core.data_fields import AAnn
 def subset_genomic_region(gdata, chrom, start, end):
     """
     Subset the gdata object to only include variants within the specified genomic region.
@@ -15,10 +15,10 @@ def subset_genomic_region(gdata, chrom, start, end):
     Subsetted Anndata object containing only variants within the specified genomic region.
     """
     # Ensure that the 'chrom', 'pos' columns are present in gdata.var
-    if 'chrom' not in gdata.var.columns or 'pos' not in gdata.var.columns:
+    if AAnn.chrom not in gdata.var.columns or AAnn.pos not in gdata.var.columns:
         raise ValueError("gdata.var must contain 'chrom' and 'pos' columns.")
     # Trying to cast chrom to the same dtype as gdata.var['chrom'] to ensure that subsetting works correctly
-    chrom_column_dtype = type(gdata.var['chrom'].iloc[0])  
+    chrom_column_dtype = type(gdata.var[AAnn.chrom].iloc[0])  
 
     if type(chrom) != chrom_column_dtype:
         print(f"Attempting to convert chrom value {chrom} from type {type(chrom)} to the same dtype as gdata.var['chrom'] which is {chrom_column_dtype}")
@@ -27,7 +27,7 @@ def subset_genomic_region(gdata, chrom, start, end):
         except Exception as e:  
             raise ValueError(f"Failed to convert chromosome {chrom} to the expected dtype {chrom_column_dtype}. Error: {e}")
     # Subset the variants based on the specified genomic region
-    subset_mask = (gdata.var['chrom'] == chrom) & (gdata.var['pos'] >= start) & (gdata.var['pos'] < end)
+    subset_mask = (gdata.var[AAnn.chrom] == chrom) & (gdata.var[AAnn.pos] >= start) & (gdata.var[AAnn.pos] < end)
     # Check if any variants are found in the specified region
     if not subset_mask.any():
         print(f"No variants found in the specified region: {chrom}:{start}-{end}. Returning an empty Anndata object.")
