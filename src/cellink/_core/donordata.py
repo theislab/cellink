@@ -35,6 +35,7 @@ def _has_dask_X(adata) -> bool:
         return False
     return isinstance(getattr(adata, "X", None), da.Array)
 
+
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
 
@@ -135,9 +136,7 @@ class DonorData:
             # Sort cells by donor order (only C — G order is kept as-is).
             # Stable sort so within-donor cell order is preserved deterministically.
             sorted_cells = C.obs.iloc[
-                pd.Categorical(
-                    C.obs[self.donor_id], categories=keep_donors, ordered=True
-                ).argsort(kind="stable")
+                pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort(kind="stable")
             ].index
             if not sorted_cells.equals(C.obs_names):
                 C = C[sorted_cells]
@@ -197,9 +196,9 @@ class DonorData:
                     if not keep_cells.all():
                         C = C[keep_cells]
                     sorted_cells = C.obs.iloc[
-                        pd.Categorical(
-                            C.obs[self.donor_id], categories=keep_donors, ordered=True
-                        ).argsort(kind="stable")
+                        pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort(
+                            kind="stable"
+                        )
                     ].index
                     if not sorted_cells.equals(C.obs_names):
                         C = C[sorted_cells]
@@ -575,11 +574,7 @@ class DonorData:
     def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
         # When obs filters are deferred for lazy G/C, self._G/self._C still hold all
         # rows; report the filtered counts so dd.shape stays user-meaningful.
-        n_G_obs = (
-            len(self._lazy_G_obs_filter)
-            if self._lazy_G_obs_filter is not None
-            else self._G.shape[0]
-        )
+        n_G_obs = len(self._lazy_G_obs_filter) if self._lazy_G_obs_filter is not None else self._G.shape[0]
         # For lazy C, _lazy_C_obs_filter stores donors (not cells), so we can't
         # report exact cell counts without reading C.obs[donor_id]; fall back to
         # the unfiltered count.  Worst-case overestimate; matches the pre-filter shape.

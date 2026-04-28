@@ -1,16 +1,14 @@
 """Tests for lazy DonorData support (dask-backed G)."""
 
+import dask.array as da
 import numpy as np
 import pandas as pd
 import pytest
-
-import dask.array as da
 from anndata import AnnData
 
 from cellink._core.data_fields import DAnn
 from cellink._core.donordata import DonorData, _has_dask_X
 from cellink.io import read_lazy_dd, read_zarr_dd
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 

@@ -51,7 +51,6 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     - Adapted from `mudata._core.io.read_h5mu`.
     - Preserves modality ordering if the `mod-order` attribute is present in the group.
     """
-
     d = {}
     for k in group.keys():
         if k in ["obs", "var"]:
@@ -105,7 +104,6 @@ def _read_dd(f: h5py.File) -> DonorData:
     ValueError
         If the encoding type of `G` or `C` is not recognized.
     """
-
     if f["G"].attrs.get("encoding-type") == "MuData":
         G = _read_mudata(group=f["G"])
     elif f["G"].attrs.get("encoding-type") == "anndata":
@@ -148,7 +146,6 @@ def read_h5_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-
     with h5py.File(str(path), "r") as f:
         return _read_dd(f)
 
@@ -167,7 +164,6 @@ def read_zarr_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-
     f = zarr.open(str(path), mode="r")
     return _read_dd(f)
 
@@ -333,8 +329,12 @@ def _h5_to_lazy_anndata(group):
             layers[k] = da.from_array(ds, chunks=chunks_l, name=False)
 
     return AnnData(
-        X=X, obs=obs, var=var,
-        obsm=obsm or None, varm=varm or None, layers=layers or None,
+        X=X,
+        obs=obs,
+        var=var,
+        obsm=obsm or None,
+        varm=varm or None,
+        layers=layers or None,
     )
 
 
@@ -364,9 +364,7 @@ def _read_lazy_dd_zarr(
 
     # --- G ---
     if lazy_G:
-        G = _load_lazy_anndata_zarr(
-            f"{path}/G", G_reader=G_reader, load_annotation_index=load_annotation_index
-        )
+        G = _load_lazy_anndata_zarr(f"{path}/G", G_reader=G_reader, load_annotation_index=load_annotation_index)
         if eager_obs_var:
             G = _eagerize_obs_var(G)
     else:
@@ -376,16 +374,15 @@ def _read_lazy_dd_zarr(
     # G_reader is intentionally NOT applied to C; C is always read via the
     # standard zarr reader (read_lazy when lazy, ad.read_zarr otherwise).
     if lazy_C:
-        C = _load_lazy_anndata_zarr(
-            f"{path}/C", G_reader="read_lazy", load_annotation_index=load_annotation_index
-        )
+        C = _load_lazy_anndata_zarr(f"{path}/C", G_reader="read_lazy", load_annotation_index=load_annotation_index)
         if eager_obs_var:
             C = _eagerize_obs_var(C)
     else:
         C = ad.read_zarr(f"{path}/C") if "C" in f else read_elem(f["C"])
 
     return DonorData(
-        G=G, C=C,
+        G=G,
+        C=C,
         donor_id=donor_id,
         var_dims_to_sync=var_dims_to_sync,
         uns=uns,
@@ -440,7 +437,8 @@ def _read_lazy_dd_h5(
         C = read_elem(f["C"])
 
     dd = DonorData(
-        G=G, C=C,
+        G=G,
+        C=C,
         donor_id=donor_id,
         var_dims_to_sync=var_dims_to_sync,
         uns=uns,
@@ -549,6 +547,4 @@ def read_lazy_dd(
             eager_obs_var=eager_obs_var,
             load_annotation_index=load_annotation_index,
         )
-    raise ValueError(
-        f"Cannot infer format from {path!r}; expected .dd.zarr / .zarr or .dd.h5 / .h5"
-    )
+    raise ValueError(f"Cannot infer format from {path!r}; expected .dd.zarr / .zarr or .dd.h5 / .h5")
