@@ -92,6 +92,10 @@ optional-dependencies.mixmil = [
 ]
 optional-dependencies.ml = [
   "pytorch-lightning",
+  "cellink[annbatch]",
+]
+optional-dependencies.annbatch = [
+  "annbatch[torch,zarrs]>=0.1.2; python_version >= '3.12'",
 ]
 optional-dependencies.rvat = [
   # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
