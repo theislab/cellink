@@ -21,6 +21,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 # The `annbatch` extra is optional. Importing this module without it should
 # raise a clear, actionable error rather than a confusing ModuleNotFoundError
 # from deep inside a dependency.
@@ -99,6 +101,7 @@ def write_annbatch_collection(
     obs_keys: Sequence[str],
     layer: str | None = None,
     shuffle: bool = True,
+    rng: np.random.Generator | None = None,
     **add_adatas_kwargs: Any,
 ) -> Path:
     """Write a sharded zarr `annbatch` collection from cell-level data.
@@ -129,10 +132,13 @@ def write_annbatch_collection(
         Forwarded to :meth:`annbatch.DatasetCollection.add_adatas`. Default
         ``True`` produces a globally-shuffled collection, which is usually
         what you want for IID per-cell mini-batching.
+    rng
+        Random number generator used for shuffling at write time. Pass a
+        seeded :class:`numpy.random.Generator` for reproducible collections.
     **add_adatas_kwargs
         Forwarded verbatim to :meth:`annbatch.DatasetCollection.add_adatas`
         (e.g. ``shard_size``, ``dataset_size``, ``shuffle_chunk_size``,
-        ``var_subset``, ``zarr_compressor``, ``rng``).
+        ``var_subset``, ``zarr_compressor``).
 
     Returns
     -------
@@ -157,6 +163,7 @@ def write_annbatch_collection(
         collection.add_adatas(
             adata_paths=[str(p) for p in paths],
             shuffle=shuffle,
+            rng=rng,
             **add_adatas_kwargs,
         )
     finally:
@@ -210,6 +217,7 @@ def open_annbatch_loader(
     chunk_size: int = 32,
     preload_nchunks: int = 256,
     to_torch: bool = True,
+    rng: np.random.Generator | None = None,
     **loader_kwargs: Any,
 ) -> Loader:
     """Open an annbatch collection at ``path`` and return a configured loader.
@@ -232,10 +240,15 @@ def open_annbatch_loader(
     batch_size, chunk_size, preload_nchunks, to_torch
         Forwarded to :class:`annbatch.Loader`. The defaults match the values
         suggested in the annbatch docs for cell-level IID training.
+    rng
+        Random number generator used for the loader's shuffling. Pass a
+        seeded :class:`numpy.random.Generator` for reproducible iteration
+        order. Mutually exclusive with a custom ``batch_sampler`` (which
+        would carry its own rng).
     **loader_kwargs
         Forwarded verbatim to :class:`annbatch.Loader` (e.g. ``shuffle``,
-        ``drop_last``, ``rng``, ``return_index``, ``preload_to_gpu``,
-        ``concat_strategy``).
+        ``drop_last``, ``return_index``, ``preload_to_gpu``,
+        ``concat_strategy``, ``batch_sampler``).
 
     Returns
     -------
@@ -259,6 +272,7 @@ def open_annbatch_loader(
         chunk_size=chunk_size,
         preload_nchunks=preload_nchunks,
         to_torch=to_torch,
+        rng=rng,
         **loader_kwargs,
     )
     return loader.use_collection(collection, load_adata=_make_load_adata(obs_keys, layer))
