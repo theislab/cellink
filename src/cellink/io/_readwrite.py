@@ -140,7 +140,7 @@ def read_h5_dd(path: str) -> DonorData:
 
     Parameters
     ----------
-    path : str
+    path : str | Path
         Path to the HDF5 file containing serialized DonorData.
 
     Returns
@@ -148,8 +148,8 @@ def read_h5_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-        
-    with h5py.File(path, "r") as f:
+
+    with h5py.File(str(path), "r") as f:
         return _read_dd(f)
 
 
@@ -159,7 +159,7 @@ def read_zarr_dd(path: str) -> DonorData:
 
     Parameters
     ----------
-    path : str
+    path : str | Path
         Path to the Zarr store containing serialized DonorData.
 
     Returns
@@ -167,8 +167,8 @@ def read_zarr_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-        
-    f = zarr.open(path, mode="r")
+
+    f = zarr.open(str(path), mode="r")
     return _read_dd(f)
 
 
@@ -210,6 +210,7 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
     >>> dd = read_dd("donor_data.dd.zarr")
     >>> dd = read_dd("custom_data.h5", fmt="h5")
     """
+    path = str(path)
 
     if fmt is None:
         if path.endswith(".h5") or path.endswith(".dd.h5"):
@@ -227,47 +228,127 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
         raise ValueError("Unknown format: use 'h5' or 'zarr'.")
 
 
-def read_lazy_dd(
-    path: str,
-    G_reader: str = "auto",
-    load_annotation_index: bool = True,
-) -> DonorData:
-    """Read a DonorData zarr store with G loaded lazily (dask-backed).
+def _eagerize_obs_var(adata):
+    """Materialise obs/var (and obsm/varm/uns) into in-memory pandas/numpy.
 
-    G is kept lazy so that its X matrix is never fully materialised.
-    C is loaded eagerly into memory (typically much smaller).
+    Keeps ``X`` and ``layers`` as-is — for an AnnData returned by
+    :func:`anndata.experimental.read_lazy`, that means dask-backed.
 
-    Parameters
-    ----------
-    path : str
-        Path to a ``.dd.zarr`` DonorData store.
-    G_reader : {'auto', 'read_lazy', 'read_pgen_zarr'}, default 'auto'
-        How to open G lazily.
-
-        - ``'read_lazy'``: uses :func:`anndata.experimental.read_lazy`
-          (requires zarr-backed AnnData written by anndata >=0.11).
-        - ``'read_pgen_zarr'``: uses :func:`cellink.io.read_pgen_zarr`
-          (for stores written by :func:`stream_pgen_to_zarr`).
-        - ``'auto'``: tries ``read_lazy`` first, falls back to ``read_pgen_zarr``.
-    load_annotation_index : bool, default True
-        Passed to ``anndata.experimental.read_lazy`` for faster var indexing.
-
-    Returns
-    -------
-    DonorData
-        A DonorData with ``dd.is_lazy == True``.  Call ``dd.to_memory()``
-        or ``dd[obs_slice, var_slice].to_memory()`` to materialise subsets.
-
-    Examples
-    --------
-    >>> dd = read_lazy_dd("cardinal.dd.zarr")
-    >>> dd.is_lazy
-    True
-    >>> sub = dd[:, var_mask].to_memory()
+    The result is an AnnData whose ``.obs`` / ``.var`` are pandas DataFrames
+    (so all the usual ``.loc``, ``.isin``, ``.merge`` operations work), while
+    ``.X`` reads chunks on demand.
     """
     import anndata as ad
+    import numpy as np
+    import pandas as pd
 
-    path = str(path)
+    def _to_dataframe(x):
+        # xarray-backed (read_lazy): exposes .ds attribute on the obs/var proxy
+        if hasattr(x, "ds"):
+            return x.ds.load().to_dataframe()
+        if isinstance(x, pd.DataFrame):
+            return x.copy()
+        if hasattr(x, "to_dataframe"):
+            return x.to_dataframe()
+        return pd.DataFrame(x)
+
+    def _materialise(x):
+        if isinstance(x, (pd.DataFrame, pd.Series, np.ndarray)):
+            return x
+        if hasattr(x, "to_pandas"):
+            return x.to_pandas()
+        if hasattr(x, "compute"):
+            return np.asarray(x.compute())
+        if hasattr(x, "ds"):
+            ds = x.ds.load()
+            return ds.to_dataframe() if hasattr(ds, "to_dataframe") else ds
+        return x
+
+    obs_df = _to_dataframe(adata.obs)
+    var_df = _to_dataframe(adata.var)
+
+    obsm = {k: _materialise(adata.obsm[k]) for k in adata.obsm} if adata.obsm else None
+    varm = {k: _materialise(adata.varm[k]) for k in adata.varm} if adata.varm else None
+    uns = {k: _materialise(adata.uns[k]) for k in (adata.uns or {})} or None
+    layers = dict(adata.layers) if adata.layers else None  # keep lazy
+
+    return ad.AnnData(
+        X=adata.X,
+        obs=obs_df,
+        var=var_df,
+        obsm=obsm,
+        varm=varm,
+        layers=layers,
+        uns=uns,
+    )
+
+
+def _load_lazy_anndata_zarr(path: str, *, G_reader: str = "auto", load_annotation_index: bool = True):
+    """Load an AnnData zarr lazily (dask-backed X). Used for both G and C subgroups."""
+    a = None
+    if G_reader in ("auto", "read_lazy"):
+        try:
+            from anndata.experimental import read_lazy
+
+            a = read_lazy(path, load_annotation_index=load_annotation_index)
+            logger.info("Loaded %s lazily via anndata.experimental.read_lazy", path)
+        except Exception as e:
+            if G_reader == "read_lazy":
+                raise
+            logger.debug("read_lazy failed (%s), trying read_pgen_zarr", e)
+
+    if a is None and G_reader in ("auto", "read_pgen_zarr"):
+        from cellink.io._pgen import read_pgen_zarr
+
+        a = read_pgen_zarr(path)
+        logger.info("Loaded %s lazily via read_pgen_zarr", path)
+
+    if a is None:
+        raise ValueError(f"Could not load {path} lazily with reader={G_reader!r}")
+    return a
+
+
+def _h5_to_lazy_anndata(group):
+    """Build a lazy AnnData from an h5py Group when read_lazy can't ingest h5.
+
+    Used as a fallback for older anndata versions.  Keeps obs/var eager
+    (read via h5 dataframe reader); only ``X`` and ``layers`` are dask-backed.
+    """
+    import dask.array as da
+    from anndata import AnnData
+
+    X_ds = group["X"]
+    chunks = X_ds.chunks if X_ds.chunks is not None else "auto"
+    X = da.from_array(X_ds, chunks=chunks, name=False)
+
+    obs = read_dataframe(group["obs"]) if "obs" in group else None
+    var = read_dataframe(group["var"]) if "var" in group else None
+    obsm = {k: read_elem(group["obsm"][k]) for k in group.get("obsm", {})}
+    varm = {k: read_elem(group["varm"][k]) for k in group.get("varm", {})}
+    layers = {}
+    if "layers" in group:
+        for k in group["layers"]:
+            ds = group["layers"][k]
+            chunks_l = ds.chunks if ds.chunks is not None else "auto"
+            layers[k] = da.from_array(ds, chunks=chunks_l, name=False)
+
+    return AnnData(
+        X=X, obs=obs, var=var,
+        obsm=obsm or None, varm=varm or None, layers=layers or None,
+    )
+
+
+def _read_lazy_dd_zarr(
+    path: str,
+    *,
+    lazy_G: bool,
+    lazy_C: bool,
+    eager_obs_var: bool,
+    G_reader: str,
+    load_annotation_index: bool,
+) -> DonorData:
+    import anndata as ad
+
     f = zarr.open(path, mode="r")
     donor_id = f.attrs.get("donor_id", "donor_id")
     var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
@@ -281,37 +362,193 @@ def read_lazy_dd(
             except Exception:
                 logger.debug(f"Skipped loading uns['{key}'] (may be large or non-array)")
 
-    # --- Load C eagerly ---
-    C = ad.read_zarr(f"{path}/C") if "C" in f else read_elem(f["C"])
+    # --- G ---
+    if lazy_G:
+        G = _load_lazy_anndata_zarr(
+            f"{path}/G", G_reader=G_reader, load_annotation_index=load_annotation_index
+        )
+        if eager_obs_var:
+            G = _eagerize_obs_var(G)
+    else:
+        G = ad.read_zarr(f"{path}/G") if "G" in f else read_elem(f["G"])
 
-    # --- Load G lazily ---
-    G = None
-    g_path = f"{path}/G"
-
-    if G_reader in ("auto", "read_lazy"):
-        try:
-            from anndata.experimental import read_lazy
-
-            G = read_lazy(g_path, load_annotation_index=load_annotation_index)
-            logger.info("Loaded G lazily via anndata.experimental.read_lazy")
-        except Exception as e:
-            if G_reader == "read_lazy":
-                raise
-            logger.debug(f"read_lazy failed ({e}), trying read_pgen_zarr")
-
-    if G is None and G_reader in ("auto", "read_pgen_zarr"):
-        from cellink.io._pgen import read_pgen_zarr
-
-        G = read_pgen_zarr(g_path)
-        logger.info("Loaded G lazily via read_pgen_zarr")
-
-    if G is None:
-        raise ValueError(f"Could not load G lazily with reader={G_reader!r}")
+    # --- C ---
+    # G_reader is intentionally NOT applied to C; C is always read via the
+    # standard zarr reader (read_lazy when lazy, ad.read_zarr otherwise).
+    if lazy_C:
+        C = _load_lazy_anndata_zarr(
+            f"{path}/C", G_reader="read_lazy", load_annotation_index=load_annotation_index
+        )
+        if eager_obs_var:
+            C = _eagerize_obs_var(C)
+    else:
+        C = ad.read_zarr(f"{path}/C") if "C" in f else read_elem(f["C"])
 
     return DonorData(
-        G=G,
-        C=C,
+        G=G, C=C,
         donor_id=donor_id,
         var_dims_to_sync=var_dims_to_sync,
         uns=uns,
+    )
+
+
+def _read_lazy_dd_h5(
+    path: str,
+    *,
+    lazy_G: bool,
+    lazy_C: bool,
+    eager_obs_var: bool,
+    load_annotation_index: bool,
+) -> DonorData:
+    f = h5py.File(path, "r")  # NOT a context manager — handle must outlive dd
+
+    donor_id = f.attrs.get("donor_id", "donor_id")
+    var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
+
+    uns = {}
+    uns_group = f.get("uns")
+    if uns_group is not None:
+        for key in uns_group:
+            try:
+                uns[key] = uns_group[key][()]
+            except Exception:
+                logger.debug(f"Skipped loading uns['{key}'] (may be large or non-array)")
+
+    def _open_lazy(group):
+        try:
+            from anndata.experimental import read_lazy
+
+            return read_lazy(group, load_annotation_index=load_annotation_index)
+        except (TypeError, NotImplementedError, AttributeError) as e:
+            logger.debug("read_lazy failed for h5 group (%s); using manual fallback", e)
+            return _h5_to_lazy_anndata(group)
+
+    # --- G ---
+    if lazy_G:
+        G = _open_lazy(f["G"])
+        if eager_obs_var:
+            G = _eagerize_obs_var(G)
+    else:
+        G = read_elem(f["G"])
+
+    # --- C ---
+    if lazy_C:
+        C = _open_lazy(f["C"])
+        if eager_obs_var:
+            C = _eagerize_obs_var(C)
+    else:
+        C = read_elem(f["C"])
+
+    dd = DonorData(
+        G=G, C=C,
+        donor_id=donor_id,
+        var_dims_to_sync=var_dims_to_sync,
+        uns=uns,
+    )
+    # Pin the h5py file handle so it isn't gc'd while dask still references its datasets.
+    # Always set — at least one side is lazy here (the both-eager case is handled
+    # upstream by delegating to read_dd, so the file is fully read and closed).
+    dd._h5_handle = f
+    return dd
+
+
+def read_lazy_dd(
+    path: str,
+    *,
+    lazy_G: bool = True,
+    lazy_C: bool = False,
+    eager_obs_var: bool = False,
+    G_reader: str = "auto",
+    load_annotation_index: bool = True,
+) -> DonorData:
+    """Read a DonorData store with per-side control over lazy vs eager loading.
+
+    Supports both zarr (``.dd.zarr``) and HDF5 (``.dd.h5``) stores.
+
+    The two boolean flags ``lazy_G`` and ``lazy_C`` are independent.  Any side
+    flagged ``True`` is loaded with a dask-backed ``X`` (and, by default,
+    xarray-backed ``obs`` / ``var``).  Any side flagged ``False`` is loaded
+    fully into memory using the standard non-lazy reader.
+
+    When **both** flags are ``False`` this function delegates to
+    :func:`read_dd`, i.e. it behaves identically to a regular non-lazy read.
+
+    For HDF5 with at least one lazy side, the underlying ``h5py.File`` handle
+    is kept alive on the returned DonorData (``dd._h5_handle``) — closing the
+    file or dropping the DonorData invalidates lazy reads.
+
+    Parameters
+    ----------
+    path : str
+        Path to a ``.dd.zarr`` or ``.dd.h5`` DonorData store.
+    lazy_G : bool, default True
+        If True, load G with a dask-backed ``X``.  If False, load G eagerly.
+    lazy_C : bool, default False
+        If True, load C with a dask-backed ``X``.  If False, load C eagerly.
+        (Cells × genes is typically small enough that eager is fine.)
+    eager_obs_var : bool, default False
+        Only meaningful for sides that are lazy.  If True, materialise
+        ``obs`` / ``var`` (and ``obsm`` / ``varm`` / ``uns``) as in-memory
+        pandas / numpy while keeping ``X`` (and ``layers``) lazy.  Useful when
+        you want fast pandas-based filtering on obs/var without paying for X
+        materialisation.  No effect on sides that are already eager.
+    G_reader : {'auto', 'read_lazy', 'read_pgen_zarr'}, default 'auto'
+        How to open **G** lazily (only used when ``lazy_G=True`` and the store
+        is zarr; ignored otherwise — ``C`` is always read via the standard
+        zarr reader).
+
+        - ``'read_lazy'``: :func:`anndata.experimental.read_lazy`
+          (requires zarr-backed AnnData written by anndata >=0.11).
+        - ``'read_pgen_zarr'``: :func:`cellink.io.read_pgen_zarr`
+          (for stores written by :func:`stream_pgen_to_zarr`).
+        - ``'auto'``: tries ``read_lazy`` first, falls back to ``read_pgen_zarr``.
+    load_annotation_index : bool, default True
+        Passed to ``anndata.experimental.read_lazy`` for faster var indexing.
+
+    Returns
+    -------
+    DonorData
+        A DonorData object.  ``dd.is_lazy`` is True if either side is lazy.
+        Call ``dd.to_memory()`` or ``dd[..., :, var_slice].to_memory()`` to
+        materialise.
+
+    Examples
+    --------
+    >>> # Default: lazy G, eager C
+    >>> dd = read_lazy_dd("donor_data.dd.zarr")
+
+    >>> # Both lazy + pandas obs/var on both sides
+    >>> dd = read_lazy_dd("donor_data.dd.zarr", lazy_C=True, eager_obs_var=True)
+
+    >>> # Eager G, lazy C (uncommon but supported)
+    >>> dd = read_lazy_dd("donor_data.dd.zarr", lazy_G=False, lazy_C=True)
+
+    >>> # Both eager — equivalent to read_dd(path)
+    >>> dd = read_lazy_dd("donor_data.dd.zarr", lazy_G=False, lazy_C=False)
+    """
+    path = str(path)
+
+    # Both eager: delegate to the regular non-lazy reader (no dask, no file pinning).
+    if not lazy_G and not lazy_C:
+        return read_dd(path)
+
+    if path.endswith((".zarr", ".dd.zarr")):
+        return _read_lazy_dd_zarr(
+            path,
+            lazy_G=lazy_G,
+            lazy_C=lazy_C,
+            eager_obs_var=eager_obs_var,
+            G_reader=G_reader,
+            load_annotation_index=load_annotation_index,
+        )
+    if path.endswith((".h5", ".dd.h5")):
+        return _read_lazy_dd_h5(
+            path,
+            lazy_G=lazy_G,
+            lazy_C=lazy_C,
+            eager_obs_var=eager_obs_var,
+            load_annotation_index=load_annotation_index,
+        )
+    raise ValueError(
+        f"Cannot infer format from {path!r}; expected .dd.zarr / .zarr or .dd.h5 / .h5"
     )
