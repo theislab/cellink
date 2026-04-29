@@ -12,7 +12,67 @@ logger = logging.getLogger(__name__)
 
 
 class LDSCRunner(BaseToolRunner):
-    """LDSC Runner with support for local, docker, and singularity"""
+    """
+    LDSC Runner with support for local, Docker, and Singularity.
+
+    Configuration keys
+    ------------------
+    execution_mode : str
+        One of ``"local"``, ``"docker"``, ``"singularity"``.
+    ldsc_command : str
+        Command name / path for ``ldsc.py``.
+    make_annot_command : str
+        Command name / path for ``make_annot.py``.
+    munge_command : str
+        Command name / path for ``munge_sumstats.py``.
+    parse_script : str, optional
+        **Explicit path to** ``ldscore/parse.py`` **inside the container or
+        local install.**  Setting this is strongly recommended for Docker /
+        Singularity setups where auto-discovery via ``PATH`` is unreliable.
+
+        Examples::
+
+            # Singularity (common default layout)
+            "parse_script": "/ldsc/ldscore/parse.py"
+
+            # Docker (zijingliu/ldsc image)
+            "parse_script": "/ldsc/ldscore/parse.py"
+
+            # Local conda env
+            "parse_script": "/opt/conda/envs/ldsc/lib/python3.8/site-packages/ldsc/ldscore/parse.py"
+
+        Used by :func:`~cellink.tl.external._sldsc_utils.check_and_patch_ldsc_parse_bug`
+        to locate and patch the pandas column-sort bug (ldsc issue #342).
+    docker_image : str, optional
+        Docker image name (required when ``execution_mode="docker"``).
+    singularity_image : str, optional
+        Path to Singularity SIF image (required when
+        ``execution_mode="singularity"``).
+    singularity_patch_strategy : str, optional
+        How to apply the parse.py bug fix for Singularity images.
+        One of:
+
+        ``"overlay"`` *(default)*
+            Creates a persistent ext3 overlay image at
+            ``singularity_overlay_path`` and mounts it read-only on every
+            ``ldsc.py`` call.  No root required; HPC-friendly.
+        ``"sandbox"``
+            Converts the SIF to a writable sandbox directory once; uses the
+            sandbox for all subsequent calls.  No rebuild needed.
+        ``"rebuild"``
+            Converts to sandbox, patches, rebuilds a new SIF.  Original SIF
+            is backed up as ``<sif>.bak.sif``.  Requires build privileges or
+            ``--fakeroot``.
+
+    singularity_overlay_path : str, optional
+        Path for the ext3 overlay image (``"overlay"`` strategy).
+        Defaults to ``~/.cellink/ldsc_overlay.img``.
+    singularity_overlay_size_mb : int, optional
+        Size in MB for a newly created overlay image. Default 256.
+    singularity_sandbox_path : str, optional
+        Path for the sandbox directory (``"sandbox"`` / ``"rebuild"``
+        strategies). Defaults to ``<sif_path>.sandbox/``.
+    """
 
     def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
         required_fields = ["execution_mode", "ldsc_command", "make_annot_command", "munge_command"]
@@ -32,6 +92,11 @@ class LDSCRunner(BaseToolRunner):
             "ldsc_command": "ldsc.py",
             "make_annot_command": "make_annot.py",
             "munge_command": "munge_sumstats.py",
+            "parse_script": "ldscore/parse.py",
+            "singularity_patch_strategy": "overlay",
+            "singularity_overlay_path": None,       
+            "singularity_overlay_size_mb": 256,
+            "singularity_sandbox_path": None,       
         }
 
     @property
@@ -49,6 +114,10 @@ class LDSCRunner(BaseToolRunner):
     @property
     def execution_mode(self) -> str:
         return self.config["execution_mode"]
+    
+    @property
+    def parse_script(self) -> str | None:
+        return self.config.get("parse_script")
 
 
 _ldsc_runner = None
