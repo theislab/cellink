@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import h5py
+import numpy as np
 import pandas as pd
 import scanpy as sc
 import zarr
@@ -21,6 +22,19 @@ from rich.text import Text
 from cellink._core.data_fields import DAnn
 
 logger = logging.getLogger(__name__)
+
+
+def _has_dask_X(adata) -> bool:
+    """Check if an AnnData has a dask-backed X matrix (lazy loading).
+
+    Safe for MuData / non-AnnData inputs (returns False).
+    """
+    try:
+        import dask.array as da
+    except ImportError:
+        return False
+    return isinstance(getattr(adata, "X", None), da.Array)
+
 
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
@@ -54,19 +68,38 @@ class DonorData:
     ):
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
-        if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
-            raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
-        if donor_id != G.obs.index.name:
-            G.obs = G.obs.set_index(donor_id)
+
+        if isinstance(G.obs, pd.DataFrame):
+            if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
+                raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
+            if donor_id != G.obs.index.name:
+                G.obs = G.obs.set_index(donor_id)
+        else:
+            # Lazy AnnData (e.g. from read_lazy) — obs is xarray-backed.
+            # donor_id must already be the obs index (obs_names).
+            logger.debug("G.obs is not a pandas DataFrame; assuming donor_id is the obs index.")
 
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
+        # Deferred obs filter for lazy G: applying fancy row-indexing on a dask array
+        # before var-slicing forces materialising a large intermediate.  We store the
+        # desired donor subset here and apply it in-memory inside to_memory(), AFTER
+        # the cheap var-slice has already narrowed the columns.
+        self._lazy_G_obs_filter: pd.Index | None = None
+        # Same deferral idea for lazy C — but stores the *donors to keep*; the
+        # cell-level boolean mask & sort are computed at to_memory() time, after
+        # the var-slice has narrowed C.
+        self._lazy_C_obs_filter: pd.Index | None = None
         self._match_donors(G, C)
         self.uns = uns
 
     def _match_donors(self, G: AnnData | MuData, C: AnnData | MuData) -> None:
-        G_idx = G.obs.index
-        C_idx = pd.Index(C.obs[self.donor_id].unique())
+        G_idx = pd.Index(G.obs_names)
+        # C.obs[donor_id] may be a pandas.Series (eager) or an xarray.DataArray
+        # (when C comes from anndata.experimental.read_lazy).  Coerce to numpy.
+        donor_col = C.obs[self.donor_id]
+        donor_arr = np.asarray(donor_col.values if hasattr(donor_col, "values") else donor_col)
+        C_idx = pd.Index(np.unique(donor_arr))
         keep_donors = G_idx.intersection(C_idx)
 
         if len(keep_donors) == 0:
@@ -77,27 +110,115 @@ class DonorData:
                 ),
                 self.donor_id,
             )
-        if not keep_donors.equals(G.obs_names):
-            G = G[keep_donors]
 
-        keep_cells = C.obs[self.donor_id].isin(keep_donors)
-        if not keep_cells.all():
-            C = C[keep_cells]
+        # --- G obs filter ---
+        if not keep_donors.equals(G_idx):
+            if _has_dask_X(G):
+                # Defer obs-filtering for lazy G.  Applying a fancy row-index on a
+                # dask array before a column-slice forces dask to materialise the
+                # full row-filtered intermediate (all columns) before selecting the
+                # target columns — potentially reading gigabytes of data.
+                # We record keep_donors and apply the filter cheaply in to_memory()
+                # once only the needed columns have been loaded.
+                self._lazy_G_obs_filter = keep_donors
+            else:
+                G = G[keep_donors]
 
-        # Sort cells by donor order
-        sorted_cells = C.obs.iloc[
-            pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort()
-        ].index
-        if not sorted_cells.equals(C.obs_names):
-            C = C[sorted_cells]
+        # --- C cell filter & sort ---
+        if _has_dask_X(C):
+            # Mirror the G deferral.  Store keep_donors; the cell mask & donor-order
+            # sort are computed in to_memory() once C.X has been narrowed (var-slice).
+            self._lazy_C_obs_filter = keep_donors
+        else:
+            keep_cells = C.obs[self.donor_id].isin(keep_donors)
+            if not keep_cells.all():
+                C = C[keep_cells]
+            # Sort cells by donor order (only C — G order is kept as-is).
+            # Stable sort so within-donor cell order is preserved deterministically.
+            sorted_cells = C.obs.iloc[
+                pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort(kind="stable")
+            ].index
+            if not sorted_cells.equals(C.obs_names):
+                C = C[sorted_cells]
 
         self._C = C
         self._G = G
 
+    @property
+    def _lazy_G(self) -> bool:
+        """Whether G has a dask-backed X (lazy loading)."""
+        return _has_dask_X(self._G)
+
+    @property
+    def _lazy_C(self) -> bool:
+        """Whether C has a dask-backed X (lazy loading)."""
+        return _has_dask_X(self._C)
+
+    @property
+    def is_lazy(self) -> bool:
+        """Whether G or C has a dask-backed X matrix (lazy loading)."""
+        return self._lazy_G or self._lazy_C
+
+    def to_memory(self) -> DonorData:
+        """Return a new DonorData with both G and C materialised into memory.
+
+        If neither side is lazy, returns ``self`` unchanged.  For lazy
+        (dask-backed) G or C, calls ``.to_memory()`` on the respective side.
+
+        When obs filters were deferred (to avoid expensive dask fancy row-indexing
+        before column-slicing), they are applied here in-memory after the var-slice
+        has already narrowed the columns.
+        """
+        if not self.is_lazy:
+            return self
+
+        # --- G side ---
+        G = self._G
+        if self._lazy_G:
+            G = G.to_memory() if hasattr(G, "to_memory") else G.copy()
+            # read_lazy → to_memory() can lose the obs index name; restore it
+            if G.obs.index.name is None and self.donor_id is not None:
+                G.obs.index.name = self.donor_id
+            if self._lazy_G_obs_filter is not None:
+                G = G[self._lazy_G_obs_filter]
+
+        # --- C side ---
+        C = self._C
+        if self._lazy_C:
+            C = C.to_memory() if hasattr(C, "to_memory") else C.copy()
+            if self._lazy_C_obs_filter is not None:
+                keep_donors = self._lazy_C_obs_filter
+                # Cell-level filter & donor-order sort, mirroring the eager path
+                # in _match_donors().  Now that obs is a pandas DataFrame, .isin()
+                # and Categorical-argsort behave normally.
+                if self.donor_id in C.obs.columns:
+                    keep_cells = C.obs[self.donor_id].isin(keep_donors)
+                    if not keep_cells.all():
+                        C = C[keep_cells]
+                    sorted_cells = C.obs.iloc[
+                        pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort(
+                            kind="stable"
+                        )
+                    ].index
+                    if not sorted_cells.equals(C.obs_names):
+                        C = C[sorted_cells]
+                if C.is_view:
+                    C = C.copy()
+
+        return DonorData(
+            G=G,
+            C=C,
+            donor_id=self.donor_id,
+            var_dims_to_sync=self._var_dims_to_sync,
+            uns=self.uns,
+        )
+
     def copy(self) -> DonorData:
-        if self._G.is_view:
+        # For lazy sides, don't materialise — leave them alone.
+        # For eager sides, copy if it's currently a view.
+        if not self._lazy_G and self._G.is_view:
             self._G = self._G.copy()
-        if self._C.is_view:
+        if not self._lazy_C and self._C.is_view:
             self._C = self._C.copy()
         return self
 
@@ -196,6 +317,7 @@ class DonorData:
     def C(self, value: AnnData | MuData) -> None:
         if not isinstance(value, AnnData | MuData):
             raise ValueError("C must be an AnnData or MuData object")
+        self._lazy_C_obs_filter = None  # reset — new C takes over
         self._C = value
         self._match_donors(self._G, self._C)
 
@@ -207,6 +329,7 @@ class DonorData:
     def G(self, value: AnnData | MuData) -> None:
         if not isinstance(value, AnnData | MuData):
             raise ValueError("G must be an AnnData or MuData object")
+        self._lazy_G_obs_filter = None  # reset — new G takes over
         self._G = value
         self._match_donors(self._G, self._C)
 
@@ -231,7 +354,7 @@ class DonorData:
         C_obs: slice = slice(None),
         C_var: slice = slice(None),
     ):
-        _G = self.G[G_obs]
+        _G = self._G[G_obs]
         _G = _G[:, G_var]
         _C = self.C[C_obs]
         _C = _C[:, C_var]
@@ -251,8 +374,9 @@ class DonorData:
             (idx,) if isinstance(idx, str) else idx for idx in key
         )  # needed because Mudata[str] looks up modalities
         key = key + (slice(None),) * (4 - len(key))
-        # Only slice if key is not slice(None)
-        _G = self.G[key[0]] if key[0] is not slice(None) else self.G
+        # Slice self._G directly (not self.G) so the deferred obs-filter view is never
+        # embedded into a new lazy dask chain — that would recreate the bottleneck.
+        _G = self._G[key[0]] if key[0] is not slice(None) else self._G
         _G = _G[:, key[1]] if key[1] is not slice(None) else _G
         _C = self.C[key[2]] if key[2] is not slice(None) else self.C
         _C = _C[:, key[3]] if key[3] is not slice(None) else _C
@@ -319,6 +443,12 @@ class DonorData:
             verbose:
                 Whether to print verbose output. Defaults to False.
         """
+        if self._lazy_C:
+            raise RuntimeError(
+                "Cannot aggregate on a lazy C. "
+                "Call dd.to_memory() first or subset with dd[..., :, var_subset].to_memory()."
+            )
+
         if filter_key is not None:
             assert filter_value is not None, "filter_value must be provided if filter_key is provided"
 
@@ -374,9 +504,10 @@ class DonorData:
 
     def prep_repr(self) -> str:
         """String representation of DonorData showing side-by-side dd.G and dd.C views."""
+        n_G_obs, n_G_vars, n_C_obs, n_C_vars = self.shape
         # Split the representations into lines
-        G_lines, G_highlight = _anndata_repr(self.G, self.G.n_obs, self.G.n_vars, self._var_dims_to_sync)
-        C_lines, C_highlight = _anndata_repr(self.C, self.C.n_obs, self.C.n_vars, [self.donor_id])
+        G_lines, G_highlight = _anndata_repr(self.G, n_G_obs, n_G_vars, self._var_dims_to_sync)
+        C_lines, C_highlight = _anndata_repr(self.C, n_C_obs, n_C_vars, [self.donor_id])
 
         def pad_lists(l1, l2):
             max_lines = max(len(l1), len(l2))
@@ -412,7 +543,7 @@ class DonorData:
         n_cells_per_donor = self.C.obs[self.donor_id].value_counts()
         min_n_cells, max_n_cells = n_cells_per_donor.min(), n_cells_per_donor.max()
         header_line = Text(
-            f"DonorData(n_donors={self.G.shape[0]:,}, "
+            f"DonorData(n_donors={n_G_obs:,}, "
             f"n_cells_per_donor=[{min_n_cells:,}-{max_n_cells:,}], "
             f"donor_id='{self.donor_id}')",
             style=HIGHLIGHT_COLOR,
@@ -441,7 +572,14 @@ class DonorData:
 
     @property
     def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        return *self.G.shape, *self.C.shape
+        # When obs filters are deferred for lazy G/C, self._G/self._C still hold all
+        # rows; report the filtered counts so dd.shape stays user-meaningful.
+        n_G_obs = len(self._lazy_G_obs_filter) if self._lazy_G_obs_filter is not None else self._G.shape[0]
+        # For lazy C, _lazy_C_obs_filter stores donors (not cells), so we can't
+        # report exact cell counts without reading C.obs[donor_id]; fall back to
+        # the unfiltered count.  Worst-case overestimate; matches the pre-filter shape.
+        n_C_obs = self._C.shape[0]
+        return n_G_obs, self._G.shape[1], n_C_obs, self._C.shape[1]
 
 
 def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:

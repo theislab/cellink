@@ -9,6 +9,7 @@ import seaborn as sns
 from adjustText import adjust_text
 from matplotlib.figure import Figure
 from scipy.sparse import issparse
+from scipy.stats import linregress
 
 from cellink._core import DonorData
 from cellink._core.data_fields import CAnn, VAnn
@@ -219,6 +220,7 @@ def expression_by_genotype(
         plt.close(fig)
     elif show or (show is None and ax is None):
         plt.show()
+        plt.close(fig)
 
     return fig
 
@@ -357,5 +359,156 @@ def volcano(
         plt.close(fig)
     elif show or (show is None and ax is None):
         plt.show()
+        plt.close(fig)
+
+    return fig
+
+
+def scatter(
+    x,
+    y,
+    xlabel: str = "x",
+    ylabel: str = "y",
+    title: str = None,
+    color: str = "steelblue",
+    alpha: float = 0.6,
+    s: int = 20,
+    show_trendline: bool = True,
+    trendline_color: str = "red",
+    show_stats: bool = True,
+    figsize: tuple = None,
+    labelsize: int = None,
+    titlesize: int = None,
+    show: bool | None = None,
+    save: str | bool | None = None,
+    dpi: int = 300,
+    ax=None,
+) -> Figure:
+    """
+    Scatter plot of two variables with an optional OLS trend line.
+
+    If both `x` and `y` are :class:`pandas.Series`, they are aligned on their
+    shared index before plotting. Sparse matrices and dask arrays are
+    automatically converted to dense numpy arrays.
+
+    Parameters
+    ----------
+    x : array-like
+        Values for the x-axis. Accepts numpy arrays, pandas Series, lists, or
+        objects with a `.X` attribute (e.g. an AnnData column slice).
+    y : array-like
+        Values for the y-axis. Same types accepted as `x`.
+    xlabel : str, default 'x'
+        Label for the x-axis.
+    ylabel : str, default 'y'
+        Label for the y-axis.
+    title : str, optional
+        Plot title.
+    color : str, default 'steelblue'
+        Color of the scatter points.
+    alpha : float, default 0.6
+        Opacity of the scatter points.
+    s : int, default 20
+        Marker size.
+    show_trendline : bool, default True
+        Whether to overlay an OLS regression line.
+    trendline_color : str, default 'red'
+        Color of the trend line.
+    show_stats : bool, default True
+        Whether to annotate the plot with slope, R², and p-value.
+    figsize : tuple, optional
+        Figure size. Defaults to matplotlib's ``figure.figsize`` setting.
+    labelsize : int, optional
+        Font size for axis labels.
+    titlesize : int, optional
+        Font size for the title.
+    show : bool or None
+        Whether to display the plot.
+    save : str or bool or None
+        File path or True to save the figure.
+    dpi : int, default 300
+        Resolution for the saved image.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot into. If None, a new figure is created.
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+
+    Examples
+    --------
+    >>> cellink.pl.scatter(
+    ...     x=dd_gene.G.obs[f'burden_{gene_oi}'],
+    ...     y=dd_gene.C[:, gene_oi].X.toarray().ravel(),
+    ...     xlabel="Burden score",
+    ...     ylabel="Pseudobulk expression",
+    ...     title=gene_oi,
+    ... )
+    """
+    figsize = figsize or plt.rcParams.get("figure.figsize", (6, 5))
+    _labelsize = labelsize or plt.rcParams.get("axes.labelsize", 12)
+    labelsize = _labelsize if isinstance(_labelsize, (int, float)) else 12
+    _titlesize = titlesize or plt.rcParams.get("axes.titlesize", 14)
+    titlesize = _titlesize if isinstance(_titlesize, (int, float)) else 14
+
+    def _to_array(v):
+        if hasattr(v, "X"):
+            v = v.X
+        if isinstance(v, da.Array):
+            v = v.compute()
+        if issparse(v):
+            v = v.toarray()
+        return np.asarray(v).ravel()
+
+    if isinstance(x, pd.Series) and isinstance(y, pd.Series):
+        shared = x.index.intersection(y.index)
+        x_vals = x.loc[shared].values.astype(float)
+        y_vals = y.loc[shared].values.astype(float)
+    else:
+        x_vals = _to_array(x).astype(float)
+        y_vals = _to_array(y).astype(float)
+
+    mask = np.isfinite(x_vals) & np.isfinite(y_vals)
+    x_vals, y_vals = x_vals[mask], y_vals[mask]
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
+    ax.scatter(x_vals, y_vals, color=color, alpha=alpha, s=s, linewidths=0)
+
+    if show_trendline and len(x_vals) >= 2:
+        slope, intercept, r_value, p_value, _ = linregress(x_vals, y_vals)
+        x_line = np.linspace(x_vals.min(), x_vals.max(), 200)
+        ax.plot(x_line, slope * x_line + intercept, color=trendline_color, lw=1.5)
+
+        if show_stats:
+            p_str = f"{p_value:.2e}" if p_value < 0.001 else f"{p_value:.3f}"
+            stats_text = f"slope={slope:.3g}  R²={r_value**2:.3f}  p={p_str}"
+            ax.annotate(
+                stats_text,
+                xy=(0.05, 0.95),
+                xycoords="axes fraction",
+                fontsize=max(labelsize - 2, 8),
+                va="top",
+                ha="left",
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", alpha=0.8),
+            )
+
+    ax.set_xlabel(xlabel, fontsize=labelsize)
+    ax.set_ylabel(ylabel, fontsize=labelsize)
+    if title is not None:
+        ax.set_title(title, fontsize=titlesize)
+
+    plt.tight_layout()
+
+    if save:
+        save_path = save if isinstance(save, str) else "scatter.png"
+        fig.savefig(save_path, dpi=dpi)
+        plt.close(fig)
+    elif show or (show is None and ax is None):
+        plt.show()
+        plt.close(fig)
 
     return fig
