@@ -155,3 +155,12 @@ ld_weights:
   EAS:
     filename: "1000G_Phase3_EAS_weights_hm3_no_MHC.tgz"
     url: "https://zenodo.org/records/10515792/files/1000G_Phase3_EAS_weights_hm3_no_MHC.tgz?download=1"
+frq:
+  prefix: 1000G.EUR.QC.
+  EUR:
+    filename: "1000G_Phase3_frq.tgz"
+    url: "https://zenodo.org/records/10515792/files/1000G_Phase3_frq.tgz?download=1"
+hapmap3:
+  filename: "hm3_no_MHC.list.txt"
+  url: "https://zenodo.org/records/10515792/files/hm3_no_MHC.list.txt?download=1"
+ 
