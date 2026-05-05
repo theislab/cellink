@@ -304,40 +304,6 @@ def _load_lazy_anndata_zarr(path: str, *, G_reader: str = "auto", load_annotatio
     return a
 
 
-def _h5_to_lazy_anndata(group):
-    """Build a lazy AnnData from an h5py Group when read_lazy can't ingest h5.
-
-    Used as a fallback for older anndata versions.  Keeps obs/var eager
-    (read via h5 dataframe reader); only ``X`` and ``layers`` are dask-backed.
-    """
-    import dask.array as da
-    from anndata import AnnData
-
-    X_ds = group["X"]
-    chunks = X_ds.chunks if X_ds.chunks is not None else "auto"
-    X = da.from_array(X_ds, chunks=chunks, name=False)
-
-    obs = read_dataframe(group["obs"]) if "obs" in group else None
-    var = read_dataframe(group["var"]) if "var" in group else None
-    obsm = {k: read_elem(group["obsm"][k]) for k in group.get("obsm", {})}
-    varm = {k: read_elem(group["varm"][k]) for k in group.get("varm", {})}
-    layers = {}
-    if "layers" in group:
-        for k in group["layers"]:
-            ds = group["layers"][k]
-            chunks_l = ds.chunks if ds.chunks is not None else "auto"
-            layers[k] = da.from_array(ds, chunks=chunks_l, name=False)
-
-    return AnnData(
-        X=X,
-        obs=obs,
-        var=var,
-        obsm=obsm or None,
-        varm=varm or None,
-        layers=layers or None,
-    )
-
-
 def _read_lazy_dd_zarr(
     path: str,
     *,
@@ -359,8 +325,12 @@ def _read_lazy_dd_zarr(
         for key in uns_group:
             try:
                 uns[key] = uns_group[key][()]
-            except Exception:
-                logger.debug(f"Skipped loading uns['{key}'] (may be large or non-array)")
+            except (TypeError, KeyError, OSError) as e:
+                warnings.warn(
+                    f"Skipped loading uns['{key}']: {e}",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
     # --- G ---
     if lazy_G:
@@ -408,17 +378,17 @@ def _read_lazy_dd_h5(
         for key in uns_group:
             try:
                 uns[key] = uns_group[key][()]
-            except Exception:
-                logger.debug(f"Skipped loading uns['{key}'] (may be large or non-array)")
+            except (TypeError, KeyError, OSError) as e:
+                warnings.warn(
+                    f"Skipped loading uns['{key}']: {e}",
+                    UserWarning,
+                    stacklevel=2,
+                )
 
     def _open_lazy(group):
-        try:
-            from anndata.experimental import read_lazy
+        from anndata.experimental import read_lazy
 
-            return read_lazy(group, load_annotation_index=load_annotation_index)
-        except (TypeError, NotImplementedError, AttributeError) as e:
-            logger.debug("read_lazy failed for h5 group (%s); using manual fallback", e)
-            return _h5_to_lazy_anndata(group)
+        return read_lazy(group, load_annotation_index=load_annotation_index)
 
     # --- G ---
     if lazy_G:

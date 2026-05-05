@@ -28,7 +28,7 @@ classifiers = [
 ]
 dependencies = [
   "adjusttext",
-  "anndata",
+  "anndata>=0.12",
   "bed-reader",
   "dask",
   "limix-core",
@@ -41,21 +41,16 @@ dependencies = [
   "requests",
   "rich",
   "scanpy",
-  "xarray",
-  "zarr>=3",
   # for debug logging (referenced from the issue template)
   "session-info",
+  "xarray",
+  "zarr>=3",
 ]
 
 optional-dependencies.datasets = [
-  "liftover",
-  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
   "bio2zarr[all]",
-]
-
-optional-dependencies.pgen = [
-  "pgenlib",
-  "zarr>3",
+  "liftover",
+  "sgkit[plink]",  # TODO cbgen is a pain to install on mac. I think cmake issues.
 ]
 
 optional-dependencies.dev = [
@@ -64,9 +59,9 @@ optional-dependencies.dev = [
 ]
 optional-dependencies.doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",
-  "linkify-it-py",
   "ipykernel",
   "ipython",
+  "linkify-it-py",
   "myst-nb>=1.1",
   # Until pybtex >0.23.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
   "setuptools",
@@ -93,11 +88,20 @@ optional-dependencies.mixmil = [
 optional-dependencies.ml = [
   "pytorch-lightning",
 ]
+optional-dependencies.pgen = [
+  "pgenlib",
+  "zarr>3",
+]
+
 optional-dependencies.rvat = [
   # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
   # "chiscore",
   "limix-core",
   "pybiomart",
+]
+optional-dependencies.scdrs = [
+  "numpy<2",
+  "scdrs",
 ]
 optional-dependencies.snpeff = [
   # not available via pip, has to be installed via conda install bioconda::snpeff
@@ -107,10 +111,6 @@ optional-dependencies.tensorqtl = [
   "tensorqtl",
   #"plink2"
 ]
-optional-dependencies.scdrs = [
-  "scdrs",
-  "numpy<2.0.0",
-]
 optional-dependencies.test = [
   "coverage",
   "pytest",
@@ -119,6 +119,8 @@ optional-dependencies.test = [
 urls.Documentation = "https://cellink-docs.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/cellink"
 urls.Source = "https://github.com/theislab/cellink"
+
+scripts.cellink-pgen = "cellink.cli.pgen:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/cellink" ]
@@ -203,6 +205,3 @@ skip = [
   "docs/references.md",
   "docs/notebooks/example.ipynb",
 ]
-
-[project.scripts]
-cellink-pgen = "cellink.cli.pgen:main"
