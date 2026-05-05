@@ -24,16 +24,30 @@ from cellink._core.data_fields import DAnn
 logger = logging.getLogger(__name__)
 
 
-def _has_dask_X(adata) -> bool:
-    """Check if an AnnData has a dask-backed X matrix (lazy loading).
+def _has_lazy_X(adata) -> bool:
+    """Check if an AnnData has a lazy-backed X matrix (dask or on-disk sparse).
 
     Safe for MuData / non-AnnData inputs (returns False).
     """
+    lazy_types = []
     try:
         import dask.array as da
+
+        lazy_types.append(da.Array)
     except ImportError:
-        return False
-    return isinstance(getattr(adata, "X", None), da.Array)
+        pass
+    try:
+        from anndata.abc import CSCDataset, CSRDataset
+
+        lazy_types.extend([CSRDataset, CSCDataset])
+    except ImportError:
+        try:
+            from anndata._core.sparse_dataset import BaseCompressedSparseDataset
+
+            lazy_types.append(BaseCompressedSparseDataset)
+        except ImportError:
+            pass
+    return bool(lazy_types) and isinstance(getattr(adata, "X", None), tuple(lazy_types))
 
 
 HIGHLIGHT_COLOR = "bold deep_pink2"
@@ -81,7 +95,7 @@ class DonorData:
 
         self._var_dims_to_sync = [] if var_dims_to_sync is None else var_dims_to_sync
         self.donor_id = donor_id
-        # Deferred obs filter for lazy G: applying fancy row-indexing on a dask array
+        # Deferred obs filter for lazy G: applying fancy row-indexing on a lazy array
         # before var-slicing forces materialising a large intermediate.  We store the
         # desired donor subset here and apply it in-memory inside to_memory(), AFTER
         # the cheap var-slice has already narrowed the columns.
@@ -113,9 +127,9 @@ class DonorData:
 
         # --- G obs filter ---
         if not keep_donors.equals(G_idx):
-            if _has_dask_X(G):
+            if _has_lazy_X(G):
                 # Defer obs-filtering for lazy G.  Applying a fancy row-index on a
-                # dask array before a column-slice forces dask to materialise the
+                # lazy array before a column-slice forces it to materialise the
                 # full row-filtered intermediate (all columns) before selecting the
                 # target columns — potentially reading gigabytes of data.
                 # We record keep_donors and apply the filter cheaply in to_memory()
@@ -125,7 +139,7 @@ class DonorData:
                 G = G[keep_donors]
 
         # --- C cell filter & sort ---
-        if _has_dask_X(C):
+        if _has_lazy_X(C):
             # Mirror the G deferral.  Store keep_donors; the cell mask & donor-order
             # sort are computed in to_memory() once C.X has been narrowed (var-slice).
             self._lazy_C_obs_filter = keep_donors
@@ -146,26 +160,26 @@ class DonorData:
 
     @property
     def _lazy_G(self) -> bool:
-        """Whether G has a dask-backed X (lazy loading)."""
-        return _has_dask_X(self._G)
+        """Whether G has a lazy-backed X (lazy loading)."""
+        return _has_lazy_X(self._G)
 
     @property
     def _lazy_C(self) -> bool:
-        """Whether C has a dask-backed X (lazy loading)."""
-        return _has_dask_X(self._C)
+        """Whether C has a lazy-backed X (lazy loading)."""
+        return _has_lazy_X(self._C)
 
     @property
     def is_lazy(self) -> bool:
-        """Whether G or C has a dask-backed X matrix (lazy loading)."""
+        """Whether G or C has a lazy-backed X matrix (lazy loading)."""
         return self._lazy_G or self._lazy_C
 
     def to_memory(self) -> DonorData:
         """Return a new DonorData with both G and C materialised into memory.
 
-        If neither side is lazy, returns ``self`` unchanged.  For lazy
-        (dask-backed) G or C, calls ``.to_memory()`` on the respective side.
+        If neither side is lazy, returns ``self`` unchanged.  For lazy G or C,
+        calls ``.to_memory()`` on the respective side.
 
-        When obs filters were deferred (to avoid expensive dask fancy row-indexing
+        When obs filters were deferred (to avoid expensive lazy fancy row-indexing
         before column-slicing), they are applied here in-memory after the var-slice
         has already narrowed the columns.
         """
