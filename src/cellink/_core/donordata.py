@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -158,6 +159,29 @@ class DonorData:
         self._C = C
         self._G = G
 
+    @classmethod
+    def _from_parts(
+        cls,
+        *,
+        G: AnnData | MuData,
+        C: AnnData | MuData,
+        donor_id: str,
+        var_dims_to_sync: list[str],
+        uns: dict,
+        lazy_G_obs_filter: pd.Index | None = None,
+        lazy_C_obs_filter: pd.Index | None = None,
+    ) -> DonorData:
+        """Construct a DonorData from already-matched G and C, skipping _match_donors."""
+        obj = object.__new__(cls)
+        obj._G = G
+        obj._C = C
+        obj.donor_id = donor_id
+        obj._var_dims_to_sync = var_dims_to_sync
+        obj.uns = uns
+        obj._lazy_G_obs_filter = lazy_G_obs_filter
+        obj._lazy_C_obs_filter = lazy_C_obs_filter
+        return obj
+
     @property
     def _lazy_G(self) -> bool:
         """Whether G has a lazy-backed X (lazy loading)."""
@@ -173,8 +197,8 @@ class DonorData:
         """Whether G or C has a lazy-backed X matrix (lazy loading)."""
         return self._lazy_G or self._lazy_C
 
-    def to_memory(self) -> DonorData:
-        """Return a new DonorData with both G and C materialised into memory.
+    def to_memory(self, *, inplace: bool = False) -> DonorData:
+        """Return a DonorData with both G and C materialised into memory.
 
         If neither side is lazy, returns ``self`` unchanged.  For lazy G or C,
         calls ``.to_memory()`` on the respective side.
@@ -182,6 +206,12 @@ class DonorData:
         When obs filters were deferred (to avoid expensive lazy fancy row-indexing
         before column-slicing), they are applied here in-memory after the var-slice
         has already narrowed the columns.
+
+        Parameters
+        ----------
+        inplace:
+            If True, materialise G and C into ``self`` and return ``self``.
+            If False (default), return a new DonorData leaving ``self`` unchanged.
         """
         if not self.is_lazy:
             return self
@@ -219,7 +249,14 @@ class DonorData:
                 if C.is_view:
                     C = C.copy()
 
-        return DonorData(
+        if inplace:
+            self._G = G
+            self._C = C
+            self._lazy_G_obs_filter = None
+            self._lazy_C_obs_filter = None
+            return self
+
+        return DonorData._from_parts(
             G=G,
             C=C,
             donor_id=self.donor_id,
@@ -227,14 +264,24 @@ class DonorData:
             uns=self.uns,
         )
 
+    def compute(self, *, inplace: bool = False) -> DonorData:
+        """Alias for :meth:`to_memory`, following dask naming conventions."""
+        return self.to_memory(inplace=inplace)
+
     def copy(self) -> DonorData:
-        # For lazy sides, don't materialise — leave them alone.
-        # For eager sides, copy if it's currently a view.
-        if not self._lazy_G and self._G.is_view:
-            self._G = self._G.copy()
-        if not self._lazy_C and self._C.is_view:
-            self._C = self._C.copy()
-        return self
+        # For lazy sides, don't materialise — share the reference.
+        # For eager sides, copy if it's currently a view to detach it.
+        G = self._G.copy() if not self._lazy_G and self._G.is_view else self._G
+        C = self._C.copy() if not self._lazy_C and self._C.is_view else self._C
+        return DonorData._from_parts(
+            G=G,
+            C=C,
+            donor_id=self.donor_id,
+            var_dims_to_sync=list(self._var_dims_to_sync),
+            uns=self.uns,
+            lazy_G_obs_filter=self._lazy_G_obs_filter,
+            lazy_C_obs_filter=self._lazy_C_obs_filter,
+        )
 
     def _write_dd(self, f: h5py.File):
         if isinstance(self.G, MuData):
@@ -370,7 +417,7 @@ class DonorData:
     ):
         _G = self._G[G_obs]
         _G = _G[:, G_var]
-        _C = self.C[C_obs]
+        _C = self._C[C_obs]
         _C = _C[:, C_var]
 
         _G = self._sync_var_dims(_G, _C)
@@ -392,7 +439,7 @@ class DonorData:
         # embedded into a new lazy dask chain — that would recreate the bottleneck.
         _G = self._G[key[0]] if key[0] is not slice(None) else self._G
         _G = _G[:, key[1]] if key[1] is not slice(None) else _G
-        _C = self.C[key[2]] if key[2] is not slice(None) else self.C
+        _C = self._C[key[2]] if key[2] is not slice(None) else self._C
         _C = _C[:, key[3]] if key[3] is not slice(None) else _C
 
         _G = self._sync_var_dims(_G, _C)
@@ -591,7 +638,14 @@ class DonorData:
         n_G_obs = len(self._lazy_G_obs_filter) if self._lazy_G_obs_filter is not None else self._G.shape[0]
         # For lazy C, _lazy_C_obs_filter stores donors (not cells), so we can't
         # report exact cell counts without reading C.obs[donor_id]; fall back to
-        # the unfiltered count.  Worst-case overestimate; matches the pre-filter shape.
+        # the unfiltered count and warn.
+        if self._lazy_C_obs_filter is not None:
+            warnings.warn(
+                "dd.shape reports the unfiltered cell count for lazy C because the donor "
+                "filter is still pending. Call dd.to_memory() to get the exact count.",
+                UserWarning,
+                stacklevel=2,
+            )
         n_C_obs = self._C.shape[0]
         return n_G_obs, self._G.shape[1], n_C_obs, self._C.shape[1]
 
