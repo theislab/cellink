@@ -8,7 +8,6 @@ import pandas as pd
 import yaml
 
 from cellink._core import DonorData
-from cellink.io import to_plink
 from cellink.resources._utils import _download_file, get_data_home
 
 logger = logging.getLogger(__name__)
@@ -561,7 +560,7 @@ def run_magma_gene_analysis(
     """
     logger.info("Running MAGMA gene analysis")
 
-    results_file = Path(f"{output_prefix}.genes.out")
+    results_file = Path(f"{output_prefix}.genes.out").resolve()
 
     cmd = [
         magma_bin,

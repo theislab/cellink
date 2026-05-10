@@ -16,6 +16,7 @@ from ._scdrs import run_scdrs
 from ._seismic import run_seismic
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
 from ._magma import run_magma_pipeline
+from ._cellex import run_cellex, run_cellect_prioritization
 
 
 __all__ = [
@@ -36,6 +37,8 @@ __all__ = [
     "read_saigeqtl_results",
     "make_group_file",
     "run_saigeqtl",
+    "run_cellex",
+    "run_cellect_prioritization",
 ]
 
 
