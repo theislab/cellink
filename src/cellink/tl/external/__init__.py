@@ -16,6 +16,16 @@ from ._scdrs import run_scdrs
 from ._seismic import run_seismic
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
 from ._magma import run_magma_pipeline
+from ._livi import (
+    LIVIRunner,
+    configure_livi_runner,
+    get_livi_runner,
+    infer_livi,
+    load_livi_results,
+    run_livi_association_testing,
+    save_livi_results,
+    train_livi,
+)
 
 
 __all__ = [
@@ -36,6 +46,14 @@ __all__ = [
     "read_saigeqtl_results",
     "make_group_file",
     "run_saigeqtl",
+    "LIVIRunner",
+    "configure_livi_runner",
+    "get_livi_runner",
+    "train_livi",
+    "infer_livi",
+    "run_livi_association_testing",
+    "save_livi_results",
+    "load_livi_results",
 ]
 
 
@@ -54,3 +72,4 @@ def __getattr__(name: str) -> Any:
 
 def __dir__():
     return __all__
+
