@@ -198,3 +198,5 @@ _build/*
 LIVI
 checkpoints/
 lightning_logs/
+docs/tutorials/dd_G.zarr
+docs/tutorials/dd_C.zarr
