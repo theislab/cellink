@@ -37,14 +37,6 @@ from ._sclinker import (
     compute_diseaseprogression_programs,
     compute_nmf_programs,
     compute_joint_nmf_programs,
-    #geneprogram_to_bedgraph,
-    #bedgraph_to_snp_annotation,
-    #run_sclinker_sldsc,
-    #load_sclinker_results,
-    #compute_escore,
-    #download_sclinker_references,
-    #load_enhancer_links,
-    #run_sclinker_pipeline,
 )
 from ._sclinker_utils import (
     run_sclinker_heritability,
@@ -58,10 +50,8 @@ from ._sclinker_utils import (
     bedgraph_to_snp_annotation, 
     genescores_to_annotations,
     compute_ld_scores_for_sclinker,
-    #run_sclinker_sldsc,
     load_sclinker_heritability_results,
     compute_escore,
-    compute_ppi_gene_scores,
     check_and_patch_ldsc_parse_bug,
 )
 from ._joint_nmf import JointNMFWrapper
@@ -109,7 +99,6 @@ __all__ = [
     "run_sclinker_sldsc",
     "load_sclinker_heritability_results",
     "compute_escore",
-    "compute_ppi_gene_scores",
     "check_and_patch_ldsc_parse_bug",
     ###
     "JointNMFWrapper",

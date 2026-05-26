@@ -1,29 +1,3 @@
-"""
-sc-linker: Integrating single-cell RNA-seq, epigenomic maps and GWAS summary statistics
-to infer disease-critical cell types and cellular processes.
-
-Based on: Jagadeesh*, Dey* et al., Nature Genetics 2022.
-https://doi.org/10.1038/s41588-022-01187-9
-
-Pipeline overview
------------------
-Step 1 – Gene programs
-    compute_celltype_programs()          : Wilcoxon DE per cell type vs rest  → gene scores
-    compute_diseaseprogression_programs(): Disease vs healthy DE per cell type → gene scores
-    compute_nmf_programs()               : NMF latent factors                  → gene scores
-    compute_joint_nmf_programs()         : Joint healthy/disease NMF           → gene scores
-
-Step 2 – Gene programs → SNP annotations
-    geneprogram_to_bedgraph()            : Gene scores × enhancer-gene links   → bedgraph
-    bedgraph_to_snp_annotation()         : bedgraph × BIM file                 → .annot.gz
-
-Step 3 – S-LDSC heritability enrichment
-    Delegates to cellink.tl.external._ldsc and _sldsc_utils, which already exist.
-    run_sclinker_sldsc()                 : Run S-LDSC for all programs/traits
-    load_sclinker_results()              : Parse postprocess files → DataFrame
-    compute_escore()                     : Compute E-score (program − all-protein-coding)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -44,9 +18,6 @@ from scipy import sparse
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Public constants
-# ---------------------------------------------------------------------------
 
 ENHANCER_TISSUES = Literal[
     "BLD", "BRN", "GI", "LNG", "LIV", "KID", "SKIN", "FAT", "HRT", "ALL"
@@ -66,9 +37,6 @@ ENHANCER_TISSUE_MAP = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Step 1a: Cell-type gene programs
-# ---------------------------------------------------------------------------
 
 def compute_celltype_programs(
     adata: AnnData,
@@ -114,14 +82,13 @@ def compute_celltype_programs(
     dict
         ``{"pval": DataFrame, "logfold": DataFrame, "score": DataFrame,
            "genescores": DataFrame}``
-        All DataFrames are (genes × cell_types).
+        All DataFrames are (genes x cell_types).
     """
     if celltype_col not in adata.obs.columns:
         raise ValueError(f"'{celltype_col}' not found in adata.obs")
 
     de_key = f"{celltype_col}_DE"
 
-    # Filter rare cell types
     counts = Counter(adata.obs[celltype_col])
     adata.obs[f"{celltype_col}_counts"] = [counts[ct] for ct in adata.obs[celltype_col]]
     adata_filtered = adata[adata.obs[f"{celltype_col}_counts"] > min_cells_per_type].copy()
@@ -138,17 +105,14 @@ def compute_celltype_programs(
         method=method,
         n_genes=adata_filtered.n_vars,
     )
-    # Propagate back to full adata
     adata.uns[de_key] = adata_filtered.uns[de_key]
 
     results = _extract_de_matrices(adata, de_key, label_col=celltype_col)
     genescores = _compute_genescores(results["score"])
 
-    # If var_names look like ENSG IDs, try to map to HGNC via adata.var
     if (genescores.index.str.startswith("ENSG").mean() > 0.5
             and "gene_name" in adata.var.columns):
         gene_name_map = adata.var["gene_name"].dropna().to_dict()
-        # Map ENSG → HGNC for all DataFrames
         for key in list(results.keys()):
             results[key].index = results[key].index.map(
                 lambda g: gene_name_map.get(g, g)
@@ -179,10 +143,6 @@ def compute_celltype_programs(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# Step 1b: Disease-progression gene programs
-# ---------------------------------------------------------------------------
 
 def compute_diseaseprogression_programs(
     adata: AnnData,
@@ -219,7 +179,7 @@ def compute_diseaseprogression_programs(
     disease_label
         Value in ``diagnosis_col`` that denotes disease samples.
     min_cells_per_group
-        Minimum cells in each (healthy/disease × cell type) group.
+        Minimum cells in each (healthy/disease x cell type) group.
     use_raw
         Passed to ``sc.tl.rank_genes_groups``.
     method
@@ -243,7 +203,6 @@ def compute_diseaseprogression_programs(
 
     disease_label_mapping = {healthy_label: "Healthy", disease_label: "Disease"}
 
-    # Compute contamination from global disease-only DE
     disease_subset = adata[adata.obs[diagnosis_col] == disease_label].copy()
     sc.tl.rank_genes_groups(
         disease_subset,
@@ -289,13 +248,11 @@ def compute_diseaseprogression_programs(
         )
         processed_cell_types.append(ct)
 
-    # Collect all DE results
     all_de_keys = [f"{ct}_DE" for ct in processed_cell_types]
     results = _extract_de_matrices_disease(adata, all_de_keys, contamination, celltype_col)
     genescores = _compute_genescores(results["score"])
     results["genescores"] = genescores
 
-    # Clean up temporary column
     adata.obs.drop(columns=["_DEstatus"], inplace=True, errors="ignore")
 
     if save and out_dir is not None:
@@ -307,10 +264,6 @@ def compute_diseaseprogression_programs(
 
     return results
 
-
-# ---------------------------------------------------------------------------
-# Step 1c: NMF cellular process programs (healthy)
-# ---------------------------------------------------------------------------
 
 def compute_nmf_programs(
     adata: AnnData,
@@ -364,20 +317,19 @@ def compute_nmf_programs(
     Returns
     -------
     W : DataFrame
-        Cell × factor (cell programs), index = obs_names.
+        Cell x factor (cell programs), index = obs_names.
     H : DataFrame
-        Gene × factor (gene programs), index = var_names.
+        Gene x factor (gene programs), index = var_names.
     corr : DataFrame
-        Gene × factor (Pearson correlation between gene expression and W scores).
+        Gene x factor (Pearson correlation between gene expression and W scores).
 
     Notes
     -----
     Backend priority:
 
-    1. **torchnmf** (GPU or CPU) — install with ``pip install torchnmf``.
-       On large matrices (>50k cells) this is 5–20× faster than sklearn.
-    2. **sklearn NMF** with ``init='nndsvda'`` + ``solver='cd'`` — always
-       available. Significantly faster than ``init='random'`` but still slow
+    1. **torchnmf** (GPU or CPU), install with ``pip install torchnmf``.
+       On large matrices (>50k cells) this is 5-20x faster than sklearn.
+    2. **sklearn NMF** with ``init='nndsvda'`` + ``solver='cd'``. Significantly faster than ``init='random'`` but still slow
        on very large matrices.
     """
     from sklearn.decomposition import NMF
@@ -396,7 +348,6 @@ def compute_nmf_programs(
 
     logger.info(f"Fitting NMF with {n_components} components on {X.shape} matrix")
 
-    # ── Backend 1: torchnmf ────────────────────────────────────────────────
     W_arr = None
     H_arr = None
     try:
@@ -409,10 +360,9 @@ def compute_nmf_programs(
             "Install the faster backend with:\n"
             "  pip install torchnmf"
         )
-        torch = None  # type: ignore
+        torch = None  
 
     if torch is not None:
-        # Resolve the requested device
         if device == "cuda":
             if torch.cuda.is_available():
                 _device = "cuda"
@@ -437,7 +387,6 @@ def compute_nmf_programs(
         H_arr = model_t.W.detach().cpu().numpy()     # (n_features, n_components)
         del X_t, model_t
 
-    # ── Backend 2: sklearn NMF (always available, slower) ─────────────────
     if W_arr is None:
         logger.info(
             "Using sklearn NMF with init='nndsvda' + solver='cd'. "
@@ -469,10 +418,6 @@ def compute_nmf_programs(
     return W, H, corr
 
 
-# ---------------------------------------------------------------------------
-# Step 1d: Joint NMF (healthy + disease cellular processes)
-# ---------------------------------------------------------------------------
-
 def compute_joint_nmf_programs(
     adata_healthy: AnnData,
     adata_disease: AnnData,
@@ -492,10 +437,10 @@ def compute_joint_nmf_programs(
 
     Decomposes healthy (H) and disease (D) matrices jointly:
 
-        H ≈ [L_shared_H | L_unique_H] × F_H
-        D ≈ [L_shared_D | L_unique_D] × F_D
+        H ≈ [L_shared_H | L_unique_H] x F_H
+        D ≈ [L_shared_D | L_unique_D] x F_D
 
-    with a coupling term γ/2 ||L_shared_H − L_shared_D||² that forces
+    with a coupling term y/2 ||L_shared_H - L_shared_D||² that forces
     the shared programs to be similar.
 
     Parameters
@@ -526,18 +471,17 @@ def compute_joint_nmf_programs(
     Returns
     -------
     dict with keys:
-        ``"Wh"``  : healthy cell × factor loadings (shared + healthy-specific)
-        ``"Wd"``  : disease cell × factor loadings (shared + disease-specific)
-        ``"Hh"``  : gene × factor weights (healthy)
-        ``"Hd"``  : gene × factor weights (disease)
-        ``"shared_Wh"``  : healthy cell × shared-factor loadings
-        ``"shared_Wd"``  : disease cell × shared-factor loadings
-        ``"unique_Hh"`` : gene × healthy-specific-factor weights
-        ``"unique_Hd"`` : gene × disease-specific-factor weights
+        ``"Wh"``  : healthy cell x factor loadings (shared + healthy-specific)
+        ``"Wd"``  : disease cell x factor loadings (shared + disease-specific)
+        ``"Hh"``  : gene x factor weights (healthy)
+        ``"Hd"``  : gene x factor weights (disease)
+        ``"shared_Wh"``  : healthy cell x shared-factor loadings
+        ``"shared_Wd"``  : disease cell x shared-factor loadings
+        ``"unique_Hh"`` : gene x healthy-specific-factor weights
+        ``"unique_Hd"`` : gene x disease-specific-factor weights
     """
     from ._joint_nmf import JointNMFWrapper
 
-    # Align genes
     common_genes = adata_healthy.var_names.intersection(adata_disease.var_names)
     if len(common_genes) == 0:
         raise ValueError("No overlapping genes between healthy and disease AnnData objects.")
@@ -592,40 +536,6 @@ def compute_joint_nmf_programs(
     return results
 
 
-# ---------------------------------------------------------------------------
-# Step 2a: Gene program → bedgraph (SNP-to-gene linking)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Step 2b: Bedgraph → SNP annotation (.annot.gz)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Step 3: S-LDSC heritability enrichment (delegates to existing cellink code)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Loading / postprocessing results
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Reference data download helpers
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Full pipeline convenience function
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
 def _get_dense(adata: AnnData, layer: Optional[str]) -> np.ndarray:
     """Return a dense float32 expression matrix from an AnnData layer or X."""
     X = adata.layers[layer] if (layer and layer in adata.layers) else adata.X
@@ -674,7 +584,6 @@ def _extract_de_matrices(
                 logfold_mtx[idx, j] = lf_row[cs]
                 score_mtx[idx, j] = sc_row[cs]
 
-    # Append level suffix so column names match sc-linker convention
     level = label_col.split("_")[-1] if "_" in label_col else "2"
     col_names = [f"{cs}_L{level}" for cs in cellsubsets]
 
@@ -720,7 +629,6 @@ def _extract_de_matrices_disease(
                 idx = gene2idx[g]
                 if g in ct_contamination:
                     pval_mtx[idx, j] = 1.0
-                    # logfold and score remain 0
                 else:
                     pval_mtx[idx, j] = pval_row[cs]
                     logfold_mtx[idx, j] = lf_row[cs]
