@@ -1,20 +1,3 @@
-"""
-Pure-Python port of the Joint NMF implementation from the sc-linker paper.
-
-Reference: Jagadeesh*, Dey* et al., Nature Genetics 2022.
-Original code: https://github.com/karthikj89/scgenetics/blob/master/jointNMF.py
-
-The JointNMFWrapper class provides a clean interface over the original
-multiplicative update rules. It decomposes two matrices (healthy H and
-disease D) simultaneously:
-
-    H ≈ [L_shared_H | L_unique_H] × F_H
-    D ≈ [L_shared_D | L_unique_D] × F_D
-
-with a coupling term  γ/2 ||L_shared_H − L_shared_D||²  that encourages
-shared programs to align across conditions.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -40,9 +23,9 @@ class JointNMFWrapper:
     Parameters
     ----------
     Xh
-        Dense matrix (cells × genes) for the healthy condition.
+        Dense matrix (cells x genes) for the healthy condition.
     Xd
-        Dense matrix (cells × genes) for the disease condition.
+        Dense matrix (cells x genes) for the disease condition.
         Must share the same gene dimension as ``Xh``.
     n_shared
         Number of programs shared between healthy and disease (KC in paper).
@@ -86,7 +69,6 @@ class JointNMFWrapper:
         self.max_iters = max_iters
         self.tol = tol
 
-        # Normalise to [0, 1]
         self.Xh = sparse.csr_matrix(Xh, dtype=np.float64)
         self.Xd = sparse.csr_matrix(Xd, dtype=np.float64)
         _max_h = self.Xh.max()
@@ -96,17 +78,14 @@ class JointNMFWrapper:
         if _max_d > 0:
             self.Xd = self.Xd / _max_d
 
-        # Initialise with NMF (best of n_init starts)
         nh_total = n_shared + n_healthy_specific
         nd_total = n_shared + n_disease_specific
 
         self.Wh, self.Hh = self._best_nmf(self.Xh, nh_total, n_init, random_state)
         self.Wd, self.Hd = self._best_nmf(self.Xd, nd_total, n_init, random_state + 1)
 
-        # Align shared columns between Wh and Wd
         self._align()
 
-        # Estimate mu if not provided
         if mu is None:
             diff_h = 0.5 * self._frob(self.Xh - self.Wh.dot(self.Hh)) ** 2
             diff_d = 0.5 * self._frob(self.Xd - self.Wd.dot(self.Hd)) ** 2
@@ -114,10 +93,6 @@ class JointNMFWrapper:
             self.mu = (diff_h + diff_d) / (denom + _SMALL)
         else:
             self.mu = mu
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def fit(self) -> "JointNMFWrapper":
         """Run multiplicative updates until convergence."""
@@ -149,13 +124,9 @@ class JointNMFWrapper:
         logger.info(f"Joint NMF converged after {niter} iterations ({elapsed:.2f} min)")
         return self
 
-    # ------------------------------------------------------------------
-    # Properties: dense factor matrices
-    # ------------------------------------------------------------------
-
     @property
     def Wh(self) -> np.ndarray:
-        """Healthy cell × factor loadings (dense)."""
+        """Healthy cell x factor loadings (dense)."""
         return self._Wh.toarray() if issparse(self._Wh) else self._Wh
 
     @Wh.setter
@@ -185,10 +156,6 @@ class JointNMFWrapper:
     @Hd.setter
     def Hd(self, value):
         self._Hd = sparse.csr_matrix(value)
-
-    # ------------------------------------------------------------------
-    # Private: cost and updates
-    # ------------------------------------------------------------------
 
     def _cost(self) -> float:
         Wshh = self._Wh[:, : self.n_shared]
@@ -240,10 +207,6 @@ class JointNMFWrapper:
         num = safe_sparse_dot(self._Wd.T, self.Xd)
         den = safe_sparse_dot(safe_sparse_dot(self._Wd.T, self._Wd), self._Hd)
         self._Hd = self._Hd.multiply(num / (den + _SMALL)).tocsr()
-
-    # ------------------------------------------------------------------
-    # Private: initialisation helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _best_nmf(
