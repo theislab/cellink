@@ -133,7 +133,13 @@ class BaseToolRunner(ABC):
             for host_path, container_path in volumes.items():
                 bind_args.extend(["-B", f"{host_path}:{container_path}"])
 
-            cmd = ["singularity", "exec", *bind_args, self.config["singularity_image"], container_command]
+            # Inject overlay if the overlay patch strategy was used
+            overlay_args = []
+            if self.config.get("_ldsc_overlay_path"):
+                overlay_args = ["--overlay", f"{self.config['_ldsc_overlay_path']}:ro"]
+            image = self.config.get("singularity_image", "")
+            cmd = ["singularity", "exec", *bind_args, *overlay_args, image, container_command]
+
             return " ".join(cmd)
 
         return base_command
@@ -161,6 +167,17 @@ class BaseToolRunner(ABC):
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
+        
+        For Singularity, three patch modes are handled transparently:
+
+        - **overlay**: if ``_ldsc_overlay_path`` is in config (set by
+          ``check_and_patch_ldsc_parse_bug`` with ``singularity_patch_strategy="overlay"``),
+          ``--overlay <path>:ro`` is injected into the ``singularity exec`` call
+          so the patched ``parse.py`` is always active.
+        - **sandbox / rebuild**: ``singularity_image`` is updated in the runner
+          config to point at the sandbox directory or rebuilt SIF, so
+          ``_build_container_command`` picks it up automatically — no special
+          handling needed here.
 
         Parameters
         ----------
