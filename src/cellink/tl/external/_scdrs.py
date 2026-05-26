@@ -149,17 +149,27 @@ def run_scdrs(
     logger.info("Filtering cells and genes")
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
-
+    
     if "log1p" not in adata.uns_keys():
-        logger.info("Log-normalizing data")
+        adata.layers["counts"] = adata.X
+        logger.info("Normalizing and log-transforming data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
+    else:
+        if not "counts" in adata.layers:
+            raise ValueError(
+                "adata appears already normalized (log1p in uns) but adata.layers['counts'] does not exist. "
+                "Please pass raw counts, or set adata.layers['counts'] before normalizing."
+            )
 
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
         sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+        adata = adata[:, adata.var.highly_variable]
         sc.pp.scale(adata, max_value=10)
         sc.tl.pca(adata, n_comps=n_pcs)
+    
+    adata.X = adata.layers["counts"]
 
     covariate_list = []
 
