@@ -11,10 +11,21 @@ from ._ldsc import (
     estimate_ld_scores_from_donor_data,
     make_annot_from_bimfile,
     make_annot_from_donor_data,
+    make_continuous_annot_from_bimfile,
+    make_continuous_annot_from_donor_data,
     munge_sumstats,
 )
 from ._mixmil import run_mixmil
 from ._pc import calculate_pcs
 from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, preprocess_for_sldsc
-from ._ldsc2magma import load_ensembl_to_entrez_map, genesets_dir_to_entrez_gmt
+from ._ldsc2magma import (
+    load_ensembl_to_entrez_map,
+    genesets_dir_to_entrez_gmt,
+    scores_to_gmt,
+    scores_to_covar,
+    run_magma_annotate,
+    run_magma_gene_analysis,
+    run_magma_gsa,
+    run_magma_gpa,
+)
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl

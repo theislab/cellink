@@ -1,9 +1,11 @@
 import logging
 import os
 import subprocess
-from typing import Any
+from typing import Any, Literal
 import shlex
 
+import numpy as np
+import pandas as pd
 import yaml
 
 from cellink._core import DonorData
@@ -1152,6 +1154,32 @@ def _run_ldsc_make_annot(
         return runner._build_container_command(cmd, file_paths)
 
 
+def _expand_annot_to_full_format(bimfile: str, annot_file: str) -> None:
+    """
+    Post-process a make_annot.py output from ANNOT-only to CHR/BP/SNP/CM/ANNOT format.
+
+    make_annot.py writes a single-column file (header: ANNOT, values: 0/1).
+    This function reads the matching bimfile, prepends the SNP coordinate columns,
+    and rewrites the annotation file in place so binary and continuous annotation files
+    share the same format.
+
+    Does nothing if the file already contains more than one column (idempotent).
+    """
+    annot = pd.read_csv(annot_file, sep="\t")
+    if annot.shape[1] > 1:
+        return  # already full format
+
+    bim = pd.read_csv(
+        bimfile, sep="\t", header=None,
+        names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
+    )
+    full = bim[["CHR", "BP", "SNP", "CM"]].copy()
+    full["ANNOT"] = annot["ANNOT"].values
+    compression = "gzip" if annot_file.endswith(".gz") else None
+    full.to_csv(annot_file, sep="\t", index=False, compression=compression)
+    logger.info(f"Expanded annotation to full format: {annot_file}")
+
+
 def make_annot_from_bimfile(
     bimfile: str,
     annot_file: str,
@@ -1248,16 +1276,35 @@ def make_annot_from_bimfile(
     - Either gene_set_file or bed_file must be provided, but not both
     - gene_coord_file and windowsize are only used with gene_set_file
     - nomerge is only used with bed_file
-    - The output annotation file has one row per SNP in the bimfile, with 1
-      indicating the SNP is in the annotation and 0 otherwise
+    - The output annotation file has columns CHR, BP, SNP, CM, ANNOT (integer 0/1),
+      the same full format written by :func:`make_continuous_annot_from_bimfile`
     - For whole-genome analyses, this should be run separately for each chromosome
     - Typical workflow: Create annotations for chr 1-22, then compute LD scores
       for each chromosome using these annotations
 
+    **Interchangeability with** :func:`make_continuous_annot_from_bimfile`
+
+    Both functions write the same five-column format (CHR, BP, SNP, CM, ANNOT), so
+    the downstream :func:`compute_ld_scores_with_annotations_from_bimfile` call is
+    identical regardless of annotation type:
+
+    >>> # Binary workflow
+    >>> make_annot_from_bimfile(bimfile=..., annot_file="ct.22.annot.gz",
+    ...                         gene_set_file=..., gene_coord_file=..., windowsize=100_000)
+    >>> # Continuous workflow
+    >>> make_continuous_annot_from_bimfile(bimfile=..., scores=...,
+    ...                                    annot_file="ct.22.annot.gz",
+    ...                                    gene_coord_file=...)
+    >>> # Identical downstream call for both annotation types:
+    >>> compute_ld_scores_with_annotations_from_bimfile(
+    ...     bfile_prefix=..., annot_file="ct.22.annot.gz", out_prefix=...
+    ... )
+
     See Also
     --------
-    make_annot_from_donor_data : Create annotations from DonorData object
-    estimate_ld_scores_from_bimfile : Compute LD scores using annotations
+    make_annot_from_donor_data : Create binary annotations from DonorData object.
+    make_continuous_annot_from_bimfile : Continuous annotation variant.
+    compute_ld_scores_with_annotations_from_bimfile : Next step after annotation.
     """
     if runner is None:
         runner = get_ldsc_runner()
@@ -1278,6 +1325,7 @@ def make_annot_from_bimfile(
     )
 
     if run:
+        _expand_annot_to_full_format(bimfile, annot_file)
         results["annot_file"] = result_file
         results["files_created"].append(annot_file)
     else:
@@ -1403,8 +1451,8 @@ def make_annot_from_donor_data(
     - This function exports dd.G to PLINK format, creates the annotation,
       then optionally cleans up the temporary PLINK files
     - Either gene_set_file or bed_file must be provided, but not both
-    - The output annotation file has one row per SNP, with 1 indicating the SNP
-      is in the annotation and 0 otherwise
+    - The output annotation file has columns CHR, BP, SNP, CM, ANNOT (integer 0/1),
+      the same full format as :func:`make_continuous_annot_from_donor_data`
     - gene_coord_file should contain coordinates for all genes you might annotate,
       not just those in your specific gene set
     - For gene-based annotations, the annotation includes SNPs within windowsize bp
@@ -1437,6 +1485,9 @@ def make_annot_from_donor_data(
         **kwargs,
     )
 
+    if run:
+        _expand_annot_to_full_format(bimfile, annot_file)
+
     if cleanup_files and run:
         extensions = [".bim", ".fam", ".bed"]
         for ext in extensions:
@@ -1456,7 +1507,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
-    thin_annot: bool = True,
+    thin_annot: bool = False,
     maf_min: float = 0.01,
     yes_really: bool = True,
     run: bool = True,
@@ -1479,9 +1530,10 @@ def compute_ld_scores_with_annotations_from_bimfile(
         Typically from 1000 Genomes reference panel, e.g.,
         "1000G_EUR_Phase3_plink/1000G.EUR.QC.22"
     annot_file : str
-        Path to the annotation file created by make_annot_from_donor_data()
-        or make_annot_from_bimfile(). Should end in .annot.gz
-        Example: "CD8_Naive.22.annot.gz"
+        Path to the annotation file created by ``make_annot_from_bimfile()``,
+        ``make_annot_from_donor_data()``, ``make_continuous_annot_from_bimfile()``,
+        or ``make_continuous_annot_from_donor_data()``.
+        Should end in ``.annot.gz``.  Example: ``"CD8_Naive.22.annot.gz"``
     out_prefix : str
         Prefix for output files. Will create:
         - {out_prefix}.l2.ldscore.gz (LD scores)
@@ -1500,9 +1552,14 @@ def compute_ld_scores_with_annotations_from_bimfile(
         Commonly used with HapMap3 SNPs (e.g., "hapmap3_snps/hm.22.snp").
         The sum r^2 will still include all SNPs, but only listed SNPs will
         have LD scores computed.
-    thin_annot : bool, default True
-        Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
-        Should typically be True for annotations created by make_annot functions.
+    thin_annot : bool, default False
+        Whether the annotation file contains only the annotation column(s) with no
+        leading CHR / BP / SNP / CM columns.  All annotation functions in this
+        module (``make_annot_from_bimfile``, ``make_annot_from_donor_data``,
+        ``make_continuous_annot_from_bimfile``, ``make_continuous_annot_from_donor_data``)
+        write the full five-column format (CHR, BP, SNP, CM, ANNOT), so the default
+        ``False`` is correct for all of them.  Set to ``True`` only if you are passing
+        a manually prepared thin-annot file.
     maf_min : float, default 0.01
         Minimum minor allele frequency threshold
     yes_really : bool, default True
@@ -1630,7 +1687,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
-    thin_annot: bool = True,
+    thin_annot: bool = False,
     maf_min: float = 0.01,
     yes_really: bool = True,
     cleanup_files: bool = True,
@@ -1970,3 +2027,343 @@ def estimate_celltype_specific_heritability(
         }
     else:
         return {"command": runner._build_container_command(cmd, file_paths)}
+
+
+# ---------------------------------------------------------------------------
+# Continuous annotation helpers
+# ---------------------------------------------------------------------------
+
+def _load_gene_coord_file(gene_coord_file: str) -> pd.DataFrame:
+    """
+    Load gene coordinate file in either headed (GENE/CHR/START/END) or
+    headless (4-column TSV) format.
+
+    Returns a DataFrame with columns: gene, chr, start, end.
+    """
+    sample = pd.read_csv(gene_coord_file, sep="\t", nrows=1)
+    upper_cols = [c.strip().upper() for c in sample.columns]
+    if "GENE" in upper_cols and "CHR" in upper_cols:
+        df = pd.read_csv(gene_coord_file, sep="\t")
+        df.columns = [c.strip().upper() for c in df.columns]
+        df = df.rename(columns={"GENE": "gene", "CHR": "chr", "START": "start", "END": "end"})
+    else:
+        df = pd.read_csv(
+            gene_coord_file, sep="\t", header=None,
+            names=["gene", "chr", "start", "end"],
+        )
+    return df[["gene", "chr", "start", "end"]]
+
+
+def _compute_continuous_annot_for_bimfile(
+    bimfile: str,
+    scores: pd.Series,
+    gene_coords: pd.DataFrame,
+    windowsize: int = 100_000,
+    score_agg: Literal["max", "sum", "mean"] = "max",
+) -> pd.DataFrame:
+    """
+    Compute continuous SNP annotations from per-gene scores for one bimfile.
+
+    Each SNP receives the aggregated score of all genes whose ±windowsize bp
+    window overlaps the SNP position.  SNPs with no overlapping gene get 0.
+
+    Parameters
+    ----------
+    bimfile
+        Path to PLINK .bim file (CHR, SNP, CM, BP, A1, A2).
+    scores
+        Per-gene scores indexed by gene ID (must match gene_coords["gene"]).
+    gene_coords
+        DataFrame with columns: gene, chr, start, end.
+    windowsize
+        Flanking window around each gene body in base pairs.
+    score_agg
+        How to combine scores when multiple gene windows overlap a SNP:
+        "max" (default, matches the combined_pipeline), "sum", or "mean".
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns: CHR, BP, SNP, CM, ANNOT.
+        Callers decide which columns to write (thin-annot = ANNOT only,
+        full format = all five columns).
+    """
+    bim = pd.read_csv(
+        bimfile, sep="\t", header=None,
+        names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
+    )
+    chrom = str(bim["CHR"].iloc[0])
+
+    scores_idx = scores.copy()
+    scores_idx.index = scores_idx.index.astype(str)
+
+    chr_genes = gene_coords[gene_coords["chr"].astype(str) == chrom].copy()
+    chr_genes = chr_genes.merge(
+        scores_idx.rename("score").to_frame(),
+        left_on="gene", right_index=True,
+        how="inner",
+    )
+    chr_genes["win_start"] = chr_genes["start"] - windowsize
+    chr_genes["win_end"] = chr_genes["end"] + windowsize
+
+    bp = bim["BP"].values
+    score_vals = np.zeros(len(bim), dtype=np.float64)
+
+    if score_agg == "max":
+        for _, g in chr_genes.iterrows():
+            mask = (bp >= g["win_start"]) & (bp <= g["win_end"])
+            if mask.any():
+                score_vals[mask] = np.maximum(score_vals[mask], g["score"])
+    elif score_agg == "sum":
+        for _, g in chr_genes.iterrows():
+            mask = (bp >= g["win_start"]) & (bp <= g["win_end"])
+            if mask.any():
+                score_vals[mask] += g["score"]
+    elif score_agg == "mean":
+        count_vals = np.zeros(len(bim), dtype=np.float64)
+        for _, g in chr_genes.iterrows():
+            mask = (bp >= g["win_start"]) & (bp <= g["win_end"])
+            if mask.any():
+                score_vals[mask] += g["score"]
+                count_vals[mask] += 1
+        nonzero = count_vals > 0
+        score_vals[nonzero] /= count_vals[nonzero]
+    else:
+        raise ValueError(f"score_agg must be 'max', 'sum', or 'mean', got '{score_agg}'")
+
+    result = bim[["CHR", "BP", "SNP", "CM"]].copy()
+    result["ANNOT"] = score_vals
+    return result
+
+
+def make_continuous_annot_from_bimfile(
+    bimfile: str,
+    scores: pd.Series,
+    annot_file: str,
+    gene_coord_file: str,
+    windowsize: int = 100_000,
+    score_agg: Literal["max", "sum", "mean"] = "max",
+) -> dict[str, Any]:
+    """
+    Create a continuous S-LDSC annotation file from per-gene scores and a PLINK bimfile.
+
+    Each SNP is assigned a continuous value equal to the aggregated score of all
+    genes whose ±``windowsize`` bp window overlaps that SNP position.  SNPs with no
+    overlapping gene receive 0.
+
+    The output file contains columns CHR, BP, SNP, CM, ANNOT — the same full format
+    written by :func:`make_annot_from_bimfile`, so both annotation types feed into
+    :func:`compute_ld_scores_with_annotations_from_bimfile` with identical calls.
+
+    Parameters
+    ----------
+    bimfile
+        Path to PLINK .bim file defining the SNPs for this chromosome.
+        Typically from the 1000 Genomes reference panel, e.g.
+        ``"1000G_EUR_Phase3_plink/1000G.EUR.QC.22.bim"``.
+    scores
+        Per-gene scores indexed by gene IDs that match those in
+        ``gene_coord_file`` (typically ENSG IDs).  Genes absent from
+        ``gene_coord_file`` are silently ignored.
+    annot_file
+        Output annotation file path.  Should end in ``.annot.gz``.
+    gene_coord_file
+        Tab-separated gene coordinate file.  Two formats are accepted:
+
+        * **Headed** — columns ``GENE``, ``CHR``, ``START``, ``END``
+          (as produced by :func:`generate_gene_coord_file`).
+        * **Headless** — four columns ``gene``, ``chr``, ``start``, ``end``
+          (the ``.gene.loc`` format used in the combined_pipeline).
+    windowsize
+        Base pairs to extend upstream and downstream of each gene body.
+        Default 100 000 bp matches the combined_pipeline convention.
+    score_agg
+        Aggregation rule when multiple gene windows overlap a SNP:
+
+        * ``"max"`` *(default)* — highest gene score (matches combined_pipeline).
+        * ``"sum"`` — sum all overlapping gene scores.
+        * ``"mean"`` — average overlapping gene scores.
+
+    Returns
+    -------
+    dict
+        ``annot_file`` — path to the written file.
+        ``files_created`` — list containing that path.
+        ``n_nonzero_snps`` — number of SNPs that received a non-zero score.
+        ``n_genes_matched`` — number of genes with both a score and coordinates.
+
+    Examples
+    --------
+    **Interchangeable use with binary annotations**
+
+    Both annotation types write CHR/BP/SNP/CM/ANNOT files, so the downstream call
+    is identical:
+
+    >>> # Binary annotation
+    >>> make_annot_from_bimfile(
+    ...     bimfile="1000G.EUR.QC.22.bim",
+    ...     annot_file="ExcL2-3.22.annot.gz",
+    ...     gene_set_file="ExcL2-3.GeneSet",
+    ...     gene_coord_file="ENSG_coord.txt",
+    ...     windowsize=100_000,
+    ... )
+    >>> # Continuous annotation
+    >>> make_continuous_annot_from_bimfile(
+    ...     bimfile="1000G.EUR.QC.22.bim",
+    ...     scores=specificity_df["ExcL2-3"],
+    ...     annot_file="ExcL2-3.22.annot.gz",
+    ...     gene_coord_file="gencode_v39_grch38_ensg.gene.loc",
+    ... )
+    >>> # Identical downstream call for both annotation types:
+    >>> compute_ld_scores_with_annotations_from_bimfile(
+    ...     bfile_prefix="1000G.EUR.QC.22",
+    ...     annot_file="ExcL2-3.22.annot.gz",
+    ...     out_prefix="ExcL2-3.22",
+    ...     print_snps="hapmap3_snps/hm.22.snp",
+    ... )
+
+    **Loop over all chromosomes:**
+
+    >>> scores = pd.read_csv("seismic/scores.csv", index_col=0)["ExcL2-3"]
+    >>> for chrom in range(1, 23):
+    ...     make_continuous_annot_from_bimfile(
+    ...         bimfile=f"1000G_EUR/1000G.EUR.QC.{chrom}.bim",
+    ...         scores=scores,
+    ...         annot_file=f"annots/ExcL2-3.{chrom}.annot.gz",
+    ...         gene_coord_file="gencode_v39_grch38_ensg.gene.loc",
+    ...     )
+    ...     compute_ld_scores_with_annotations_from_bimfile(
+    ...         bfile_prefix=f"1000G_EUR/1000G.EUR.QC.{chrom}",
+    ...         annot_file=f"annots/ExcL2-3.{chrom}.annot.gz",
+    ...         out_prefix=f"annots/ExcL2-3.{chrom}",
+    ...         print_snps=f"hapmap3_snps/hm.{chrom}.snp",
+    ...     )
+
+    See Also
+    --------
+    make_continuous_annot_from_donor_data : Same workflow from a DonorData object.
+    make_annot_from_bimfile : Binary annotation variant (calls make_annot.py).
+    compute_ld_scores_with_annotations_from_bimfile : Next step after annotation.
+    estimate_celltype_specific_heritability : Final h2-cts step.
+    """
+    gene_coords = _load_gene_coord_file(gene_coord_file)
+    annot_df = _compute_continuous_annot_for_bimfile(
+        bimfile=bimfile,
+        scores=scores,
+        gene_coords=gene_coords,
+        windowsize=windowsize,
+        score_agg=score_agg,
+    )
+
+    os.makedirs(os.path.dirname(os.path.abspath(annot_file)), exist_ok=True)
+    annot_df[["CHR", "BP", "SNP", "CM", "ANNOT"]].to_csv(
+        annot_file, sep="\t", index=False, compression="gzip"
+    )
+
+    n_nonzero = int((annot_df["ANNOT"] != 0).sum())
+    n_matched = int(gene_coords["gene"].isin(scores.index.astype(str)).sum())
+    logger.info(
+        f"Wrote continuous annotation: {annot_file} "
+        f"({n_nonzero:,} non-zero SNPs, {n_matched:,} genes matched)"
+    )
+
+    return {
+        "annot_file": annot_file,
+        "files_created": [annot_file],
+        "n_nonzero_snps": n_nonzero,
+        "n_genes_matched": n_matched,
+    }
+
+
+def make_continuous_annot_from_donor_data(
+    dd: DonorData,
+    scores: pd.Series,
+    annot_file: str,
+    gene_coord_file: str,
+    windowsize: int = 100_000,
+    score_agg: Literal["max", "sum", "mean"] = "max",
+    out_prefix: str = "ldsc_continuous_annot",
+    cleanup_files: bool = True,
+    plink_export_kwargs: dict | None = None,
+) -> dict[str, Any]:
+    """
+    Create a continuous S-LDSC annotation file from per-gene scores and a DonorData object.
+
+    Convenience wrapper that exports genotype data from a
+    :class:`~cellink._core.DonorData` object to PLINK format, then delegates to
+    :func:`make_continuous_annot_from_bimfile`.
+
+    The output file contains columns CHR, BP, SNP, CM, ANNOT — the same full format
+    as :func:`make_annot_from_donor_data`, so both annotation types are
+    interchangeable downstream.
+
+    Parameters
+    ----------
+    dd
+        DonorData object containing genotype information.
+    scores
+        Per-gene scores indexed by gene IDs matching ``gene_coord_file``.
+    annot_file
+        Output annotation file path (e.g. ``"CD8_Naive.22.annot.gz"``).
+    gene_coord_file
+        Gene coordinate file — see :func:`make_continuous_annot_from_bimfile`.
+    windowsize
+        Flanking window in bp around each gene body (default 100 000).
+    score_agg
+        Aggregation for overlapping gene windows: ``"max"``, ``"sum"``, or ``"mean"``.
+    out_prefix
+        Prefix for the temporary PLINK files created during export.
+    cleanup_files
+        Remove temporary ``.bed``/``.bim``/``.fam`` files after annotation is written.
+    plink_export_kwargs
+        Extra keyword arguments forwarded to :func:`~cellink.io.to_plink`.
+
+    Returns
+    -------
+    dict
+        Same as :func:`make_continuous_annot_from_bimfile`.
+
+    Examples
+    --------
+    >>> result = make_continuous_annot_from_donor_data(
+    ...     dd=my_donor_data,
+    ...     scores=specificity_df["ExcL2-3"],
+    ...     annot_file="annots/ExcL2-3.annot.gz",
+    ...     gene_coord_file="gene_coords.txt",
+    ... )
+    >>> # Same call as for binary make_annot_from_donor_data:
+    >>> compute_ld_scores_with_annotations_from_donor_data(
+    ...     dd=my_donor_data,
+    ...     annot_file="annots/ExcL2-3.annot.gz",
+    ...     out_prefix="annots/ExcL2-3",
+    ... )
+
+    See Also
+    --------
+    make_continuous_annot_from_bimfile : Works directly from a .bim file path.
+    make_annot_from_donor_data : Binary annotation variant.
+    """
+    if plink_export_kwargs is None:
+        plink_export_kwargs = {}
+
+    logger.info("Exporting genotype data to PLINK format for continuous annotation creation")
+    to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    bimfile = f"{out_prefix}.bim"
+
+    results = make_continuous_annot_from_bimfile(
+        bimfile=bimfile,
+        scores=scores,
+        annot_file=annot_file,
+        gene_coord_file=gene_coord_file,
+        windowsize=windowsize,
+        score_agg=score_agg,
+    )
+
+    if cleanup_files:
+        for ext in [".bim", ".fam", ".bed"]:
+            path = out_prefix + ext
+            if os.path.isfile(path):
+                os.remove(path)
+                logger.info(f"Cleaned up: {path}")
+
+    return results
