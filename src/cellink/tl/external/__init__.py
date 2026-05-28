@@ -27,6 +27,13 @@ from ._saigeqtl import (
     run_saigeqtl,
 )
 from ._scdrs import run_scdrs
+from ._scprs import (
+    prepare_scprs_data,
+    get_plink_commands_per_cell,
+    write_slurm_array_job,
+    get_disease_relevant_cells,
+    run_scprs_pipeline,
+)
 from ._seismic import run_seismic
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
 from ._magma import run_magma_pipeline
@@ -102,6 +109,12 @@ __all__ = [
     "check_and_patch_ldsc_parse_bug",
     ###
     "JointNMFWrapper",
+    ###
+    "prepare_scprs_data",
+    "get_plink_commands_per_cell",
+    "write_slurm_array_job",
+    "get_disease_relevant_cells",
+    "run_scprs_pipeline",
 ]
 
 
