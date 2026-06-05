@@ -1,5 +1,12 @@
 import anndata
-import dask.array as da
+
+try:
+    import dask.array as da
+
+    _DASK_ARRAY_TYPE: tuple[type, ...] = (da.Array,)
+except ImportError:
+    da = None  # type: ignore[assignment]
+    _DASK_ARRAY_TYPE = ()
 
 
 def variant_qc(
@@ -33,8 +40,8 @@ def variant_qc(
     """
     X = adata.X
 
-    if not isinstance(X, da.Array):
-        raise ValueError("adata.X must be a Dask array.")
+    if not isinstance(X, _DASK_ARRAY_TYPE):
+        raise ValueError("adata.X must be a Dask array. Install dask with: pip install 'cellink[zarr]'")
 
     allele_freq = da.sum(X, axis=0) / (2 * X.shape[0])
     maf = da.minimum(allele_freq, 1 - allele_freq)

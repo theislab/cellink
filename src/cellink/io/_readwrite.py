@@ -1,9 +1,7 @@
 import warnings
 
 import h5py
-import zarr
 from anndata._io.specs.registry import read_elem
-from anndata._io.zarr import read_dataframe
 from anndata._types import StorageType
 from anndata.compat import _read_attr
 from anndata.io import read_elem
@@ -46,6 +44,7 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     - Adapted from `mudata._core.io.read_h5mu`.
     - Preserves modality ordering if the `mod-order` attribute is present in the group.
     """
+    from anndata._io.zarr import read_dataframe
 
     d = {}
     for k in group.keys():
@@ -162,7 +161,9 @@ def read_zarr_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-        
+    from cellink._optional_deps import import_zarr
+
+    zarr = import_zarr()
     f = zarr.open(path, mode="r")
     return _read_dd(f)
 

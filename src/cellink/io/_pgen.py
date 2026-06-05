@@ -6,11 +6,9 @@ from pathlib import Path
 from typing import Literal, Optional, Union
 
 import anndata as ad
-import dask.array as da
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-import zarr
 from anndata.experimental import read_dispatched
 from anndata.io import read_elem
 from tqdm.auto import tqdm
@@ -70,6 +68,10 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     >>> # Trigger computation
     >>> X = adata.X.compute()
     """
+    from cellink._optional_deps import import_dask_array, import_zarr
+
+    zarr = import_zarr()
+    da = import_dask_array()
     f = zarr.open(str(store), mode="r")
 
     def callback(func, elem_name: str, elem, iospec):
@@ -155,9 +157,10 @@ def stream_pgen_to_zarr(
         raise ImportError("pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`.")
 
     try:
+        import zarr
         from zarr.codecs import BloscCodec, BloscShuffle
     except ImportError:
-        raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.")
+        raise ImportError("zarr>=3 is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`.")
 
     if isinstance(pgen_path, str):
         pgen_paths = [pgen_path]

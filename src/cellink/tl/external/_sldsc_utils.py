@@ -392,8 +392,9 @@ def generate_sldsc_genesets(
                 raise ValueError("No overlapping genes found between specificity_df index and adata.var[gene_col].")
 
             logger.info(f"Overlapping genes: {len(overlap)}/{specificity_df.shape[0]}")
-            specificity_df = specificity_df.loc[spec_upper.isin(overlap).values].copy()
-            specificity_df.index = spec_upper[spec_upper.isin(overlap)].values  # normalized
+            mask = spec_upper.isin(overlap)  # pd.Index.isin() returns numpy bool array
+            specificity_df = specificity_df.loc[mask].copy()
+            specificity_df.index = spec_upper[mask].values  # normalized
 
     # ---- Select top genes per cell type ----
     n_genes = specificity_df.shape[0]

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import h5py
 import pandas as pd
 import scanpy as sc
-import zarr
 from anndata import AnnData
 from anndata.io import write_elem
 from mudata import MuData
@@ -147,6 +146,9 @@ class DonorData:
         -------
         write_dd('path/to/donor_data.dd.zarr')
         """
+        from cellink._optional_deps import import_zarr
+
+        zarr = import_zarr()
         for m in [self.G, self.C]:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")

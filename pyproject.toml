@@ -30,7 +30,6 @@ dependencies = [
   "adjusttext",
   "anndata",
   "bed-reader",
-  "dask",
   "limix-core",
   "muon",
   "pandas",
@@ -42,9 +41,13 @@ dependencies = [
   "rich",
   "scanpy",
   "xarray",
-  "zarr>=3",
   # for debug logging (referenced from the issue template)
   "session-info",
+]
+
+optional-dependencies.zarr = [
+  "zarr>=3",
+  "dask",
 ]
 
 optional-dependencies.datasets = [
@@ -55,7 +58,8 @@ optional-dependencies.datasets = [
 
 optional-dependencies.pgen = [
   "pgenlib",
-  "zarr>3",
+  "zarr>=3",
+  "dask",
 ]
 
 optional-dependencies.dev = [

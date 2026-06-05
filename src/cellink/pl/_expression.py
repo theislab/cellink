@@ -1,8 +1,15 @@
 import logging
 from typing import Literal
 
-import dask.array as da
 import matplotlib.pyplot as plt
+
+try:
+    import dask.array as da
+
+    _DASK_ARRAY_TYPE: tuple[type, ...] = (da.Array,)
+except ImportError:
+    da = None  # type: ignore[assignment]
+    _DASK_ARRAY_TYPE = ()
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -118,7 +125,7 @@ def expression_by_genotype(
         2: dd_G.var[a1].iloc[0] * 2,
     }
     X = dd_G.X
-    if isinstance(X, da.Array):
+    if isinstance(X, _DASK_ARRAY_TYPE):
         X = X.compute()
     donor_to_genotype = pd.Series(np.squeeze(X), index=dd_G.obs.index)
     donor_to_genotype = donor_to_genotype.map(geno_label_map)

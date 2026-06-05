@@ -1,17 +1,25 @@
+from __future__ import annotations
+
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-import dask.array as da
 import numpy as np
 import pandas as pd
-
 import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
 
 from cellink._core.data_fields import DAnn, VAnn
+
+try:
+    import dask.array as da
+
+    _DASK_AVAILABLE = True
+except ImportError:
+    da = None  # type: ignore[assignment]
+    _DASK_AVAILABLE = False
 
 warnings.filterwarnings(
     "ignore",
@@ -93,7 +101,7 @@ def from_sgkit_dataset(
     var_rename: dict | None = None,
     obs_rename: dict | None = None,
     X_field: str = "GT",
-    hard_call: bool = True, 
+    hard_call: bool = True,
     keep_multiallelic: bool = False,
     load_call_fields: Iterable[str] | None = None,
 ) -> AnnData:
@@ -123,6 +131,11 @@ def from_sgkit_dataset(
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
     """
+    if not _DASK_AVAILABLE:
+        from cellink._optional_deps import import_dask_array
+
+        import_dask_array()  # raises ImportError with install hint
+
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
     load_call_fields = None if load_call_fields is None else set(load_call_fields)

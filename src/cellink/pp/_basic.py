@@ -1,6 +1,13 @@
 import anndata
-import dask.array as da
 import numpy as np
+
+try:
+    import dask.array as da
+
+    _DASK_ARRAY_TYPE: tuple[type, ...] = (da.Array,)
+except ImportError:
+    da = None  # type: ignore[assignment]
+    _DASK_ARRAY_TYPE = ()
 
 from .._core import DonorData
 
@@ -157,18 +164,18 @@ def low_abundance_filter(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, _DASK_ARRAY_TYPE + (np.ndarray,)):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "mean":
-        abundance = da.mean(X, axis=0) if isinstance(X, da.Array) else np.mean(X, axis=0)
+        abundance = da.mean(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.mean(X, axis=0)
     elif method == "median":
-        abundance = da.median(X, axis=0) if isinstance(X, da.Array) else np.median(X, axis=0)
+        abundance = da.median(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.median(X, axis=0)
     else:
         raise NotImplementedError("Method must be either 'mean' or 'median'.")
 
     abundance_filter = abundance >= abundance_threshold
-    abundance_filter = abundance_filter.compute() if isinstance(abundance_filter, da.Array) else abundance_filter
+    abundance_filter = abundance_filter.compute() if isinstance(abundance_filter, _DASK_ARRAY_TYPE) else abundance_filter
 
     adata = adata[:, abundance_filter].copy()
 
@@ -206,14 +213,14 @@ def missing_values_filter(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, _DASK_ARRAY_TYPE + (np.ndarray,)):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
-    is_missing = da.isnan(X) if isinstance(X, da.Array) else np.isnan(X)
-    missing_ratio = da.mean(is_missing, axis=0) if isinstance(X, da.Array) else np.mean(is_missing, axis=0)
+    is_missing = da.isnan(X) if isinstance(X, _DASK_ARRAY_TYPE) else np.isnan(X)
+    missing_ratio = da.mean(is_missing, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.mean(is_missing, axis=0)
 
     valid_features = missing_ratio <= max_missing_ratio
-    valid_features = valid_features.compute() if isinstance(valid_features, da.Array) else valid_features
+    valid_features = valid_features.compute() if isinstance(valid_features, _DASK_ARRAY_TYPE) else valid_features
 
     adata = adata[:, valid_features]
 
@@ -253,11 +260,11 @@ def log_transform(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, _DASK_ARRAY_TYPE + (np.ndarray,)):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     log_base = np.log(base)
-    X_log = da.log1p(X) / log_base if isinstance(X, da.Array) else np.log1p(X) / log_base
+    X_log = da.log1p(X) / log_base if isinstance(X, _DASK_ARRAY_TYPE) else np.log1p(X) / log_base
 
     adata.X = X_log
 
@@ -296,19 +303,19 @@ def normalize(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, _DASK_ARRAY_TYPE + (np.ndarray,)):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "zscore":
-        mean = da.mean(X, axis=0) if isinstance(X, da.Array) else np.mean(X, axis=0)
-        std = da.std(X, axis=0) if isinstance(X, da.Array) else np.std(X, axis=0)
+        mean = da.mean(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.mean(X, axis=0)
+        std = da.std(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.std(X, axis=0)
         X_norm = (X - mean) / std
     elif method == "minmax":
-        min_val = da.min(X, axis=0) if isinstance(X, da.Array) else np.min(X, axis=0)
-        max_val = da.max(X, axis=0) if isinstance(X, da.Array) else np.max(X, axis=0)
+        min_val = da.min(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.min(X, axis=0)
+        max_val = da.max(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.max(X, axis=0)
         X_norm = (X - min_val) / (max_val - min_val)
     elif method == "median":
-        median = da.median(X, axis=0) if isinstance(X, da.Array) else np.median(X, axis=0)
+        median = da.median(X, axis=0) if isinstance(X, _DASK_ARRAY_TYPE) else np.median(X, axis=0)
         X_norm = X - median
     else:
         raise ValueError("Invalid method. Choose from 'zscore', 'minmax', or 'median'.")

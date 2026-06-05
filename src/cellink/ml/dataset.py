@@ -1,18 +1,15 @@
-from typing import Any
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import torch
 
 try:
-    from torch.utils.data import Dataset, DataLoader
+    from torch.utils.data import DataLoader, Dataset
 except ImportError:
     Dataset = None
     DataLoader = None
 from anndata import AnnData
 from mudata import MuData
-import numpy as np
-import dask.array as da
-from typing import Optional, List, Union, Dict, Any
 from .._core import DonorData
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 from anndata.utils import asarray
