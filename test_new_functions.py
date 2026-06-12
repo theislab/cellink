@@ -1,7 +1,7 @@
 """
 Tests for all new cellink.tl.external functions:
-  - make_continuous_annot_from_bimfile
-  - make_continuous_annot_from_donor_data  (skipped: needs DonorData env)
+  - make_annot_from_bimfile
+  - make_annot_from_donor_data  (skipped: needs DonorData env)
   - scores_to_gmt
   - scores_to_covar
   - genesets_dir_to_entrez_gmt
@@ -67,7 +67,7 @@ _stub_module("cellink.resources", _utils=None)
 _stub_module("cellink.resources._utils", get_data_home=lambda *a, **kw: "/tmp")
 
 _ldsc = _load("cellink_ldsc", "cellink/tl/external/_ldsc.py")
-make_continuous_annot_from_bimfile = _ldsc.make_continuous_annot_from_bimfile
+make_annot_from_bimfile = _ldsc.make_annot_from_bimfile
 
 # ---------------------------------------------------------------------------
 # Known real paths
@@ -136,7 +136,7 @@ def make_synthetic_gene_coord(chrom=22, n_genes=50, seed=2):
 
 
 # ---------------------------------------------------------------------------
-# Test 1: make_continuous_annot_from_bimfile (synthetic data)
+# Test 1: make_annot_from_bimfile (synthetic data)
 # ---------------------------------------------------------------------------
 
 def test_continuous_annot_synthetic():
@@ -156,7 +156,7 @@ def test_continuous_annot_synthetic():
         # use first cell type column as a Series
         scores = scores_df["CT1"].dropna()
 
-        result = make_continuous_annot_from_bimfile(
+        result = make_annot_from_bimfile(
             bimfile=bim_path,
             scores=scores,
             annot_file=annot_path,
@@ -173,7 +173,7 @@ def test_continuous_annot_synthetic():
         assert result["n_nonzero_snps"] >= 0
         assert result["n_genes_matched"] >= 0
 
-    ok("make_continuous_annot_from_bimfile (synthetic)")
+    ok("make_annot_from_bimfile (synthetic)")
 
 
 def test_continuous_annot_score_agg_variants():
@@ -193,7 +193,7 @@ def test_continuous_annot_score_agg_variants():
         results = {}
         for agg in ("max", "sum", "mean"):
             out_path = os.path.join(tmp, f"CT1_{agg}.annot.gz")
-            res = make_continuous_annot_from_bimfile(
+            res = make_annot_from_bimfile(
                 bimfile=bim_path, scores=scores, annot_file=out_path,
                 gene_coord_file=coord_path, score_agg=agg,
             )
@@ -204,7 +204,7 @@ def test_continuous_annot_score_agg_variants():
         # sum >= max for genes with overlapping windows
         assert (results["sum"] >= results["max"] - 1e-12).all(), "sum should be >= max"
 
-    ok("make_continuous_annot_from_bimfile score_agg variants")
+    ok("make_annot_from_bimfile score_agg variants")
 
 
 def test_continuous_annot_real_bim():
@@ -221,7 +221,7 @@ def test_continuous_annot_real_bim():
 
     with tempfile.TemporaryDirectory() as tmp:
         annot_path = os.path.join(tmp, "real_ct.22.annot.gz")
-        result = make_continuous_annot_from_bimfile(
+        result = make_annot_from_bimfile(
             bimfile=BIM22,
             scores=scores,
             annot_file=annot_path,
@@ -234,7 +234,7 @@ def test_continuous_annot_real_bim():
         print(f"    real bim chr22: {result['n_nonzero_snps']:,} non-zero SNPs / {len(out):,} total, "
               f"{result['n_genes_matched']:,} genes matched")
 
-    ok("make_continuous_annot_from_bimfile (real chr22 bim)")
+    ok("make_annot_from_bimfile (real chr22 bim)")
 
 
 # ---------------------------------------------------------------------------
