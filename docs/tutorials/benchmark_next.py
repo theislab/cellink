@@ -91,6 +91,7 @@ def train_yields(n_epochs, batch_size, chunk_size, preload_nchunks, preload_ndon
         loader_G = Loader(
             return_index=True,
             batch_sampler=donor_sampler,
+            preload_to_gpu=False,
         ).use_collection(dd_G_collection)
         loader_G_iter = iter(loader_G)
 
@@ -104,7 +105,7 @@ def train_yields(n_epochs, batch_size, chunk_size, preload_nchunks, preload_ndon
             batch["donor_g"] = donors_g
             yield batch
 
-a = train_yields(1, batch_size=1024, chunk_size=128, preload_nchunks=64, preload_ndonors=120)
+a = train_yields(1, batch_size=1024, chunk_size=128, preload_nchunks=64, preload_ndonors=1024)
 
 print("Pre-warming/Running first next(a)...")
 b = next(a)
