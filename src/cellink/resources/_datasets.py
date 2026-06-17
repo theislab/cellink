@@ -586,6 +586,55 @@ def get_onek1k(
 
         return dd
 
+_DUMMY_DATA_ROOT = "/project/genomics/ayshan/cellink_dummy_data"
+
+
+def get_dummy_data_paths() -> dict:
+    """
+    Return paths to bundled dummy dataset files for MAGMA tutorial examples.
+
+    All paths point to the pre-generated small dataset under
+    ``/project/genomics/ayshan/cellink_dummy_data/``. Use these in tutorials
+    and tests to avoid hardcoded machine paths.
+
+    Returns
+    -------
+    dict with keys:
+
+    ``h5ad``
+        Path to the dummy OneK1K expression AnnData.
+    ``gene_coord``
+        Tab-separated gene coordinate file (GENE / CHR / START / END).
+    ``bimfile``
+        Template string for per-chromosome bimfiles; fill with ``{chrom}``.
+    ``bimfile_prefix``
+        Prefix for LD-score functions; fill ``{chrom}`` to get the full prefix.
+    ``genes_raw``
+        Dummy MAGMA ``.genes.raw`` file for demonstrating Step III.
+    ``gwas_snp_loc``
+        Dummy GWAS SNP location file (SNP / CHR / BP) for MAGMA Step I.
+    ``gwas_pval``
+        Dummy GWAS p-value file (SNP / CHR / BP / P / N) for MAGMA Step II.
+
+    Examples
+    --------
+    >>> from cellink.resources import get_dummy_data_paths
+    >>> paths = get_dummy_data_paths()
+    >>> bimfile_chr22 = paths["bimfile"].format(chrom=22)
+    """
+    from pathlib import Path
+    root = Path(_DUMMY_DATA_ROOT)
+    return {
+        "h5ad":           str(root / "onek1k" / "onek1k_dummy.h5ad"),
+        "gene_coord":     str(root / "gene_coord.txt"),
+        "bimfile":        str(root / "bimfiles" / "dummy.{chrom}.bim"),
+        "bimfile_prefix": str(root / "bimfiles" / "dummy.{chrom}"),
+        "genes_raw":      str(root / "magma" / "dummy.genes.raw"),
+        "gwas_snp_loc":   str(root / "magma" / "dummy_gwas_snps.txt"),
+        "gwas_pval":      str(root / "magma" / "dummy_gwas_pval.txt"),
+    }
+
+
 def get_dummy_onek1k(
     config_path: str = "./cellink/resources/config/dummy_onek1k.yaml",
     data_home: str | None = None,

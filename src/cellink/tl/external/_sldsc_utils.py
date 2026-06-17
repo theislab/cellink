@@ -688,3 +688,75 @@ def generate_gene_coord_file(
     coord_df.to_csv(out_path, sep="\t", index=False)
 
     logger.info(f"Successfully created gene coordinate file: {out_path}")
+def get_magma_gene_loc(
+    genome_build: Literal["GRCh37", "GRCh38"] = "GRCh38",
+    data_home: "str | Path | None" = None,
+    overwrite: bool = False,
+) -> str:
+    """
+    Download and cache a MAGMA-compatible gene location file from Ensembl BioMart.
+
+    The file is in the headless four-column format expected by MAGMA's
+    ``--gene-loc`` argument: ``ENSG_ID  CHR  START  END`` (tab-separated, no
+    header, numeric chromosome names).  It is cached to
+    ``<data_home>/magma/gene_loc_<genome_build>.txt`` and only re-fetched when
+    ``overwrite=True``.
+
+    Parameters
+    ----------
+    genome_build : {"GRCh38", "GRCh37"}, default "GRCh38"
+        Genome assembly to query from Ensembl BioMart.
+    data_home : str or Path, optional
+        Directory for caching.  Defaults to ``~/cellink_data`` (or the
+        ``CELLINK_DATA`` environment variable).
+    overwrite : bool, default False
+        Re-fetch from BioMart even if the cached file already exists.
+
+    Returns
+    -------
+    str
+        Absolute path to the cached gene location file.
+
+    Examples
+    --------
+    >>> from cellink.tl.external import get_magma_gene_loc
+    >>> gene_loc = get_magma_gene_loc()          # GRCh38, cached
+    >>> run_magma_annotate(snp_loc=..., gene_loc=gene_loc, out_prefix=...)
+
+    See Also
+    --------
+    generate_gene_coord_file : Headed GENE/CHR/START/END format for S-LDSC.
+    run_magma_annotate : MAGMA Step I — uses the gene location file.
+    """
+    from cellink.resources._utils import get_data_home
+
+    cache_dir = get_data_home(data_home) / "magma"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out_path = cache_dir / f"gene_loc_{genome_build}.txt"
+
+    if out_path.exists() and not overwrite:
+        logger.info("Using cached MAGMA gene location file: %s", out_path)
+        return str(out_path)
+
+    logger.info("Fetching gene annotations for MAGMA from Ensembl %s ...", genome_build)
+    anno_df = _fetch_ensembl_annotation(genome_build=genome_build,
+                                        gene_identifier_mode="ensembl")
+
+    gene_loc = anno_df[["gene", "chrom", "start", "end"]].copy()
+
+    # Strip version suffixes (ENSG000001234.5 → ENSG000001234)
+    gene_loc["gene"] = gene_loc["gene"].astype(str).str.replace(r"\..*$", "", regex=True)
+
+    # MAGMA expects numeric chromosome names (no "chr" prefix)
+    gene_loc["chrom"] = gene_loc["chrom"].astype(str).str.replace("^chr", "", regex=True)
+
+    # Keep only autosomes + X/Y; drop patches/scaffolds
+    valid_chroms = {str(c) for c in range(1, 23)} | {"X", "Y"}
+    gene_loc = gene_loc[gene_loc["chrom"].isin(valid_chroms)]
+
+    gene_loc["start"] = gene_loc["start"].astype(int)
+    gene_loc["end"]   = gene_loc["end"].astype(int)
+    gene_loc = gene_loc.drop_duplicates(subset=["gene"], keep="first")
+    gene_loc = gene_loc.sort_values(["chrom", "start"])
+
+
