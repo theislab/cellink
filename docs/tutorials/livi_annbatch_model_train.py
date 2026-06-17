@@ -46,6 +46,7 @@ SHUFFLE = True
 DROP_LAST = True
 MAX_EPOCHS = 3
 SEED = 42
+PRELOAD_TO_GPU = True
 
 seed_everything(SEED, workers=True)
 
@@ -163,7 +164,7 @@ class AnnbatchLIVIDataModule(LightningDataModule):
             shuffle=self.shuffle,
             drop_last=self.drop_last,
             to_torch=True,
-            preload_to_gpu=True,
+            preload_to_gpu=PRELOAD_TO_GPU,
             rng=np.random.default_rng(self.seed),
         ).use_collection(self.collection, load_adata=load_only_x_and_donor)
         return LIVIBatchAdapter(loader, self.donor_dtype)
