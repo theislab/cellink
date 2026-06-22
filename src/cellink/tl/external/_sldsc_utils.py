@@ -120,6 +120,7 @@ def preprocess_for_sldsc(
         anno_df = _fetch_ensembl_annotation(genome_build=genome_build, gene_identifier_mode=gene_identifier_mode)
         if gene_col is None:
             adata.var["gene"] = adata.var_names
+            gene_col = "gene"
         adata.var["gene_upper"] = adata.var[gene_col].str.upper()
         if remove_version_suffix:
             logger.info("Removing version suffixes from Gene IDs")
@@ -758,5 +759,10 @@ def get_magma_gene_loc(
     gene_loc["end"]   = gene_loc["end"].astype(int)
     gene_loc = gene_loc.drop_duplicates(subset=["gene"], keep="first")
     gene_loc = gene_loc.sort_values(["chrom", "start"])
+
+    # Write headless (no column names) — MAGMA format
+    gene_loc.to_csv(out_path, sep="\t", index=False, header=False)
+    logger.info("Wrote %d gene locations to %s", len(gene_loc), out_path)
+    return str(out_path)
 
 

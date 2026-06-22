@@ -601,8 +601,6 @@ def get_dummy_data_paths() -> dict:
     -------
     dict with keys:
 
-    ``h5ad``
-        Path to the dummy OneK1K expression AnnData.
     ``gene_coord``
         Tab-separated gene coordinate file (GENE / CHR / START / END).
     ``bimfile``
@@ -622,10 +620,8 @@ def get_dummy_data_paths() -> dict:
     >>> paths = get_dummy_data_paths()
     >>> bimfile_chr22 = paths["bimfile"].format(chrom=22)
     """
-    from pathlib import Path
     root = Path(_DUMMY_DATA_ROOT)
     return {
-        "h5ad":           str(root / "onek1k" / "onek1k_dummy.h5ad"),
         "gene_coord":     str(root / "gene_coord.txt"),
         "bimfile":        str(root / "bimfiles" / "dummy.{chrom}.bim"),
         "bimfile_prefix": str(root / "bimfiles" / "dummy.{chrom}"),
@@ -636,7 +632,7 @@ def get_dummy_data_paths() -> dict:
 
 
 def get_dummy_onek1k(
-    config_path: str = "./cellink/resources/config/dummy_onek1k.yaml",
+    config_path: str = str(Path(__file__).parent / "config" / "dummy_onek1k.yaml"),
     data_home: str | None = None,
     verify_checksum: bool = True,
 ) -> DonorData:
