@@ -46,8 +46,6 @@ from ._scprs import (
 )
 from ._seismic import run_seismic
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
-from ._magma import run_magma_pipeline
-from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, preprocess_for_sldsc
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 from ._sclinker import (
     compute_celltype_programs,

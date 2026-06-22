@@ -1,20 +1,64 @@
 import logging
+import os
+import re
+import subprocess
+import tempfile
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def _load_ensembl_to_entrez_map(
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _safe_name(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s)).strip("_")
+
+
+def _resolve_gene_map(gene_map: "str | Path | pd.Series | None") -> "pd.Series | None":
+    """Return a Series indexed by gene symbol with ENSG values, or None."""
+    if gene_map is None:
+        return None
+    if isinstance(gene_map, pd.Series):
+        return gene_map
+    return pd.read_csv(gene_map, sep="\t").set_index("gene_name")["ensg_id"]
+
+
+def _to_ensg(index: pd.Index, gmap: "pd.Series | None") -> pd.Index:
+    """Map an index through gmap (if provided) and keep only ENSG IDs."""
+    idx = index.astype(str)
+    if gmap is not None:
+        idx = pd.Index([gmap.get(g, g) for g in idx])
+    return idx
+
+
+def _run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
+    logger.info("Running: %s", " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.stdout:
+        logger.info(result.stdout)
+    if result.stderr:
+        logger.warning(result.stderr)
+    if check and result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+    return result
+
+
+def load_ensembl_to_entrez_map(
     map_tsv: str | Path,
-) -> pd.Series:  # TODO: Is this a private function or not. Where is this used? Can't find any anywhere this is called?
+) -> pd.Series:
     """
     Load a mapping TSV with columns:
       ensembl_gene_id   entrez_id
     Returns a Series indexed by ENSG (upper, no version) with values as string Entrez IDs.
+
+    Used internally by :func:`genesets_dir_to_entrez_gmt`, and can also be passed
+    directly as the ``gene_map`` argument to :func:`scores_to_gmt` / :func:`scores_to_covar`.
     """
-    # TODO EXPAND ON DOCUMENTATION IF PUBLIC FUNCTION
     map_tsv = Path(map_tsv)
     df = pd.read_csv(map_tsv, sep="\t", dtype=str)
 
@@ -95,7 +139,7 @@ def genesets_dir_to_entrez_gmt(
     # ---- Load offline map if provided ----
     ens2ent = None
     if ensembl_to_entrez_tsv is not None:
-        ens2ent = _load_ensembl_to_entrez_map(ensembl_to_entrez_tsv)
+        ens2ent = load_ensembl_to_entrez_map(ensembl_to_entrez_tsv)
         logger.info(f"Loaded Ensembl→Entrez map with {ens2ent.shape[0]} entries")
 
     # ---- Optional online fallback ----
@@ -225,54 +269,6 @@ def genesets_dir_to_entrez_gmt(
 
 
 # TODO: REMOVE THIS MAIN BLOCK IF THIS IS A PRIVATE MODULE
-if __name__ == "__main__":
-    import argparse
-
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
-
-    p = argparse.ArgumentParser(description="Convert Ensembl .GeneSet files to MAGMA .gmt with Entrez IDs")
-    p.add_argument(
-        "--geneset_dir",
-        default="ldsc_genesets",
-        help="Directory containing *.GeneSet (default: ldsc_genesets)",
-    )
-    p.add_argument(
-        "--out_gmt",
-        default=None,
-        help="Optional output .gmt path. If omitted, writes to sibling magma_genesets/genesets.gmt",
-    )
-    p.add_argument(
-        "--map_tsv",
-        default=None,
-        help="TSV with columns ensembl_gene_id and entrez_id (offline mapping)",
-    )
-    p.add_argument("--include_control", action="store_true")
-    p.add_argument(
-        "--allow_mygene_fallback",
-        action="store_true",
-        help="Use mygene.info for unmapped genes (needs internet)",
-    )
-    p.add_argument(
-        "--pattern",
-        default="*.GeneSet",
-        help="Glob pattern for gene set files (default: *.GeneSet)",
-    )
-    p.add_argument(
-        "--output_basename",
-        default="genesets.gmt",
-        help="Output filename when using default magma_genesets directory (default: genesets.gmt)",
-    )
-    args = p.parse_args()
-
-    genesets_dir_to_entrez_gmt(
-        geneset_dir=args.geneset_dir,
-        out_gmt=args.out_gmt,
-        ensembl_to_entrez_tsv=args.map_tsv,
-        include_control=args.include_control,
-        allow_mygene_fallback=args.allow_mygene_fallback,
-        pattern=args.pattern,
-        output_basename=args.output_basename,
-    )
 def scores_to_gmt(
     scores: pd.DataFrame,
     out_file: "str | Path",
@@ -599,14 +595,14 @@ def run_magma_gene_analysis(
     run_magma_gsa : Step III — gene-set analysis.
     run_magma_gpa : Step III — gene property analysis.
     """
-    pval_arg = pval_file
-    if n_samples is not None:
-        pval_arg = f"{pval_file} N={n_samples}"
-
     cmd = [
         magma_bin,
         "--bfile", bfile,
-        "--pval", pval_arg,
+        "--pval", pval_file,
+    ]
+    if n_samples is not None:
+        cmd += [f"N={n_samples}"]
+    cmd += [
         "--gene-annot", gene_annot,
         "--out", out_prefix,
     ]
@@ -846,7 +842,7 @@ def run_magma_gpa(
     with open(results_file, "w") as f:
         f.write("# UNIVARIATE GPA (each cell type tested independently)\n")
         f.write(
-            f"# {'VARIABLE':<36} {'TYPE':<6} {'NGENES':>6} "
+            f"{'VARIABLE':<36} {'TYPE':<6} {'NGENES':>6} "
             f"{'BETA':>12} {'BETA_STD':>12} {'SE':>12} {'P':>12} FULL_NAME\n"
         )
         for row in rows:
@@ -866,12 +862,14 @@ def run_magma_gpa(
     return {"results_file": results_file, "files_created": [results_file]}
 
 
+
+
 if __name__ == "__main__":
     import argparse
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
-    p = argparse.ArgumentParser(description="Convert .GeneSet files to MAGMA .gmt without ID conversion")
+    p = argparse.ArgumentParser(description="Convert Ensembl .GeneSet files to MAGMA .gmt with Entrez IDs")
     p.add_argument(
         "--geneset_dir",
         default="ldsc_genesets",
@@ -885,13 +883,13 @@ if __name__ == "__main__":
     p.add_argument(
         "--map_tsv",
         default=None,
-        help="Deprecated and ignored (no Ensembl→Entrez conversion is performed).",
+        help="TSV with columns ensembl_gene_id and entrez_id (offline mapping)",
     )
     p.add_argument("--include_control", action="store_true")
     p.add_argument(
         "--allow_mygene_fallback",
         action="store_true",
-        help="Deprecated and ignored (no Ensembl→Entrez conversion is performed).",
+        help="Use mygene.info for unmapped genes (needs internet)",
     )
     p.add_argument(
         "--pattern",

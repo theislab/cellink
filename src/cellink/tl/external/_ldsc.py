@@ -1152,11 +1152,14 @@ def make_annot_from_bimfile(
             gene_coords=gene_coords, windowsize=windowsize, score_agg=score_agg,
         )
         os.makedirs(os.path.dirname(os.path.abspath(annot_file)), exist_ok=True)
+        compression = "gzip" if annot_file.endswith(".gz") else None
         annot_df[["CHR", "BP", "SNP", "CM", "ANNOT"]].to_csv(
-            annot_file, sep="\t", index=False, compression="gzip"
+            annot_file, sep="\t", index=False, compression=compression
         )
         n_nonzero = int((annot_df["ANNOT"] != 0).sum())
-        n_matched = int(gene_coords["gene"].isin(scores.index.astype(str)).sum())
+        chrom = str(annot_df["CHR"].iloc[0])
+        chrom_genes = gene_coords[gene_coords["chr"].astype(str) == chrom]
+        n_matched = int(chrom_genes["gene"].isin(scores.index.astype(str)).sum())
         logger.info("Wrote continuous annotation: %s (%d non-zero SNPs, %d genes matched)",
                     annot_file, n_nonzero, n_matched)
         return {"annot_file": annot_file, "files_created": [annot_file],
@@ -1289,7 +1292,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
-    thin_annot: bool = True,
+    thin_annot: bool = False,
     maf_min: float = 0.01,
     yes_really: bool = True,
     run: bool = True,
@@ -1333,9 +1336,10 @@ def compute_ld_scores_with_annotations_from_bimfile(
         Commonly used with HapMap3 SNPs (e.g., "hapmap3_snps/hm.22.snp").
         The sum r^2 will still include all SNPs, but only listed SNPs will
         have LD scores computed.
-    thin_annot : bool, default True
+    thin_annot : bool, default False
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
-        Should typically be True for annotations created by make_annot functions.
+        Should typically be False for annotations created by make_annot_from_bimfile /
+        make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
     maf_min : float, default 0.01
         Minimum minor allele frequency threshold
     yes_really : bool, default True
@@ -1463,7 +1467,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
-    thin_annot: bool = True,
+    thin_annot: bool = False,
     maf_min: float = 0.01,
     yes_really: bool = True,
     cleanup_files: bool = True,
@@ -1505,9 +1509,10 @@ def compute_ld_scores_with_annotations_from_donor_data(
     print_snps : str, optional
         Path to file with SNP IDs (one per row) to restrict LD score computation.
         Commonly used with HapMap3 SNPs (e.g., "hapmap3_snps/hm.22.snp").
-    thin_annot : bool, default True
+    thin_annot : bool, default False
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
-        Should typically be True for annotations created by make_annot functions.
+        Should typically be False for annotations created by make_annot_from_bimfile /
+        make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
     maf_min : float, default 0.01
         Minimum minor allele frequency threshold
     yes_really : bool, default True
@@ -1816,6 +1821,9 @@ def _load_gene_coord_file(gene_coord_file: str) -> "pd.DataFrame":
     else:
         df = pd.read_csv(gene_coord_file, sep="\t", header=None,
                          names=["gene", "chr", "start", "end"])
+    # Normalize to bare numeric/X/Y chromosome names (PLINK .bim convention),
+    # regardless of whether the source file used a "chr" prefix.
+    df["chr"] = df["chr"].astype(str).str.replace("^chr", "", regex=True, case=False)
     return df[["gene", "chr", "start", "end"]]
 
 
