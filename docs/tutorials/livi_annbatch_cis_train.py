@@ -49,7 +49,7 @@ PRELOAD_TO_GPU = True                      # needs cupy-cuda12x
 N_CIS_SNPS = 2996                          # paper value
 N_TARGET_GENES = 2000
 CIS_GENES_PER_SNP = 5
-CELL_STATE_CIS = True                      # paper "cell-state" variant
+CELL_STATE_CIS = False                      # paper "cell-state" variant
 
 # --- model / training config: matches baseline & paper ---
 Z_DIM = 15
@@ -65,7 +65,7 @@ BATCH_NORM_DECODER = True
 GENETICS_SEED = 200
 SEED = 42
 BENCH_BATCHES = 50                         # cap (full epoch ~ hours at this scale)
-MAX_EPOCHS = 1
+MAX_EPOCHS = 5
 
 seed_everything(SEED, workers=True)
 runner = configure_livi_runner(livi_root=LIVI_ROOT, execution_mode="python_api", device="auto")
@@ -235,3 +235,5 @@ t0 = time.perf_counter()
 trainer.fit(model=model, datamodule=AnnbatchLIVICisDataModule())
 print(f"\n==== ANNBATCH cis (paper config, full genes) ====")
 print(f"batches: {BENCH_BATCHES}  total wall: {time.perf_counter() - t0:.1f}s")
+
+# %%
