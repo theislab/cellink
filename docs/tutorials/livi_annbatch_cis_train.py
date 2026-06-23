@@ -117,8 +117,16 @@ print(f"n_donors: {N_DONORS}  n_genes: {N_GENES}  covariates_dims: {COVARIATES_D
 # collection.obs() row order. The loader (return_index=True) yields batch["index"]
 # = global positions in that SAME order (use_collection adds datasets in
 # _dataset_keys order, which is also how collection.obs() concatenates), so the
-# per-batch adapter is a pure tensor gather -- no pandas lookup, codes stay on GPU.
-_code_dev = torch.device(DEVICE)
+# adapter gathers by integer position -- no pandas lookup.
+#
+# These tables are kept on CPU: each is (n_obs,) int64 = 8 B/cell and scales
+# linearly with #cells and #covariates, which can reach GB on large collections:
+#   ~1.3M cells (OneK1K):  ~10.4 MB each -> donor + 2 covariates ~= 31 MB total.
+#   ~10M cells:            ~80   MB each -> donor + 2 covariates ~= 240 MB total.
+#   ~50M cells:            ~400  MB each -> donor + 2 covariates ~= 1.2 GB total.
+# The per-batch adapter gathers on CPU and moves only the (batch_size,) slices to
+# DEVICE, so GPU memory holds tiny vectors regardless of collection size.
+_code_dev = torch.device("cpu")
 
 
 def _code_tensor(column, dtype, what):
@@ -265,22 +273,25 @@ class LIVICisBatchAdapter:
         self._checked = False
 
     def __iter__(self):
+        dev = GT_ARRAY.device                          # single compute device
         for batch in self._loader:
             x = batch["X"]
             if x.layout != torch.strided:
                 x = x.to_dense()
-            # Pure tensor gather: batch["index"] are global positions into the
-            # code tensors (built in collection.obs() order). Codes live on GPU.
-            pos = torch.as_tensor(batch["index"], dtype=torch.long, device=DONOR_CODES.device)
-            y = DONOR_CODES[pos]                                      # cells
+            x = x.to(dev)                              # no-op when X is preloaded on `dev`
+            # Code tables live on CPU (can be GB-scale); gather the (batch_size,)
+            # slices there from batch["index"] (global positions in collection.obs()
+            # order), then move only those small vectors to `dev`.
+            pos = torch.as_tensor(batch["index"], dtype=torch.long)  # CPU
+            y = DONOR_CODES[pos].to(dev)                             # cells
             if not self._checked:
                 _check_index_alignment(batch, pos)
                 self._checked = True
             gt_cells = GT_ARRAY[y]                                    # cells x N
-            covariates = [COVAR_CODES[k][pos].to(x.device) for k in COVARIATE_KEYS]
+            covariates = [COVAR_CODES[k][pos].to(dev) for k in COVARIATE_KEYS]
             yield {
                 "x": x,
-                "y": y.to(x.device),
+                "y": y,
                 "size_factor": x.sum(dim=1, keepdim=True),
                 "covariates": covariates,
                 "GT_cells": gt_cells,
