@@ -65,7 +65,7 @@ BATCH_NORM_DECODER = True
 GENETICS_SEED = 200
 SEED = 42
 BENCH_BATCHES = 50                         # cap (full epoch ~ hours at this scale)
-MAX_EPOCHS = 5
+MAX_EPOCHS = 10
 
 seed_everything(SEED, workers=True)
 runner = configure_livi_runner(livi_root=LIVI_ROOT, execution_mode="python_api", device="auto")
@@ -198,6 +198,12 @@ class AnnbatchLIVICisDataModule(LightningDataModule):
 # ## Throughput callback + train (capped at BENCH_BATCHES)
 
 # %%
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*no logger configured.*",
+)
 class ThroughputCallback(Callback):
     def on_train_epoch_start(self, trainer, pl_module):
         self.t0 = time.perf_counter()

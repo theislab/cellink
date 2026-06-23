@@ -52,7 +52,7 @@ A_WEIGHT = 1e-3
 BATCH_NORM_DECODER = True
 GENETICS_SEED = 200
 SEED = 42
-NUM_WORKERS = 0
+NUM_WORKERS = 15
 BENCH_BATCHES = 50
 MAX_EPOCHS = 10
 
@@ -96,6 +96,12 @@ print(f"cis set: {N_CIS_SNPS} SNPs | known_cis_eqtls: {known_cis_eqtls.shape} | 
 # ## Build the stock in-memory datamodule + model, train capped at BENCH_BATCHES
 
 # %%
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r".*no logger configured.*",
+)
 class ThroughputCallback(Callback):
     def on_train_epoch_start(self, trainer, pl_module):
         self.t0 = time.perf_counter()
