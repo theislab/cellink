@@ -36,7 +36,7 @@ COVARIATE_KEYS = ["pool_number", "sex"]
 N_CIS_SNPS = 2996
 N_TARGET_GENES = 2000
 CIS_GENES_PER_SNP = 5
-CELL_STATE_CIS = True
+CELL_STATE_CIS = False
 
 # --- model / training config: matches annbatch script & paper ---
 Z_DIM = 15
@@ -54,7 +54,7 @@ GENETICS_SEED = 200
 SEED = 42
 NUM_WORKERS = 0
 BENCH_BATCHES = 50
-MAX_EPOCHS = 1
+MAX_EPOCHS = 10
 
 seed_everything(SEED, workers=True)
 runner = configure_livi_runner(livi_root=LIVI_ROOT, execution_mode="python_api", device="auto")
@@ -158,3 +158,5 @@ fit_secs = time.perf_counter() - t0
 print("\n==== BASELINE cis (default in-memory dataloader, paper config, full genes) ====")
 print(f"data load:   {load_secs:.1f}s")
 print(f"batches:     {BENCH_BATCHES}  total wall: {fit_secs:.1f}s")
+
+# %%
