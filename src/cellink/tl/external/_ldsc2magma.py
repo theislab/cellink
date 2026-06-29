@@ -537,6 +537,7 @@ def run_magma_gene_analysis(
     gene_annot: str,
     out_prefix: str,
     n_samples: "int | None" = None,
+    ncol: "str | None" = None,
     magma_bin: str = "magma",
     run: bool = True,
     **kwargs,
@@ -563,8 +564,15 @@ def run_magma_gene_analysis(
         Prefix for output files.  Creates ``{out_prefix}.genes.raw`` and
         ``{out_prefix}.genes.out``.
     n_samples
-        Total GWAS sample size.  Required unless ``pval_file`` contains an
-        ``N`` column.  Passed as ``N=<value>`` in the ``--pval`` argument.
+        Total GWAS sample size, used when every SNP shares the same N.
+        Passed as ``N=<value>`` in the ``--pval`` argument. Mutually
+        exclusive with ``ncol`` — MAGMA requires exactly one of the two.
+    ncol
+        Name of a column in ``pval_file`` holding a per-SNP sample size
+        (e.g. for a meta-analysis where N varies across SNPs). Passed as
+        ``ncol=<name>`` in the ``--pval`` argument. A column merely being
+        named ``"N"`` is **not** enough on its own — MAGMA always requires
+        an explicit ``N=`` or ``ncol=`` modifier.
     magma_bin
         Path to the MAGMA binary.
     run
@@ -600,8 +608,12 @@ def run_magma_gene_analysis(
         "--bfile", bfile,
         "--pval", pval_file,
     ]
+    if n_samples is not None and ncol is not None:
+        raise ValueError("Pass only one of n_samples or ncol, not both.")
     if n_samples is not None:
         cmd += [f"N={n_samples}"]
+    elif ncol is not None:
+        cmd += [f"ncol={ncol}"]
     cmd += [
         "--gene-annot", gene_annot,
         "--out", out_prefix,

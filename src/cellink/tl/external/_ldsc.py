@@ -78,7 +78,14 @@ class LDSCRunner(BaseToolRunner):
 
     def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
         required_fields = ["execution_mode", "ldsc_command", "make_annot_command", "munge_command"]
-        prefix_tokens = []
+        # Flags whose argument is a path/prefix that doesn't exist as a
+        # literal file at command-construction time (either it's an output
+        # not yet created, or a PLINK/LDSC-style prefix like "foo." that
+        # only has suffixed files like "foo.1.l2.ldscore.gz" on disk).
+        # _rewrite_paths_in_command's os.path.exists() check can't recognize
+        # these as paths needing container-mount translation, so they must
+        # be listed explicitly.
+        prefix_tokens = ["--annot-file", "--out", "--bfile", "--ref-ld-chr", "--w-ld-chr", "--frqfile-chr"]
         super().__init__(config_path, config_dict, required_fields, prefix_tokens)
 
     def _load_config(self, config_path: str | None, config_dict: dict | None) -> dict:
