@@ -196,27 +196,46 @@ def get_gwas_catalog_study_summary_stats(
     filename = None
     detected_build = None
 
-    # If user specified a genome build, skip harmonised and go straight to base directory
-    # (harmonised files don't have build-specific versions)
+    # If user specified a genome build, skip the truly-harmonised (.h.tsv.gz)
+    # file and look for a build-specific one instead. EBI sometimes stores
+    # these build-specific files in the harmonised/ directory alongside the
+    # harmonised one (e.g. "*-Build37.f.tsv.gz"), and sometimes in the base
+    # study directory — so both locations are checked.
     if normalized_build:
-        logging.info(f"User requested {normalized_build}, skipping harmonised files and searching base directory")
-        
+        logging.info(f"User requested {normalized_build}, searching for a build-specific file")
+
         try:
-            r = requests.get(base_url)
+            r = requests.get(harmonised_url)
             r.raise_for_status()
             files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
-            
-            # Exclude harmonised files if they appear in the listing
             files = [f for f in files if not f.endswith(".h.tsv.gz")]
 
             if files:
                 filename, detected_build = select_file(files, requested_build=normalized_build)
                 if filename:
-                    url = f"{base_url}/{filename}"
-                    logging.info(f"Using build-specific summary statistics (build: {detected_build})")
+                    url = f"{harmonised_url}/{filename}"
+                    logging.info(f"Using build-specific summary statistics from harmonised/ (build: {detected_build})")
 
         except Exception as e:
-            logging.warning(f"Could not parse base directory listing ({e})")
+            logging.warning(f"Could not parse harmonised directory listing ({e})")
+
+        if not url:
+            try:
+                r = requests.get(base_url)
+                r.raise_for_status()
+                files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+
+                # Exclude harmonised files if they appear in the listing
+                files = [f for f in files if not f.endswith(".h.tsv.gz")]
+
+                if files:
+                    filename, detected_build = select_file(files, requested_build=normalized_build)
+                    if filename:
+                        url = f"{base_url}/{filename}"
+                        logging.info(f"Using build-specific summary statistics (build: {detected_build})")
+
+            except Exception as e:
+                logging.warning(f"Could not parse base directory listing ({e})")
 
         # If still no file found, try standard naming conventions
         if not url:
