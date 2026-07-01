@@ -9,7 +9,7 @@ import yaml
 
 from cellink._core import DonorData
 from cellink.io import to_plink
-from cellink.resources._utils import _download_file, get_data_home
+from cellink.resources._utils import _download_file, get_data_home, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,9 @@ def get_gene_id_mapping(
         raise ValueError(f"Invalid genome_build: {genome_build}")
 
     server = Server(host=host)
-    dataset = server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl']
-    mapping_df = dataset.query(
-        attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id']
+    dataset = retry_with_backoff(lambda: server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl'])
+    mapping_df = retry_with_backoff(
+        lambda: dataset.query(attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id'])
     )
 
     mapping_df = mapping_df.rename(columns={"Gene stable ID": "ensembl_gene_id",

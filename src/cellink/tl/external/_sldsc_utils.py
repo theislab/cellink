@@ -10,6 +10,8 @@ from anndata import AnnData
 from scipy import sparse
 from tqdm import tqdm
 
+from cellink.resources._utils import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 
@@ -462,7 +464,7 @@ def _fetch_ensembl_annotation(
     else:
         raise ValueError(f"Invalid genome_build: {genome_build}. Must be 'GRCh37' or 'GRCh38'")
 
-    dataset = server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"]
+    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
 
     attributes = [
         "hgnc_symbol",
@@ -475,7 +477,7 @@ def _fetch_ensembl_annotation(
     ]
 
     logger.info(f"Fetching gene annotations from {genome_build}...")
-    anno = dataset.query(attributes=attributes, use_attr_names=True)
+    anno = retry_with_backoff(lambda: dataset.query(attributes=attributes, use_attr_names=True))
 
     anno.columns = [c.strip() for c in anno.columns]
 
