@@ -177,8 +177,14 @@ def genesets_dir_to_entrez_gmt(
                     missing.append(g)
                 else:
                     entrez.append(str(e))
+        elif mg is not None:
+            missing = ens_genes[:]  # let the mygene fallback below try to resolve these
         else:
-            missing = ens_genes[:]  # everything missing if no offline map
+            # No offline map and no mygene fallback configured: nothing can
+            # convert these IDs, so pass them through unchanged rather than
+            # silently dropping every gene (matches the documented behavior
+            # of genesets_dir_to_entrez_gmt when no ID conversion is needed).
+            entrez = ens_genes[:]
 
         # mygene fallback for missing
         if (
