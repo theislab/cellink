@@ -194,17 +194,21 @@ class BaseToolRunner(ABC):
             file_paths.append(os.getcwd())
 
         if self.config["execution_mode"] == "local":
-            result = subprocess.run(base_command, shell=True, check=check, capture_output=True, text=True)
+            result = subprocess.run(base_command, shell=True, check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:
                 logger.warning(result.stderr)
+            if check and result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, base_command, result.stdout, result.stderr)
         else:
             full_command = self._build_container_command(base_command, file_paths)
 
             logger.info(f"Executing: {full_command}")
-            result = subprocess.run(full_command, shell=True, check=check, capture_output=True, text=True)
+            result = subprocess.run(full_command, shell=True, check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:
                 logger.warning(result.stderr)
+            if check and result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, full_command, result.stdout, result.stderr)

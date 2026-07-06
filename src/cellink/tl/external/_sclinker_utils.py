@@ -12,6 +12,8 @@ from typing import Dict, List, Literal, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from cellink.resources._utils import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 
@@ -533,15 +535,15 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
 
     logger.info("Querying Ensembl BioMart for human gene coordinates ...")
     server  = Server(host="http://www.ensembl.org")
-    dataset = server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"]
+    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
 
-    df = dataset.query(attributes=[
-        "ensembl_gene_id",    
-        "external_gene_name", 
+    df = retry_with_backoff(lambda: dataset.query(attributes=[
+        "ensembl_gene_id",
+        "external_gene_name",
         "chromosome_name",
         "start_position",
         "end_position",
-    ])
+    ]))
     df.columns = ["ensembl_gene_id", "hgnc_name", "CHR", "START", "END"]
 
     df = df[df["CHR"].astype(str).isin(_VALID_CHRS)]
