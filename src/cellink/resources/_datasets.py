@@ -423,7 +423,7 @@ def get_1000genomes_grch38(
 """
 
 def get_onek1k(
-    config_path: str = "./cellink/resources/config/onek1k.yaml",
+    config_path: str = str(Path(__file__).parent / "config" / "onek1k.yaml"),
     data_home: str | None = None,
     verify_checksum: bool = True,
     only_download: bool = False,
@@ -587,7 +587,7 @@ def get_onek1k(
         return dd
 
 def get_dummy_onek1k(
-    config_path: str = "./cellink/resources/config/dummy_onek1k.yaml",
+    config_path: str = str(Path(__file__).parent / "config" / "dummy_onek1k.yaml"),
     data_home: str | None = None,
     verify_checksum: bool = True,
 ) -> DonorData:

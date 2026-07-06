@@ -16,9 +16,19 @@ from ._ldsc import (
     make_annot_from_donor_data,
     munge_sumstats,
 )
-from ._ldsc2magma import genesets_dir_to_entrez_gmt
+from ._ldsc2magma import (
+    genesets_dir_to_entrez_gmt,
+    load_ensembl_to_entrez_map,
+    scores_to_gmt,
+    scores_to_covar,
+    run_magma_annotate,
+    run_magma_gene_analysis,
+    run_magma_gsa,
+    run_magma_gpa,
+)
 from ._magma import run_magma_pipeline
 from ._pc import calculate_pcs
+from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, get_magma_gene_loc, preprocess_for_sldsc
 from ._saigeqtl import (
     configure_saigeqtl_runner,
     get_saigeqtl_runner,
@@ -36,8 +46,6 @@ from ._scprs import (
 )
 from ._seismic import run_seismic
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
-from ._magma import run_magma_pipeline
-from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, preprocess_for_sldsc
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 from ._sclinker import (
     compute_celltype_programs,
