@@ -54,7 +54,22 @@ __all__ = [
     "run_livi_association_testing",
     "save_livi_results",
     "load_livi_results",
+    "train_livi_annbatch",
+    "build_annbatch_collection",
+    "read_g_from_dd_store",
+    "CisGenotype",
+    "LIVICisBatchAdapter",
+    "AnnbatchLIVIDataModule",
 ]
+
+_LIVI_ANNBATCH_NAMES = {
+    "train_livi_annbatch",
+    "build_annbatch_collection",
+    "read_g_from_dd_store",
+    "CisGenotype",
+    "LIVICisBatchAdapter",
+    "AnnbatchLIVIDataModule",
+}
 
 
 def __getattr__(name: str) -> Any:
@@ -66,6 +81,15 @@ def __getattr__(name: str) -> Any:
             raise ImportError(
                 "Cannot import `run_mixmil`: this feature requires `torch` and `mixmil`. "
                 "Install with:\n\n    pip install cellink[mixmil]"
+            ) from e
+    if name in _LIVI_ANNBATCH_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._livi_annbatch")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`, `pytorch_lightning`, "
+                "and `annbatch`. Install with:\n\n    pip install cellink torch pytorch_lightning annbatch"
             ) from e
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

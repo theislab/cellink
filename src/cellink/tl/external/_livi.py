@@ -257,7 +257,12 @@ def _train_livi_python_api(
     accumulate_grad_batches: int,
     device: str,
     runner: LIVIRunner,
-) -> str:
+    enable_checkpointing: bool = True,
+    enable_logger: bool = True,
+    limit_train_batches: Optional[Union[int, float]] = None,
+    deterministic: bool = False,
+    callbacks: Optional[List] = None,
+) -> Optional[str]:
     try:
         import pytorch_lightning as pl
         from pytorch_lightning.callbacks import ModelCheckpoint
@@ -277,13 +282,20 @@ def _train_livi_python_api(
 
     ckpt_dir = os.path.join(output_dir, "checkpoints")
 
-    checkpoint_cb = ModelCheckpoint(
-        dirpath=ckpt_dir,
-        filename="{epoch:04d}_{hp_metric:.5f}",
-        save_top_k=1,
-        monitor="train/livi_loss",
-        mode="min",
-        save_last=True,
+    if callbacks and any(isinstance(c, ModelCheckpoint) for c in callbacks):
+        enable_checkpointing = True  # PL rejects enable_checkpointing=False + a ModelCheckpoint callback
+
+    checkpoint_cb = (
+        ModelCheckpoint(
+            dirpath=ckpt_dir,
+            filename="{epoch:04d}_{hp_metric:.5f}",
+            save_top_k=1,
+            monitor="train/livi_loss",
+            mode="min",
+            save_last=True,
+        )
+        if enable_checkpointing
+        else None
     )
 
     datamodule = LIVIDataModule(
@@ -334,18 +346,26 @@ def _train_livi_python_api(
         min_epochs=min_epochs,
         accelerator="gpu" if device == "cuda" else "cpu",
         devices=1,
-        callbacks=[checkpoint_cb],
+        callbacks=[*([checkpoint_cb] if checkpoint_cb is not None else []), *(callbacks or [])],
         default_root_dir=output_dir,
+        enable_checkpointing=enable_checkpointing,
+        logger=enable_logger,
         log_every_n_steps=log_every_n_steps,
         enable_progress_bar=enable_progress_bar,
         accumulate_grad_batches=accumulate_grad_batches,
-        deterministic=False,
+        deterministic=deterministic,
     )
     if gradient_clip_val is not None:
         trainer_kwargs["gradient_clip_val"] = gradient_clip_val
+    if limit_train_batches is not None:
+        trainer_kwargs["limit_train_batches"] = limit_train_batches
 
     trainer = pl.Trainer(**trainer_kwargs)
     trainer.fit(model=model, datamodule=datamodule)
+
+    if checkpoint_cb is None:
+        logger.info("LIVI training complete (enable_checkpointing=False, no checkpoint saved).")
+        return None
 
     best_ckpt = checkpoint_cb.best_model_path
     if not best_ckpt:
@@ -528,8 +548,13 @@ def train_livi(
     pin_memory: bool = True,
     log_every_n_steps: int = 1,
     enable_progress_bar: bool = True,
+    enable_checkpointing: bool = True,
+    enable_logger: bool = True,
     gradient_clip_val: Optional[float] = None,
     accumulate_grad_batches: int = 1,
+    limit_train_batches: Optional[Union[int, float]] = None,
+    deterministic: bool = False,
+    callbacks: Optional[List] = None,
     run: bool = True,
     runner: Optional[LIVIRunner] = None,
 ) -> Optional[str]:
@@ -630,6 +655,24 @@ def train_livi(
         Maximum gradient norm for clipping.
     accumulate_grad_batches : int
         Gradient accumulation steps.
+    limit_train_batches : int or float, optional
+        Cap on batches per epoch (handy for benchmarking a fixed number of
+        batches instead of a full pass); forwarded to
+        ``pytorch_lightning.Trainer``.
+    enable_checkpointing : bool
+        If *False*, skip the ``ModelCheckpoint`` callback entirely (and the
+        return value becomes *None*) -- useful for short benchmark/smoke runs
+        where you don't want checkpoint I/O.
+    enable_logger : bool
+        Passed through to ``pytorch_lightning.Trainer`` as ``logger=``; set
+        *False* to skip the default ``TensorBoardLogger``.
+    deterministic : bool
+        Passed through to ``pytorch_lightning.Trainer``; set *True* for
+        reproducible (but slower) training.
+    callbacks : list, optional
+        Extra ``pytorch_lightning.Callback`` instances to attach to the
+        ``Trainer`` (e.g. a throughput-logging callback), added alongside the
+        ``ModelCheckpoint`` this function always sets up.
     run : bool
         If *False*, log the resolved configuration and return without
         training (dry-run / debug).
@@ -753,11 +796,22 @@ def train_livi(
         return _train_livi_python_api(
             log_every_n_steps=log_every_n_steps,
             enable_progress_bar=enable_progress_bar,
+            enable_checkpointing=enable_checkpointing,
+            enable_logger=enable_logger,
             gradient_clip_val=gradient_clip_val,
             accumulate_grad_batches=accumulate_grad_batches,
+            limit_train_batches=limit_train_batches,
+            deterministic=deterministic,
+            callbacks=callbacks,
             **shared_kwargs,
         )
     else:
+        if callbacks is not None or limit_train_batches is not None:
+            raise ValueError(
+                "`callbacks` and `limit_train_batches` are only supported with "
+                "execution_mode='python_api' (subprocess mode goes through LIVI's "
+                "Hydra CLI, which can't take Python callback objects)."
+            )
         return _train_livi_subprocess(**shared_kwargs)
 
 
