@@ -19,6 +19,28 @@ def _normalize_build(genome_build: str) -> str:
         return "GRCh37"
     raise ValueError(f"Invalid genome_build '{genome_build}'. Use 'GRCh38', 'GRCh37', or an alias (hg38/hg19).")
 
+
+_NON_DATA_FILENAME = re.compile(r"(?i)readme|license|changelog|^md5sum")
+
+
+def _find_candidate_files(html: str) -> list[str]:
+    """Find likely summary-stats filenames in an FTP directory listing.
+
+    Matches anything ending in .tsv, .txt, .zip, or .gz -- some
+    pre-harmonisation-era deposits ship a plain/zipped .txt instead of
+    .tsv.gz, or a bare ".gz" with no .tsv/.txt in the name at all (confirmed
+    directly: a sleep-duration GWAS whose only file is
+    "..._sumstats.txt.zip", and a major-depression GWAS whose only file is
+    literally "MDD2018_ex23andMe.gz"). Since .tsv.gz/.txt.gz already end in
+    ".gz", matching bare ".gz" covers all of those cases in one pattern.
+    Widening this far risks also matching README/LICENSE/CHANGELOG files
+    that live in the same directory (which the original .tsv.gz-only regex
+    never collided with) -- hence the explicit exclusion below.
+    """
+    files = re.findall(r'href="([^"]*\.(?:tsv|txt|zip|gz))"', html)
+    return [f for f in files if not _NON_DATA_FILENAME.search(f)]
+
+
 logging.basicConfig(level=logging.INFO)
 
 GWAS_API_BASE = "https://www.ebi.ac.uk/gwas/rest/api/v2"
@@ -161,7 +183,12 @@ def get_gwas_catalog_study_summary_stats(
     def build_priority(filename):
         """Assign priority score to filename based on genome build."""
         filename_lower = filename.lower()
-        if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+        # See get_build_from_filename below for why ".h.tsv.gz" is GRCh38 even
+        # without a "grch38"/"hg38" substring -- same fix, same reasoning,
+        # needed here too since this is what the tie-break fallback uses.
+        if filename_lower.endswith(".h.tsv.gz"):
+            return 2
+        elif "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
             return 2
         elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
             return 1
@@ -171,7 +198,21 @@ def get_gwas_catalog_study_summary_stats(
     def get_build_from_filename(filename):
         """Extract genome build information from filename."""
         filename_lower = filename.lower()
-        if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+        # The EBI harmonisation pipeline always standardises to GRCh38, but the
+        # file itself is just named "<accession>.h.tsv.gz" -- no "grch38"/"hg38"
+        # substring. Without this check, a GRCh38 request can't recognize the
+        # harmonised file as a match and falls through to an arbitrary
+        # listing-order tie-break against other same-priority ("unknown" build)
+        # files -- confirmed directly on GCST005538 (Sarcoidosis), where this
+        # picked a same-directory "-Build36.f.tsv.gz" duplicate (misleadingly
+        # named -- its actual coordinates are GRCh37, identical to the base-dir
+        # file, not GRCh36) that has zero rsIDs, over the real harmonised file
+        # sitting right next to it with rsIDs for ~100% of rows -- causing
+        # MAGMA/S-LDSC's downstream position-based BIM matching to only hit
+        # 160/128,705 SNPs.
+        if filename_lower.endswith(".h.tsv.gz"):
+            return "GRCh38"
+        elif "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
             return "GRCh38"
         elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
             return "GRCh37"
@@ -185,10 +226,25 @@ def get_gwas_catalog_study_summary_stats(
 
         # If user specified a build, try to find it
         if requested_build:
-            for f in files:
-                if get_build_from_filename(f) == requested_build:
-                    logging.info(f"Selected file matching requested build {requested_build}: {f}")
-                    return f, requested_build
+            matches = [f for f in files if get_build_from_filename(f) == requested_build]
+            if matches:
+                # Multiple files can legitimately share a build (e.g. a
+                # same-build "-Build38.f.tsv.gz" frozen copy sitting right next
+                # to the true ".h.tsv.gz" harmonised file) -- prefer the real
+                # harmonised one, since EBI's harmonisation pipeline is the
+                # authoritative rsID-resolution step and other same-build
+                # copies are often pre-harmonisation snapshots with no rsIDs
+                # at all. Confirmed directly: GCST90078640 (AnorexiaNervosa)
+                # has exactly this pair, and picking the "-Build38.f" file
+                # (which sorts first alphabetically, so a plain "first match"
+                # selected it every time) fed S-LDSC a file with 0 rsIDs,
+                # dropping ~99.6% of SNPs during position-based BIM annotation
+                # (89,215 raw rows -> 357 SNPs surviving) versus the
+                # harmonised file's real hm_rsid for ~100% of its 82,088 rows.
+                harmonised = [f for f in matches if f.lower().endswith(".h.tsv.gz")]
+                chosen = harmonised[0] if harmonised else matches[0]
+                logging.info(f"Selected file matching requested build {requested_build}: {chosen}")
+                return chosen, requested_build
 
             logging.warning(f"Requested build {requested_build} not found. Falling back to priority selection.")
 
@@ -205,11 +261,23 @@ def get_gwas_catalog_study_summary_stats(
     filename = None
     detected_build = None
 
-    # If user specified a genome build, skip the truly-harmonised (.h.tsv.gz)
-    # file and look for a build-specific one instead. EBI sometimes stores
-    # these build-specific files in the harmonised/ directory alongside the
+    # If user specified a genome build, prefer a build-specific file over the
+    # truly-harmonised (.h.tsv.gz) one. EBI sometimes stores these
+    # build-specific files in the harmonised/ directory alongside the
     # harmonised one (e.g. "*-Build37.f.tsv.gz"), and sometimes in the base
     # study directory — so both locations are checked.
+    #
+    # The harmonised (.h.tsv.gz) file is *always* GRCh38 (that's what EBI's
+    # harmonisation pipeline standardises to) -- so it should only be
+    # excluded when a different build (GRCh37) was requested. Unconditionally
+    # excluding it here (regardless of requested build) meant any accession
+    # with ONLY a harmonised file and no separate build-specific copy -- the
+    # norm for studies deposited after EBI's ~2020 harmonisation rollout --
+    # reported "no file found" for GRCh38 requests even though a perfectly
+    # good GRCh38 file was sitting right there. Confirmed directly: several
+    # accessions with a real, correctly-formed harmonised/*.h.tsv.gz file
+    # (verified via direct FTP listing) failed here with genome_build="GRCh38".
+    exclude_harmonised = normalized_build and normalized_build != "GRCh38"
     if normalized_build:
         logging.info(f"User requested {normalized_build}, searching for a build-specific file")
 
@@ -217,12 +285,16 @@ def get_gwas_catalog_study_summary_stats(
             r = requests.get(harmonised_url)
             r.raise_for_status()
             files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
-            files = [f for f in files if not f.endswith(".h.tsv.gz")]
+            files = [f for f in files if not f.endswith(".h.tsv.gz-meta.yaml")]
+            if exclude_harmonised:
+                files = [f for f in files if not f.endswith(".h.tsv.gz")]
 
             if files:
                 filename, detected_build = select_file(files, requested_build=normalized_build)
                 if filename:
                     url = f"{harmonised_url}/{filename}"
+                    if filename.endswith(".h.tsv.gz"):
+                        detected_build = "GRCh38"
                     logging.info(f"Using build-specific summary statistics from harmonised/ (build: {detected_build})")
 
         except Exception as e:
@@ -232,10 +304,11 @@ def get_gwas_catalog_study_summary_stats(
             try:
                 r = requests.get(base_url)
                 r.raise_for_status()
-                files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+                files = _find_candidate_files(r.text)
 
-                # Exclude harmonised files if they appear in the listing
-                files = [f for f in files if not f.endswith(".h.tsv.gz")]
+                # Exclude harmonised files if they appear in the listing (see above)
+                if exclude_harmonised:
+                    files = [f for f in files if not f.endswith(".h.tsv.gz")]
 
                 if files:
                     filename, detected_build = select_file(files, requested_build=normalized_build)
@@ -299,7 +372,7 @@ def get_gwas_catalog_study_summary_stats(
             try:
                 r = requests.get(base_url)
                 r.raise_for_status()
-                files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+                files = _find_candidate_files(r.text)
 
                 if files:
                     filename, detected_build = select_file(files)
@@ -336,9 +409,19 @@ def get_gwas_catalog_study_summary_stats(
     if not url:
         raise ValueError(f"Could not find summary statistics file for {accession_id}")
 
+    # dest's extension must match the actual source file (url can now resolve
+    # to a plain .tsv, .tsv.gz, or .zip, see the widened regexes above) --
+    # saving an uncompressed file under a ".gz" name would make the
+    # pd.read_csv(..., compression=...) call below fail to decode it.
+    if url.endswith(".gz"):
+        suffix, compression = ".gz", "gzip"
+    elif url.endswith(".zip"):
+        suffix, compression = ".zip", "zip"
+    else:
+        suffix, compression = "", None
     if not dest:
         data_home = get_data_home()
-        dest = data_home / f"{accession_id}_summary_stats.tsv.gz"
+        dest = data_home / f"{accession_id}_summary_stats.tsv{suffix}"
 
     logging.info(f"Downloading {url} to {dest}")
 
@@ -350,7 +433,18 @@ def get_gwas_catalog_study_summary_stats(
     if return_path:
         return dest
 
-    data = pd.read_csv(dest, compression="gzip", delimiter="\t")
+    # pandas' compression="zip" requires the archive contain exactly one
+    # member (true for the one real-world case this handles -- a
+    # single-file sleep-duration GWAS summary-stats zip); pandas raises its
+    # own clear error if that assumption doesn't hold for some other file.
+    #
+    # sep=r"\s+" (not a hardcoded tab) -- confirmed directly: some
+    # non-harmonised deposits (e.g. a myopia/refractive-error GWAS) are
+    # space-delimited, not tab-delimited. A strict "\t" silently "succeeds"
+    # on these (no error, no warning) but collapses the entire line into one
+    # column, which then fails much later and less legibly (e.g. missing
+    # CHR/BP/P columns) than if the read itself had failed loudly.
+    data = pd.read_csv(dest, compression=compression, sep=r"\s+")
     if translate_to_build:
         data = liftover_gwas_summary_stats(data, source_build=detected_build or "GRCh38", target_build=translate_to_build)
     return data
