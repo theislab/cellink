@@ -387,8 +387,8 @@ def prepare_magma_inputs(
         df["SNP"] = (
             df["chromosome"].astype(str) + "_"
             + df["base_pair_location"].astype(str) + "_"
-            + df["effect_allele"].astype(str) + "_"
-            + df["other_allele"].astype(str)
+            + df["effect_allele"].astype(str).str.upper() + "_"
+            + df["other_allele"].astype(str).str.upper()
         )
 
     df = df.rename(columns=col_mapping)
@@ -402,6 +402,7 @@ def prepare_magma_inputs(
         )
 
     df = df.dropna(subset=required_cols)
+    df["BP"] = df["BP"].astype("int64")
 
     snp_loc_file = Path(f"{output_prefix}.snp_loc.txt")
     df[["SNP", "CHR", "BP"]].to_csv(snp_loc_file, sep="\t", header=False, index=False)
