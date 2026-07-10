@@ -71,6 +71,16 @@ from ._sclinker_utils import (
     check_and_patch_ldsc_parse_bug,
 )
 from ._joint_nmf import JointNMFWrapper
+from ._livi import (
+    LIVIRunner,
+    configure_livi_runner,
+    get_livi_runner,
+    infer_livi,
+    load_livi_results,
+    run_livi_association_testing,
+    save_livi_results,
+    train_livi,
+)
 
 __all__ = [
     "read_jaxqtl_results",
@@ -127,7 +137,31 @@ __all__ = [
     "write_slurm_array_job",
     "get_disease_relevant_cells",
     "run_scprs_pipeline",
+    ###
+    "LIVIRunner",
+    "configure_livi_runner",
+    "get_livi_runner",
+    "train_livi",
+    "infer_livi",
+    "run_livi_association_testing",
+    "save_livi_results",
+    "load_livi_results",
+    "train_livi_annbatch",
+    "build_annbatch_collection",
+    "read_g_from_dd_store",
+    "CisGenotype",
+    "LIVICisBatchAdapter",
+    "AnnbatchLIVIDataModule",
 ]
+
+_LIVI_ANNBATCH_NAMES = {
+    "train_livi_annbatch",
+    "build_annbatch_collection",
+    "read_g_from_dd_store",
+    "CisGenotype",
+    "LIVICisBatchAdapter",
+    "AnnbatchLIVIDataModule",
+}
 
 
 def __getattr__(name: str) -> Any:
@@ -140,8 +174,18 @@ def __getattr__(name: str) -> Any:
                 "Cannot import `run_mixmil`: this feature requires `torch` and `mixmil`. "
                 "Install with:\n\n    pip install cellink[mixmil]"
             ) from e
+    if name in _LIVI_ANNBATCH_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._livi_annbatch")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`, `pytorch_lightning`, "
+                "and `annbatch`. Install with:\n\n    pip install cellink torch pytorch_lightning annbatch"
+            ) from e
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def __dir__():
     return __all__
+

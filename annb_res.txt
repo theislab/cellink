@@ -1,0 +1,103 @@
+Seed set to 42
+device: cuda
+n_donors: 981  n_genes: 36469  covariates_dims: [75, 2]
+GT_array: (981, 2996)  known_cis: (2996, 36469)
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/lightning_fabric/plugins/environments/slurm.py:204: The `srun` command is available on your system but is not used. HINT: If your intention is to run Lightning on SLURM, prepend your python command with `srun` like so: srun python livi_annbatch_cis_train.py ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/trainer/configuration_validator.py:70: You defined a `validation_step` but have no `val_dataloader`. Skipping val loop.
+You are using a CUDA device ('NVIDIA H100 80GB HBM3') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name             ┃ Type         ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ encoder          │ Encoder      │  193 M │ train │     0 │
+│ 1 │ decoder          │ LIVI_Decoder │ 26.4 M │ train │     0 │
+│ 2 │ D_context        │ Embedding    │  686 K │ train │     0 │
+│ 3 │ V_persistent     │ Embedding    │  4.9 K │ train │     0 │
+│ 4 │ covariate_effect │ Embedding    │  2.8 M │ train │     0 │
+│   │ other params     │ n/a          │  109 M │ n/a   │   n/a │
+└───┴──────────────────┴──────────────┴────────┴───────┴───────┘
+Trainable params: 332 M                                                                                     
+Non-trainable params: 0                                                                                     
+Total params: 332 M                                                                                         
+Total estimated model params size (MB): 1,330.236                                                           
+Modules in train mode: 25                                                                                   
+Modules in eval mode: 0                                                                                     
+Total FLOPs: 0                                                                                              
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/utilities/_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec)and treespec.is_leaf()` instead.
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/docs/tutorials/livi_annbatch_cis_train.py:162: 
+UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This 
+means writing to this tensor will result in undefined behavior. You may want to copy the array to protect 
+its data or make it writable before converting it to a tensor. This type of warning will be suppressed for 
+the rest of this program. (Triggered internally at /pytorch/torch/csrc/utils/tensor_numpy.cpp:213.)
+  y_cpu = torch.as_tensor(codes, dtype=torch.long)
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/u
+tilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found 
+is 1024. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+[epoch 0] 50 batches, 51,200 cells in 28.9s -> 1,774 cells/s, 577.2 ms/batch
+VAE frozen: False
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+VAE pretraining completed.
+Freeze VAE parameters.
+Start training V.
+Pretraining completed.
+Start learning DxC effects.
+[epoch 1] 50 batches, 51,200 cells in 2.8s -> 17,989 cells/s, 56.9 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 2] 50 batches, 51,200 cells in 2.8s -> 17,971 cells/s, 57.0 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 3] 50 batches, 51,200 cells in 3.1s -> 16,459 cells/s, 62.2 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 4] 50 batches, 51,200 cells in 2.9s -> 17,839 cells/s, 57.4 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 5] 50 batches, 51,200 cells in 3.0s -> 16,870 cells/s, 60.7 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 6] 50 batches, 51,200 cells in 2.8s -> 18,397 cells/s, 55.7 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 7] 50 batches, 51,200 cells in 2.8s -> 18,559 cells/s, 55.2 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 8] 50 batches, 51,200 cells in 2.8s -> 18,517 cells/s, 55.3 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 9] 50 batches, 51,200 cells in 2.8s -> 18,480 cells/s, 55.4 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+Epoch 9/9  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50/50 0:00:02 • 0:00:00 18.15it/s train/elbo: -10766.804          
+                                                                            train/L1_penalty_context:       
+Epoch 9/9  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50/50 0:00:02 • 0:00:00 18.15it/s train/elbo: -10766.804          
+                                                                            train/L1_penalty_context:       
+                                                                            283.817 train/penalty_A: 0.467  
+                                                                            train/livi_loss: 11051.088
+                                                                            hp_metric: 11051.088
+
+==== ANNBATCH cis (paper config, full genes) ====
+batches: 50  total wall: 59.5s

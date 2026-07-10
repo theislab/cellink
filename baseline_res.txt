@@ -1,0 +1,113 @@
+Seed set to 42
+device: cuda
+[2026-06-23 12:17:00,272] INFO:root: /lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data/onek1k/onek1k_cellxgene.h5ad already exists
+[2026-06-23 12:17:00,272] WARNING:root: No checksum provided, skipping verification
+[2026-06-23 12:17:00,316] INFO:root: /lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data/onek1k/OneK1K.noGP.vcf.gz already exists
+[2026-06-23 12:17:00,316] WARNING:root: No checksum provided, skipping verification
+[2026-06-23 12:17:00,337] INFO:root: /lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data/onek1k/OneK1K.noGP.vcf.gz.csi already exists
+[2026-06-23 12:17:00,337] WARNING:root: No checksum provided, skipping verification
+[2026-06-23 12:17:00,355] INFO:root: /lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data/onek1k/gene_counts_Ensembl_105_phenotype_metadata.tsv.gz already exists
+[2026-06-23 12:17:00,355] WARNING:root: No checksum provided, skipping verification
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/sgkit/__init__.py:1: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import DistributionNotFound, get_distribution  # type: ignore[import]
+loaded in 278.7s | cells: 1,248,980  genes: 36,469  donors: 981  snps(total): 10,595,884
+cis set: 2996 SNPs | known_cis_eqtls: (2996, 2000) | covariates_dims: [75, 2]
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/lightning_fabric/plugins/environments/slurm.py:204: The `srun` command is available on your system but is not used. HINT: If your intention is to run Lightning on SLURM, prepend your python command with `srun` like so: srun python livi_baseline_cis_train.py ...
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+💡 Tip: For seamless cloud logging and experiment tracking, try installing [litlogger](https://pypi.org/project/litlogger/) to enable LitLogger, which logs metrics and artifacts automatically to the Lightning Experiments platform.
+You are using a CUDA device ('NVIDIA H100 80GB HBM3') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+┏━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
+┃   ┃ Name             ┃ Type         ┃ Params ┃ Mode  ┃ FLOPs ┃
+┡━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━╇━━━━━━━┩
+│ 0 │ encoder          │ Encoder      │  193 M │ train │     0 │
+│ 1 │ decoder          │ LIVI_Decoder │ 26.4 M │ train │     0 │
+│ 2 │ D_context        │ Embedding    │  686 K │ train │     0 │
+│ 3 │ V_persistent     │ Embedding    │  4.9 K │ train │     0 │
+│ 4 │ covariate_effect │ Embedding    │  2.8 M │ train │     0 │
+│   │ other params     │ n/a          │  109 M │ n/a   │   n/a │
+└───┴──────────────────┴──────────────┴────────┴───────┴───────┘
+Trainable params: 332 M                                                                                     
+Non-trainable params: 0                                                                                     
+Total params: 332 M                                                                                         
+Total estimated model params size (MB): 1,330.236                                                           
+Modules in train mode: 25                                                                                   
+Modules in eval mode: 0                                                                                     
+Total FLOPs: 0                                                                                              
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/u
+tilities/_pytree.py:21: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) 
+and treespec.is_leaf()` instead.
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/u
+tilities/data.py:106: Total length of `DataLoader` across ranks is zero. Please make sure this was your 
+intention.
+/ictstr01/boost_ai/users/selman.ozleyen/dev/cellink/.venv/lib64/python3.12/site-packages/pytorch_lightning/u
+tilities/data.py:79: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found 
+is 1024. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+[epoch 0] 50 batches, 51,200 cells in 33.0s -> 1,550 cells/s, 660.6 ms/batch
+VAE frozen: False
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+VAE pretraining completed.
+Freeze VAE parameters.
+Start training V.
+Pretraining completed.
+Start learning DxC effects.
+[epoch 1] 50 batches, 51,200 cells in 16.9s -> 3,022 cells/s, 338.8 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 2] 50 batches, 51,200 cells in 17.0s -> 3,003 cells/s, 341.0 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 3] 50 batches, 51,200 cells in 17.0s -> 3,008 cells/s, 340.4 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 4] 50 batches, 51,200 cells in 17.1s -> 2,993 cells/s, 342.1 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 5] 50 batches, 51,200 cells in 16.9s -> 3,025 cells/s, 338.5 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 6] 50 batches, 51,200 cells in 16.9s -> 3,022 cells/s, 338.9 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 7] 50 batches, 51,200 cells in 17.0s -> 3,003 cells/s, 341.0 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 8] 50 batches, 51,200 cells in 17.0s -> 3,010 cells/s, 340.2 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+[epoch 9] 50 batches, 51,200 cells in 17.0s -> 3,012 cells/s, 339.9 ms/batch
+VAE frozen: True
+Training V: True
+Training DxC: True
+DxC decoder requires grad: True
+Epoch 9/9  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50/50 0:00:16 • 0:00:00 4.95it/s train/elbo: -10743.285          
+                                                                            train/L1_penalty_context:       
+Epoch 9/9  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 50/50 0:00:16 • 0:00:00 4.95it/s train/elbo: -10743.285          
+                                                                            train/L1_penalty_context:       
+                                                                            261.634 train/penalty_A: 0.467  
+                                                                            train/livi_loss: 11005.388      
+                                                                            hp_metric: 11005.388            
+
+==== BASELINE cis (default in-memory dataloader, paper config, full genes) ====
+data load:   278.7s
+batches:     50  total wall: 221.6s
+/lustre/b/u/se/de/cellink/do/tutorials so/livi-wip !1 ?1 > 

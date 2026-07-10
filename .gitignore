@@ -194,3 +194,12 @@ data
 *.code-workspace
 
 _build/*
+
+LIVI
+checkpoints/
+lightning_logs/
+docs/tutorials/dd_G.zarr
+docs/tutorials/dd_C.zarr
+docs/tutorials/dd_G_collection.zarr
+docs/tutorials/dd_C_collection.zarr
+*.tar.gz
