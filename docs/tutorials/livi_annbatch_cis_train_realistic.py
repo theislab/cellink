@@ -28,7 +28,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 
 import cellink as cl  # noqa: F401
-from cellink.tl.external import build_annbatch_collection, configure_livi_runner, read_g_from_dd_store, train_livi_annbatch
+from cellink.tl.external import configure_livi_runner, read_g_from_dd_store, train_livi_annbatch
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 # zarrs' Rust threadpool defaults (threading.max_workers=None) to the node's full
@@ -38,34 +38,18 @@ zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 zarr.config.set({"threading.max_workers": len(os.sched_getaffinity(0))})
 
 LIVI_ROOT = "LIVI"
+C_COLLECTION = "dd_C_collection_realistic.zarr"
 DONOR_KEY = "donor_id"
 COVARIATE_KEYS = ["pool_number", "sex"]
 
 DATA_HOME = "/lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data"
-# When CELLINK_SSD_HOME is set (e.g. by the SLURM script), data and collection
-# are read/written from the SSD-backed filesystem for faster I/O.
-SSD_HOME = os.environ.get("CELLINK_SSD_HOME", "")
-if SSD_HOME:
-    DD_CACHE_PATH_ZARR_REALISTIC = f"{SSD_HOME}/onek1k_realistic.dd.zarr"
-    KNOWN_CIS_EQTLS_PATH = f"{SSD_HOME}/onek1k_realistic_known_cis_eqtls.parquet"
-    C_COLLECTION = f"{SSD_HOME}/dd_C_collection_realistic.zarr"
-    OUTPUT_DIR = f"{SSD_HOME}/livi_annbatch_run_realistic"
-else:
-    DD_CACHE_PATH_ZARR_REALISTIC = f"{DATA_HOME}/onek1k/onek1k_realistic.dd.zarr"
-    KNOWN_CIS_EQTLS_PATH = f"{DATA_HOME}/onek1k/onek1k_realistic_known_cis_eqtls.parquet"
-    C_COLLECTION = "dd_C_collection_realistic.zarr"
-    OUTPUT_DIR = "livi_annbatch_run_realistic"
+DD_CACHE_PATH_ZARR_REALISTIC = f"{DATA_HOME}/onek1k/onek1k_realistic.dd.zarr"
+KNOWN_CIS_EQTLS_PATH = f"{DATA_HOME}/onek1k/onek1k_realistic_known_cis_eqtls.parquet"
 
-# --- loader knobs (SSD-tuned) ---
-# Hyperparameters tuned by systematic sweep (livi_annbatch_hparam_sweep.py, job 38490780):
-# batch_size=256 gives 2.5× higher cells/s than 1024 on H100 (super-linear memory
-# scaling of the DxC backward pass). chunk_size and preload_nchunks make <5%
-# difference — kept at annbatch defaults. preload_to_gpu=True always wins (~25%).
-BATCH_SIZE = 256
-CHUNK_SIZE = 512
-PRELOAD_NCHUNKS = 32
-COLLECTION_N_OBS_PER_CHUNK = 512   # fixed at collection-build time; matched to CHUNK_SIZE
-COLLECTION_SHARD_SIZE = "2GB"      # 2× default (1GB); fewer file handles on SSD
+# --- loader knobs ---
+BATCH_SIZE = 1024
+CHUNK_SIZE = 128
+PRELOAD_NCHUNKS = 16
 
 CELL_STATE_CIS = False  # paper "cell-state" variant; set True to match exactly
 
@@ -110,22 +94,6 @@ gdata = read_g_from_dd_store(DD_CACHE_PATH_ZARR_REALISTIC)
 known_cis_eqtls = pd.read_parquet(KNOWN_CIS_EQTLS_PATH)
 _dd_zarr = zarr.open(DD_CACHE_PATH_ZARR_REALISTIC, mode="r")
 
-# Pre-build the annbatch collection with SSD-optimised chunk layout.
-# n_obs_per_chunk and shard_size are written into the zarr store at build time
-# and cannot be changed later without a full rebuild -- so we set them here
-# rather than letting train_livi_annbatch use its (untuned) defaults.
-# is_empty guard inside build_annbatch_collection means this is a no-op if
-# C_COLLECTION was already built in a previous run.
-print(f"building/verifying annbatch collection at {C_COLLECTION!r} ...")
-t_coll = time.perf_counter()
-build_annbatch_collection(
-    _dd_zarr["C"], C_COLLECTION,
-    n_obs_per_chunk=COLLECTION_N_OBS_PER_CHUNK,
-    shard_size=COLLECTION_SHARD_SIZE,
-    seed=SEED,
-)
-print(f"collection ready in {time.perf_counter() - t_coll:.1f}s")
-
 # %% [markdown]
 # ## Throughput callback + checkpointing + full paper-scale training
 
@@ -151,7 +119,7 @@ class ThroughputCallback(Callback):
 t0 = time.perf_counter()
 trainer = train_livi_annbatch(
     _dd_zarr["C"], gdata,
-    output_dir=OUTPUT_DIR,
+    output_dir="livi_annbatch_run_realistic",
     collection_path=C_COLLECTION,
     donor_key=DONOR_KEY,
     covariates_keys=COVARIATE_KEYS,
@@ -167,7 +135,7 @@ trainer = train_livi_annbatch(
     enable_checkpointing=True,  # we pass our own ModelCheckpoint below
     callbacks=[
         ThroughputCallback(),
-        ModelCheckpoint(dirpath=f"{OUTPUT_DIR}/checkpoints", save_last=True,
+        ModelCheckpoint(dirpath="livi_annbatch_run_realistic/checkpoints", save_last=True,
                          monitor="train/livi_loss", mode="min", save_top_k=1),
     ],
 )
