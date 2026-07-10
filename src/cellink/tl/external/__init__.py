@@ -45,6 +45,7 @@ from ._scprs import (
     run_scprs_pipeline,
 )
 from ._seismic import run_seismic
+from ._seismic_torch import run_seismic_torch, SparseScore, RegressionNLL
 from ._gsmap import load_gsmap_results, format_gsmap_sumstats
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 from ._sclinker import (
@@ -81,6 +82,9 @@ __all__ = [
     "run_mixmil",
     "run_scdrs",
     "run_seismic",
+    "run_seismic_torch",
+    "SparseScore",
+    "RegressionNLL",
     "load_gsmap_results",
     "format_gsmap_sumstats",
     "run_magma_pipeline",

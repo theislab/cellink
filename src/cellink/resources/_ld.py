@@ -383,6 +383,81 @@ def get_1000genomes_hapmap3(
  
     return dest
  
+def merge_1000g_plink_chromosomes(
+    plink_dir: str | Path,
+    prefix: str,
+    output_prefix: str | Path,
+    chromosomes: list[int] | None = None,
+    plink_cmd: str = "plink",
+) -> Path:
+    """
+    Merge per-chromosome 1000G PLINK bfiles into a single genome-wide bfile.
+
+    Convenience wrapper for the standard PLINK merge workflow needed before
+    passing a reference panel to
+    :func:`~cellink.tl.external.write_slurm_array_job`. The resulting
+    ``.bed/.bim/.fam`` files can be passed directly as ``plink_bfile``.
+
+    Skips the merge if the output ``.bed`` file already exists.
+
+    Parameters
+    ----------
+    plink_dir : str or Path
+        Directory containing the per-chromosome bfiles, as returned by
+        :func:`get_1000genomes_plink_files`.
+    prefix : str
+        Filename prefix of the per-chromosome files
+        (e.g. ``"1000G.EUR.QC."`` so that chromosome 1 is
+        ``1000G.EUR.QC.1.bed``).
+    output_prefix : str or Path
+        Prefix for the merged output (e.g. ``"data/1000G_EUR_merged"``).
+        PLINK appends ``.bed``, ``.bim``, ``.fam``.
+    chromosomes : list of int, optional
+        Chromosomes to include. Defaults to autosomes 1-22.
+    plink_cmd : str, default="plink"
+        PLINK 1.9 executable name or full path.
+
+    Returns
+    -------
+    Path
+        ``output_prefix`` as a Path (without extension).
+
+    Examples
+    --------
+    >>> plink_dir, prefix = get_1000genomes_plink_files(population="EUR")
+    >>> bfile = merge_1000g_plink_chromosomes(plink_dir, prefix, "data/1000G_EUR_merged")
+    >>> # Pass bfile to write_slurm_array_job(plink_bfile=bfile, ...)
+    """
+    import subprocess
+    import tempfile
+
+    output_prefix = Path(output_prefix)
+    output_prefix.parent.mkdir(parents=True, exist_ok=True)
+    chromosomes = chromosomes or list(range(1, 23))
+
+    if output_prefix.with_suffix(".bed").exists():
+        return output_prefix
+
+    plink_dir = Path(plink_dir)
+    chr1_bfile = str(plink_dir / f"{prefix}{chromosomes[0]}")
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as fh:
+        merge_list_path = fh.name
+        for chrom in chromosomes[1:]:
+            fh.write(str(plink_dir / f"{prefix}{chrom}") + "\n")
+
+    try:
+        subprocess.run(
+            f"{plink_cmd} --bfile {chr1_bfile} "
+            f"--merge-list {merge_list_path} --make-bed --out {output_prefix}",
+            shell=True, check=True,
+        )
+    finally:
+        Path(merge_list_path).unlink(missing_ok=True)
+
+    return output_prefix
+
+
 if __name__ == "__main__":
     annot, ldscores, prefix = get_1000genomes_ld_scores(population="EUR")
     annot, ldscores, prefix = get_1000genomes_ld_scores(population="EAS")
