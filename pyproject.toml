@@ -112,6 +112,15 @@ optional-dependencies.scdrs = [
   "scdrs",
   "numpy<2.0.0",
 ]
+optional-dependencies.seismic_torch = [
+  "torch",
+]
+optional-dependencies.scprs = [
+  "torch_geometric",
+  "statsmodels",
+  "networkx",
+  "ncls",
+]
 optional-dependencies.test = [
   "coverage",
   "pytest",

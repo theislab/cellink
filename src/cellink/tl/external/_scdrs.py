@@ -149,34 +149,48 @@ def run_scdrs(
     logger.info("Filtering cells and genes")
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
-
+    
     if "log1p" not in adata.uns_keys():
-        logger.info("Log-normalizing data")
+        adata.layers["counts"] = adata.X
+        logger.info("Normalizing and log-transforming data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
+    else:
+        if not "counts" in adata.layers:
+            raise ValueError(
+                "adata appears already normalized (log1p in uns) but adata.layers['counts'] does not exist. "
+                "Please pass raw counts, or set adata.layers['counts'] before normalizing."
+            )
 
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
         sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+        adata = adata[:, adata.var.highly_variable]
         sc.pp.scale(adata, max_value=10)
         sc.tl.pca(adata, n_comps=n_pcs)
+    
+    adata.X = adata.layers["counts"]
 
     covariate_list = []
 
     if encode_sex and "sex" in adata.obs.columns:
         sex_codes = adata.obs.loc[adata.obs_names, "sex"].astype("category").cat.codes
-        covariate_list.append(pd.DataFrame(sex_codes, columns=["sex"], index=adata.obs_names))
+        if sex_codes.nunique() > 1:
+            covariate_list.append(pd.DataFrame(sex_codes, columns=["sex"], index=adata.obs_names))
 
     if encode_age and "age" in adata.obs.columns:
         age_values = adata.obs.loc[adata.obs_names, "age"].values.astype(float)
-        age_values = (age_values - age_values.mean()) / age_values.std()
-        covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=adata.obs_names))
+        age_std = age_values.std()
+        if age_std > 0 and np.isfinite(age_std):
+            age_values = (age_values - age_values.mean()) / age_std
+            covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=adata.obs_names))
 
     if additional_covariates:
         for cov in additional_covariates:
             if cov in adata.obs.columns:
                 cov_data = adata.obs.loc[adata.obs_names, cov]
-                covariate_list.append(pd.DataFrame(cov_data, columns=[cov], index=adata.obs_names))
+                if pd.Series(cov_data).nunique() > 1:
+                    covariate_list.append(pd.DataFrame(cov_data, columns=[cov], index=adata.obs_names))
 
     df_cov = pd.concat(covariate_list, axis=1) if covariate_list else None
 

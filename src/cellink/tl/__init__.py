@@ -8,5 +8,5 @@ from ._annotate_snps_genotype_data import (
     run_snpeff,
     run_vep,
 )
-
+from ._subset_region import subset_genomic_region, subset_gene
 from ._rvat import beta_weighting, run_burden_test, run_skat_test

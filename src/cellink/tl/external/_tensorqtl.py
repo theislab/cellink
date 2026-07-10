@@ -19,7 +19,7 @@ from cellink.io import to_plink
 logger = logging.getLogger(__name__)
 
 def read_tensorqtl_results(
-    prefix: str = None, 
+    prefix: str = None,
     mode: str = None,
     cis_output: bool | str = None,
     interaction_df: bool | str = None,
@@ -74,6 +74,199 @@ def read_tensorqtl_results(
         results = (susie, susie_summary)
     return results
 
+
+def _run_tensorqtl_python_api(
+    mode: str,
+    phenotype_df: pd.DataFrame,
+    phenotype_pos_df: pd.DataFrame,
+    covariates_df: pd.DataFrame,
+    genotype_df: pd.DataFrame,
+    variant_df: pd.DataFrame,
+    prefix: str,
+    permutations: int,
+    cis_output: str,
+    interaction_df: str,
+    susie_loci: str,
+    window: int,
+    pval_threshold: float,
+    maf_threshold: float,
+    maf_threshold_interaction: float,
+    return_dense: bool,
+    batch_size: int,
+    disable_beta_approx: bool,
+    warn_monomorphic: bool,
+    max_effects: int,
+    fdr: float,
+    qvalue_lambda: float,
+    seed: int,
+) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame]]:
+    """Run TensorQTL via the Python API directly (no subprocess/file export)."""
+    try:
+        from tensorqtl import cis, trans, susie, post
+    except ImportError:
+        raise ImportError(
+            "tensorqtl is required for `run_tensorqtl` with `use_python_api=True`. "
+            "Install with `pip install tensorqtl`. Please also install rpy2 and R package qvalue."
+        )
+
+    if mode == "cis_nominal":
+        if prefix is None:
+            raise ValueError("If mode is 'cis_nominal', then a prefix must be given.")
+
+        interaction_term = None
+        if interaction_df is not None:
+            interaction_term = (
+                pd.read_csv(interaction_df, sep="\t", index_col=0)
+                if isinstance(interaction_df, str)
+                else interaction_df
+            )
+
+        signif_df = None
+        if cis_output is not None:
+            if isinstance(cis_output, str):
+                signif_df = (
+                    pd.read_parquet(cis_output)
+                    if cis_output.endswith(".parquet")
+                    else pd.read_csv(cis_output, sep="\t", index_col=0)
+                )
+            else:
+                signif_df = cis_output
+
+        cis.map_nominal(
+            genotype_df, variant_df, phenotype_df, phenotype_pos_df,
+            prefix,
+            covariates_df=covariates_df,
+            interaction_df=interaction_term,
+            maf_threshold_interaction=maf_threshold_interaction,
+            window=window,
+        )
+
+        if signif_df is not None:
+            from tensorqtl.post import get_significant_pairs
+            signif_pairs_df = get_significant_pairs(signif_df, prefix, fdr=fdr)
+            signif_pairs_df.to_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
+
+        cis_qtl_pairs = pd.concat(
+            [pd.read_parquet(path) for path in glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet")], axis=0
+        )
+        cis_qtl_signif_pairs = (
+            pd.read_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
+            if signif_df is not None
+            else None
+        )
+        cis_qtl_top_assoc = (
+            pd.read_csv(f"{prefix}.cis_qtl_top_assoc.txt.gz", sep="\t")
+            if interaction_term is not None
+            else None
+        )
+        results = (cis_qtl_pairs, cis_qtl_signif_pairs, cis_qtl_top_assoc)
+
+    elif mode == "cis":
+        results = cis.map_cis(
+            genotype_df, variant_df, phenotype_df, phenotype_pos_df,
+            covariates_df=covariates_df,
+            nperm=permutations,
+            window=window,
+            beta_approx=not disable_beta_approx,
+            warn_monomorphic=warn_monomorphic,
+            seed=seed,
+        )
+        post.calculate_qvalues(results, fdr=fdr, qvalue_lambda=qvalue_lambda)
+
+    elif mode == "cis_independent":
+        if cis_output is None:
+            raise ValueError(
+                "cis_output can't be None in mode 'cis_independent'. "
+                "Please provide a path to the cis permutation output (with q-values) or a DataFrame."
+            )
+        cis_df = (
+            pd.read_csv(cis_output, sep="\t", index_col=0)
+            if isinstance(cis_output, str)
+            else cis_output
+        )
+        results = cis.map_independent(
+            genotype_df, variant_df, cis_df,
+            phenotype_df, phenotype_pos_df,
+            covariates_df=covariates_df,
+            fdr=fdr,
+            fdr_col="qval",
+            nperm=permutations,
+            window=window,
+            seed=seed,
+        )
+
+    elif mode == "trans":
+        trans_df = trans.map_trans(
+            genotype_df, phenotype_df,
+            covariates_df=covariates_df,
+            return_sparse=not return_dense,
+            pval_threshold=pval_threshold,
+            maf_threshold=maf_threshold,
+            batch_size=batch_size,
+        )
+        results = trans.filter_cis(trans_df, phenotype_pos_df, variant_df, window=window)
+
+    elif mode == "cis_susie":
+        if cis_output is None:
+            raise ValueError(
+                "cis_output can't be None in mode 'cis_susie'. "
+                "Please provide a path to the significant pairs file (parquet or tsv) or a DataFrame."
+            )
+        if isinstance(cis_output, str):
+            signif_df = (
+                pd.read_parquet(cis_output)
+                if cis_output.endswith(".parquet")
+                else pd.read_csv(cis_output, sep="\t")
+            )
+        else:
+            signif_df = cis_output
+
+        if "qval" in signif_df:
+            signif_df = signif_df[signif_df["qval"] <= fdr]
+        phenotype_ids = phenotype_df.index[phenotype_df.index.isin(signif_df["phenotype_id"].unique())]
+        pheno_df_sub = phenotype_df.loc[phenotype_ids]
+        pheno_pos_df_sub = phenotype_pos_df.loc[phenotype_ids]
+
+        susie_summary, susie_dict = susie.map(
+            genotype_df, variant_df, pheno_df_sub, pheno_pos_df_sub,
+            covariates_df,
+            L=max_effects,
+            window=window,
+            summary_only=False,
+            max_iter=500,
+        )
+        results = (susie_dict, susie_summary)
+
+    elif mode == "trans_susie":
+        if susie_loci is None:
+            raise ValueError(
+                "susie_loci can't be None in mode 'trans_susie'. "
+                "Please provide a path to the loci file (parquet or tsv) or a DataFrame."
+            )
+        if isinstance(susie_loci, str):
+            loci_df = (
+                pd.read_parquet(susie_loci)
+                if susie_loci.endswith(".parquet")
+                else pd.read_csv(susie_loci, sep="\t")
+            )
+        else:
+            loci_df = susie_loci
+
+        susie_summary, susie_dict = susie.map_loci(
+            loci_df, genotype_df, variant_df, phenotype_df,
+            covariates_df,
+            L=max_effects,
+            window=window,
+            max_iter=500,
+        )
+        results = (susie_dict, susie_summary)
+
+    else:
+        raise ValueError(f"Unknown mode: '{mode}'.")
+
+    return results
+
+
 def run_tensorqtl(
     dd: DonorData,
     n_pcs: int = 50,
@@ -105,6 +298,7 @@ def run_tensorqtl(
     encode_age: bool = True,
     additional_covariates: list[str] | None = None,
     dtype: str = "float32",
+    use_python_api: bool = False,
     run: bool = True,
     read_results: bool = True,
     save_cmd_file: bool = False,
@@ -153,7 +347,7 @@ def run_tensorqtl(
     chunk_size : int or str, optional
         Size of variant chunks processed in cis modes. Can be string like "1M" or integer base pairs.
     max_effects : int, default=10
-        Maximum number of independent signals to detect in SuSiE-based modes.
+        Maximum number of independent signals to detect in SuSiE-based modes (maps to L parameter).
     seed : int, optional
         Random seed for reproducibility, especially for permutation testing.
     logp : bool, default=False
@@ -180,16 +374,26 @@ def run_tensorqtl(
         Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model.
     dtype : str, default="float32"
         Data type to cast covariates and matrices for QTL model input.
+    use_python_api : bool, default=False
+        If True, runs TensorQTL directly via its Python API without exporting intermediate files or
+        invoking a subprocess. Genotypes are loaded from `dd.G` in memory. If False (default), the
+        CLI-based workflow is used, which exports PLINK, phenotype, and covariate files and calls
+        TensorQTL via subprocess.
     run : bool, default=True
         If True, executes the TensorQTL command. If False, returns the constructed command as a string.
+        Only applies when `use_python_api=False`.
     read_results : bool, default=True
         If True, reads and returns the result files. If False, returns the paths to the output files.
+        Only applies when `use_python_api=False`.
     save_cmd_file : bool, default=False
         If True, saves the constructed TensorQTL command to a file instead of printing.
+        Only applies when `use_python_api=False`.
     plink_export_kwargs : dict, optional
         Additional keyword arguments for `to_plink` function.
+        Only applies when `use_python_api=False`.
     remove_intermediate_files : bool, default=True
         If True, removes the intermediate files.
+        Only applies when `use_python_api=False`.
     overwrite_covariates_export : bool, default=True
         If True, overwrites the covariates export.
     overwrite_phenotype_export : bool, default=True
@@ -201,7 +405,7 @@ def run_tensorqtl(
     -------
     pd.DataFrame, tuple, str, or list[str]
         Depending on mode and read_results:
-        - If run=True and read_results=True: returns pandas DataFrame(s) or tuple of results.
+        - If use_python_api=True or (run=True and read_results=True): returns pandas DataFrame(s) or tuple of results.
         - If run=True and read_results=False: returns list of output file paths.
         - If run=False: returns the constructed TensorQTL command as a string.
 
@@ -213,6 +417,94 @@ def run_tensorqtl(
     ValueError
         If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected mode.
     """
+
+    if "X_pca" not in dd.C.obsm:
+        logger.info("Calculating PCA.")
+        sc.pp.pca(dd.C, n_comps=n_pcs)
+
+    dd.aggregate(key_added="PB", sync_var=True, verbose=True)
+
+    phenotype_df = dd.G.obsm["PB"].T
+    phenotype_df.index.name = "Geneid"
+    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+    phenotype_pos_df["Geneid"] = phenotype_pos_df.index
+
+    covariate_list = []
+    covariate_list.append(pd.DataFrame(np.ones((dd.shape[0], 1)), columns=["intercept"], index=phenotype_df.columns))
+
+    if encode_sex:
+        sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+        covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
+
+    if encode_age:
+        age_values = dd.G.obs[["age"]].values.astype(dtype)
+        mean = age_values.mean()
+        std = age_values.std()
+        tolerance = 1e-2
+        already_z_normalized = np.isclose(mean, 0.0, atol=tolerance) and np.isclose(std, 1.0, atol=tolerance)
+        if not already_z_normalized and std > 0:
+            logger.info("Performing z-normalization of age.")
+            age_values = (age_values - mean) / std
+        covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
+
+    if additional_covariates:
+        for cov in additional_covariates:
+            if cov in dd.G.obs.columns:
+                covariate_df = pd.DataFrame(
+                    dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
+                )
+                covariate_list.append(covariate_df)
+            elif cov in dd.G.obsm:
+                cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                if cov_matrix.ndim == 1:
+                    covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
+                else:
+                    covariate_list.append(
+                        pd.DataFrame(
+                            cov_matrix,
+                            columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
+                            index=phenotype_df.columns,
+                        )
+                    )
+            else:
+                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+
+    covariates_df = pd.concat(covariate_list, axis=1)
+
+    if use_python_api:
+        if importlib.util.find_spec("tensorqtl") is None:
+            raise ImportError("tensorqtl is required for `run_tensorqtl`. Please install it.")
+
+        genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
+        variant_df = dd.G.var[["chrom", "pos"]].copy()
+        variant_df["index"] = range(len(variant_df))
+
+        return _run_tensorqtl_python_api(
+            mode=mode,
+            phenotype_df=phenotype_df,
+            phenotype_pos_df=phenotype_pos_df,
+            covariates_df=covariates_df,
+            genotype_df=genotype_df,
+            variant_df=variant_df,
+            prefix=prefix,
+            permutations=permutations,
+            cis_output=cis_output,
+            interaction_df=interaction_df,
+            susie_loci=susie_loci,
+            window=window,
+            pval_threshold=pval_threshold,
+            maf_threshold=maf_threshold,
+            maf_threshold_interaction=maf_threshold_interaction,
+            return_dense=return_dense,
+            batch_size=batch_size,
+            disable_beta_approx=disable_beta_approx,
+            warn_monomorphic=warn_monomorphic,
+            max_effects=max_effects,
+            fdr=fdr,
+            qvalue_lambda=qvalue_lambda,
+            seed=seed,
+        )
+
     if run:
         if shutil.which("plink2") is None:
             raise ImportError("plink2 is required for `run_tensorqtl`. Please install it.")
@@ -245,17 +537,6 @@ def run_tensorqtl(
     if mode == "cis_nominal" and prefix is None:
         raise ValueError("If mode cis_nominal, then a prefix must be given.")
 
-    if "X_pca" not in dd.C.obsm:
-        logger.info("Calculating PCA.")
-        sc.pp.pca(dd.C, n_comps=n_pcs)
-
-    dd.aggregate(key_added="PB", sync_var=True, verbose=True)
-
-    phenotype_df = dd.G.obsm["PB"].T
-    phenotype_df.index.name = "Geneid"
-    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
-    phenotype_pos_df["Geneid"] = phenotype_pos_df.index
-    
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
         phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
         phenotype_write_df = phenotype_write_df.rename(columns={"chr": "#chr"})
@@ -267,56 +548,10 @@ def run_tensorqtl(
             phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
 
     if not os.path.isfile(f"{prefix}_donor_features.tsv") or overwrite_covariates_export:
-        covariate_list = []
-        covariate_list.append(pd.DataFrame(np.ones((dd.shape[0], 1)), columns=["intercept"], index=phenotype_df.columns))
-
-        if encode_sex:
-            sex_codes = dd.G.obs["sex"].astype("category").cat.codes
-            covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
-
-        if encode_age:
-            age_values = dd.G.obs[["age"]].values.astype(dtype)
-            mean = age_values.mean()
-            std = age_values.std()
-            tolerance = 1e-2
-            already_z_normalized = np.isclose(mean, 0.0, atol=tolerance) and np.isclose(std, 1.0, atol=tolerance)
-            if not already_z_normalized and std > 0:
-                logger.info("Performing z-normalization of age.")
-                age_values = (age_values - mean) / std
-            covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
-
-        if additional_covariates:
-            for cov in additional_covariates:
-                if cov in dd.G.obs.columns:
-                    covariate_df = pd.DataFrame(
-                        dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
-                    )
-                    covariate_list.append(covariate_df)
-                elif cov in dd.G.obsm:
-                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
-                    if cov_matrix.ndim == 1:
-                        covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
-                    else:
-                        covariate_list.append(
-                            pd.DataFrame(
-                                cov_matrix,
-                                columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
-                                index=phenotype_df.columns,
-                            )
-                        )
-                else:
-                    raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
-
-        covariates_df = pd.concat(covariate_list, axis=1)
-
-        covariates_df.index.name = "iid"
-        covariates_df = covariates_df.T
-        covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
-
-    #variant_df = dd.G.var[["chrom", "pos"]]
-    #variant_df["index"] = range(len(variant_df))
-
-    ###
+        covariates_export_df = covariates_df.copy()
+        covariates_export_df.index.name = "iid"
+        covariates_export_df = covariates_export_df.T
+        covariates_export_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
 
     geno = prefix
     covar = f"{prefix}_donor_features.tsv"
@@ -326,8 +561,6 @@ def run_tensorqtl(
         to_plink(dd.G, prefix, **plink_export_kwargs)
         cmd_plink_conversion = f"plink2 --bfile {geno} --make-pgen --out {geno}"
         subprocess.run(cmd_plink_conversion, check=True, shell=True)
-
-    ###
 
     cmd = f"python -m tensorqtl {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
 
@@ -357,17 +590,17 @@ def run_tensorqtl(
 
     if run:
         subprocess.run(cmd, check=True, shell=True)
-        
+
         if remove_intermediate_files:
             extensions = [".bim", ".fam", ".bed", ".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
             for ext in extensions:
                 filename = prefix + ext
                 if os.path.isfile(filename):
                     os.remove(filename)
-            
+
         if read_results:
             results = read_tensorqtl_results(prefix, mode, cis_output=cis_output, interaction_df=interaction_df)
-        
+
         return results
 
     else:
