@@ -1,21 +1,3 @@
-"""Sparse torch implementation of Seismic cell-type specificity + GWAS association.
-
-Ported from ratpy (``ratpy.external.seismic``, branch ``seismic_implementation``,
-commit ``9cb38af``, original author Antonio Nappi). This is a from-scratch
-re-implementation of the seismicGWAS R package's core algorithm
-(``calc_specificity`` + ``get_ct_trait_associations``) using sparse torch
-operations, so it never materialises a dense genes x cells matrix. This
-makes it usable on atlases with millions of cells, where :func:`run_seismic`
-(the R/rpy2 subprocess backend, which densifies the full expression matrix
-to export a CSV) runs out of memory.
-
-Numerically validated against the R backend on a downsampled atlas subset
-(see ``tests/test_seismic_torch.py``): cell-type p-values from both backends
-are highly concordant (Spearman rho > 0.9), with small differences expected
-from float32 vs. R's float64 arithmetic and minor epsilon-handling
-differences in the variance denominator.
-"""
-
 import logging
 import time
 from pathlib import Path
