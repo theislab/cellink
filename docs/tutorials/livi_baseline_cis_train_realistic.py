@@ -40,8 +40,17 @@ from cellink.tl.external import configure_livi_runner, train_livi
 
 LIVI_ROOT = "LIVI"
 DATA_HOME = "/lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data"
-DD_CACHE_PATH_H5_REALISTIC = f"{DATA_HOME}/onek1k/onek1k_realistic.dd.h5"
-KNOWN_CIS_EQTLS_PATH = f"{DATA_HOME}/onek1k/onek1k_realistic_known_cis_eqtls.parquet"
+# When CELLINK_SSD_HOME is set (e.g. by the SLURM script), data is read from
+# the SSD-backed filesystem and checkpoints are written there too.
+SSD_HOME = os.environ.get("CELLINK_SSD_HOME", "")
+if SSD_HOME:
+    DD_CACHE_PATH_H5_REALISTIC = f"{SSD_HOME}/onek1k_realistic.dd.h5"
+    KNOWN_CIS_EQTLS_PATH = f"{SSD_HOME}/onek1k_realistic_known_cis_eqtls.parquet"
+    OUTPUT_DIR = f"{SSD_HOME}/livi_baseline_run_realistic"
+else:
+    DD_CACHE_PATH_H5_REALISTIC = f"{DATA_HOME}/onek1k/onek1k_realistic.dd.h5"
+    KNOWN_CIS_EQTLS_PATH = f"{DATA_HOME}/onek1k/onek1k_realistic_known_cis_eqtls.parquet"
+    OUTPUT_DIR = "livi_baseline_run_realistic"
 COVARIATE_KEYS = ["pool_number", "sex"]
 
 CELL_STATE_CIS = False   # paper "cell-state" variant; set True to match exactly
@@ -130,7 +139,7 @@ class ThroughputCallback(Callback):
 t0 = time.perf_counter()
 checkpoint_path = train_livi(
     dd,
-    output_dir="livi_baseline_run_realistic",
+    output_dir=OUTPUT_DIR,
     z_dim=Z_DIM, n_dxc_factors=N_DXC_FACTORS, n_persistent_factors=N_PERSISTENT_FACTORS,
     n_cis_snps=N_CIS_SNPS, cell_state_cis=CELL_STATE_CIS,
     encoder_hidden_dims=ENCODER_HIDDEN_DIMS, learning_rate=LEARNING_RATE,
