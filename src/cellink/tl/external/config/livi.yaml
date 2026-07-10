@@ -1,0 +1,21 @@
+# LIVI runner configuration for cellink.
+#
+# Pass this file via:
+#   cl.tl.external.configure_livi_runner(livi_root=..., config_path="path/to/livi.yaml")
+#
+# execution_mode options:
+#   python_api  — import LIVI directly (recommended; returns Python objects)
+#   subprocess  — run LIVI's Hydra CLI as a child process (HPC job submission)
+
+execution_mode: python_api
+
+# Absolute path to the LIVI repository root (contains src/ and configs/).
+# Override at runtime: configure_livi_runner(livi_root="/your/path")
+livi_root: null
+
+# Python executable used in subprocess mode.
+python_executable: python
+
+# Compute device: "auto" detects CUDA, falls back to CPU.
+# Explicit values: "cuda", "cpu"
+device: auto

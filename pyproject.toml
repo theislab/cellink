@@ -51,6 +51,7 @@ optional-dependencies.datasets = [
   "liftover",
   "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
   "bio2zarr[all]",
+  "setuptools<82",
 ]
 
 optional-dependencies.pgen = [
