@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from os.path import expanduser, join
 from pathlib import Path
@@ -126,6 +127,37 @@ def _download_file(url: str, dest: Path, checksum: str | None = None) -> None:
         urlretrieve(url, filename=dest, reporthook=t.update_to)
     if checksum and _sha256sum(dest) != checksum:
         raise ValueError(f"Checksum mismatch for {dest}")
+
+
+def retry_with_backoff(fn: Callable, n_attempts: int = 8, base_delay: float = 5, max_delay: float = 30):
+    """
+    Call ``fn()`` and retry with exponential backoff on failure.
+
+    Ensembl's BioMart endpoints occasionally return transient 5xx errors or
+    truncated/malformed responses (sometimes even an HTML "Service unavailable"
+    page served with HTTP 200) under load, so callers querying BioMart should
+    retry rather than fail a long-running pipeline on a one-off blip.
+
+    Parameters
+    ----------
+    fn : Callable
+        Zero-argument callable to invoke.
+    n_attempts : int
+        Maximum number of attempts before raising.
+    base_delay : float
+        Delay in seconds before the first retry; doubles each subsequent attempt.
+    max_delay : float
+        Cap on the per-attempt delay.
+    """
+    for attempt in range(1, n_attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt == n_attempts:
+                raise
+            delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+            logging.warning(f"Request failed ({e}); retrying in {delay}s (attempt {attempt}/{n_attempts})")
+            time.sleep(delay)
 
 
 def _run(cmd: str, cwd: str | Path | None = None) -> subprocess.CompletedProcess:

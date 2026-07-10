@@ -1,4 +1,5 @@
 import logging
+import re
 from pathlib import Path
 from typing import Any
 from urllib.request import urlretrieve
@@ -7,6 +8,38 @@ import pandas as pd
 import requests
 
 from cellink.resources._utils import _cache_df, _to_dataframe, get_data_home
+
+
+def _normalize_build(genome_build: str) -> str:
+    """Normalize genome build aliases to 'GRCh37' or 'GRCh38'."""
+    lower = genome_build.lower()
+    if lower in ("grch38", "hg38", "build38"):
+        return "GRCh38"
+    if lower in ("grch37", "hg19", "build37"):
+        return "GRCh37"
+    raise ValueError(f"Invalid genome_build '{genome_build}'. Use 'GRCh38', 'GRCh37', or an alias (hg38/hg19).")
+
+
+_NON_DATA_FILENAME = re.compile(r"(?i)readme|license|changelog|^md5sum")
+
+
+def _find_candidate_files(html: str) -> list[str]:
+    """Find likely summary-stats filenames in an FTP directory listing.
+
+    Matches anything ending in .tsv, .txt, .zip, or .gz -- some
+    pre-harmonisation-era deposits ship a plain/zipped .txt instead of
+    .tsv.gz, or a bare ".gz" with no .tsv/.txt in the name at all (confirmed
+    directly: a sleep-duration GWAS whose only file is
+    "..._sumstats.txt.zip", and a major-depression GWAS whose only file is
+    literally "MDD2018_ex23andMe.gz"). Since .tsv.gz/.txt.gz already end in
+    ".gz", matching bare ".gz" covers all of those cases in one pattern.
+    Widening this far risks also matching README/LICENSE/CHANGELOG files
+    that live in the same directory (which the original .tsv.gz-only regex
+    never collided with) -- hence the explicit exclusion below.
+    """
+    files = re.findall(r'href="([^"]*\.(?:tsv|txt|zip|gz))"', html)
+    return [f for f in files if not _NON_DATA_FILENAME.search(f)]
+
 
 logging.basicConfig(level=logging.INFO)
 
@@ -98,115 +131,13 @@ def get_gwas_catalog_study(accession_id: str, **params: Any) -> dict:
     """
     return _fetch(f"studies/{accession_id}", params=params, paginate=False)
 
-"""
-def get_gwas_catalog_study_summary_stats(
-    accession_id: str, dest: str | Path | None = None, return_path: bool = False, **params: Any
-) -> pd.DataFrame | Path:
-
-    study_meta = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
-
-    if "full_summary_stats" not in study_meta:
-        raise ValueError(f"Study {accession_id} does not have full summary statistics available")
-
-    base_url = study_meta["full_summary_stats"]
-    harmonised_url = f"{base_url}/harmonised"
-
-    import re
-
-    try:
-        r = requests.get(harmonised_url)
-        r.raise_for_status()
-
-        all_files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
-
-        h_files = [f for f in all_files if f.endswith(".h.tsv.gz") and not f.endswith(".h.tsv.gz-meta.yaml")]
-
-        if h_files:
-
-            def build_priority(filename):
-                filename_lower = filename.lower()
-                if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
-                    return 2
-                elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
-                    return 1
-                else:
-                    return 0
-
-            h_files.sort(key=build_priority, reverse=True)
-            filename = h_files[0]
-            url = f"{harmonised_url}/{filename}"
-            logging.info(f"Found harmonised file: {filename}")
-        else:
-            raise ValueError("No harmonised .h.tsv.gz files found")
-
-    except Exception as e:
-        logging.warning(f"Could not find harmonised files ({e}), trying base directory")
-
-        try:
-            r = requests.get(base_url)
-            r.raise_for_status()
-            files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
-
-            if files:
-
-                def build_priority(filename):
-                    filename_lower = filename.lower()
-                    if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
-                        return 2
-                    elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
-                        return 1
-                    else:
-                        return 0
-
-                files.sort(key=build_priority, reverse=True)
-                filename = files[0]
-                url = f"{base_url}/{filename}"
-            else:
-                possible_files = [
-                    f"{accession_id}_buildGRCh38.tsv.gz",
-                    f"{accession_id}_buildGRCh37.tsv.gz",
-                    f"{accession_id}.tsv.gz",
-                ]
-
-                for filename in possible_files:
-                    test_url = f"{base_url}/{filename}"
-                    try:
-                        test_r = requests.head(test_url)
-                        if test_r.status_code == 200:
-                            url = test_url
-                            break
-                    except:
-                        continue
-                else:
-                    raise ValueError(f"Could not find summary statistics file for {accession_id}")
-
-        except Exception as e2:
-            raise ValueError(f"Could not find summary statistics for {accession_id}: {e2}")
-
-    if not dest:
-        data_home = get_data_home()
-        dest = data_home / f"{accession_id}_summary_stats.tsv.gz"
-
-    logging.info(f"Downloading {url} to {dest}")
-
-    try:
-        urlretrieve(url, dest)
-    except Exception as e:
-        raise RuntimeError(f"Failed to download summary statistics from {url}: {e}")
-
-    if return_path:
-        return dest
-
-    data = pd.read_csv(dest, compression="gzip", delimiter="\t")
-    return data
-"""
-
 def get_gwas_catalog_study_summary_stats(
     accession_id: str,
     dest: str | Path | None = None,
     return_path: bool = False,
     genome_build: str | None = None,
-    **params: Any
+    translate_to_build: str | None = None,
+    **params: Any,
 ) -> pd.DataFrame | Path:
     """
     Download full summary statistics for a GWAS study.
@@ -219,10 +150,16 @@ def get_gwas_catalog_study_summary_stats(
         Destination path to save the summary statistics file. Defaults to data home directory.
     return_path : bool, default=False
         If True, return the local file path instead of reading the file.
+        Cannot be combined with ``translate_to_build``.
     genome_build : str, optional
-        Preferred genome build: 'GRCh38', 'GRCh37', or None for automatic priority selection.
+        Preferred genome build for the downloaded file: 'GRCh38', 'GRCh37', or None for
+        automatic priority selection (prefers EBI harmonised GRCh38 files).
         Aliases: 'hg38'/'build38' for GRCh38, 'hg19'/'build37' for GRCh37.
-        When specified, skips harmonised files and looks for build-specific files in base directory.
+    translate_to_build : str, optional
+        After downloading, translate SNP positions to this genome build using liftover.
+        Useful when EBI does not host a pre-built file for the requested build.
+        Requires the ``liftover`` package (``pip install cellink[datasets]``).
+        Cannot be combined with ``return_path=True``.
     **params
         Additional query parameters to pass to the API.
 
@@ -231,6 +168,8 @@ def get_gwas_catalog_study_summary_stats(
     pd.DataFrame or Path
         DataFrame containing the summary statistics, or Path to the downloaded file if return_path=True.
     """
+    if translate_to_build and return_path:
+        raise ValueError("translate_to_build requires return_path=False — liftover operates on an in-memory DataFrame.")
     study_meta = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
 
     if "full_summary_stats" not in study_meta:
@@ -239,23 +178,14 @@ def get_gwas_catalog_study_summary_stats(
     base_url = study_meta["full_summary_stats"]
     harmonised_url = f"{base_url}/harmonised"
 
-    import re
-
-    # Normalize genome_build parameter
-    normalized_build = None
-    if genome_build:
-        genome_build_lower = genome_build.lower()
-        if genome_build_lower in ['grch38', 'hg38', 'build38']:
-            normalized_build = 'GRCh38'
-        elif genome_build_lower in ['grch37', 'hg19', 'build37']:
-            normalized_build = 'GRCh37'
-        else:
-            raise ValueError(f"Invalid genome_build '{genome_build}'. Use 'GRCh38', 'GRCh37', or None.")
+    normalized_build = _normalize_build(genome_build) if genome_build else None
 
     def build_priority(filename):
         """Assign priority score to filename based on genome build."""
         filename_lower = filename.lower()
-        if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+        if filename_lower.endswith(".h.tsv.gz"):
+            return 2
+        elif "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
             return 2
         elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
             return 1
@@ -265,7 +195,9 @@ def get_gwas_catalog_study_summary_stats(
     def get_build_from_filename(filename):
         """Extract genome build information from filename."""
         filename_lower = filename.lower()
-        if "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
+        if filename_lower.endswith(".h.tsv.gz"):
+            return "GRCh38"
+        elif "build38" in filename_lower or "hg38" in filename_lower or "grch38" in filename_lower:
             return "GRCh38"
         elif "build37" in filename_lower or "hg19" in filename_lower or "grch37" in filename_lower:
             return "GRCh37"
@@ -279,10 +211,12 @@ def get_gwas_catalog_study_summary_stats(
 
         # If user specified a build, try to find it
         if requested_build:
-            for f in files:
-                if get_build_from_filename(f) == requested_build:
-                    logging.info(f"Selected file matching requested build {requested_build}: {f}")
-                    return f, requested_build
+            matches = [f for f in files if get_build_from_filename(f) == requested_build]
+            if matches:
+                harmonised = [f for f in matches if f.lower().endswith(".h.tsv.gz")]
+                chosen = harmonised[0] if harmonised else matches[0]
+                logging.info(f"Selected file matching requested build {requested_build}: {chosen}")
+                return chosen, requested_build
 
             logging.warning(f"Requested build {requested_build} not found. Falling back to priority selection.")
 
@@ -299,27 +233,47 @@ def get_gwas_catalog_study_summary_stats(
     filename = None
     detected_build = None
 
-    # If user specified a genome build, skip harmonised and go straight to base directory
-    # (harmonised files don't have build-specific versions)
+    exclude_harmonised = normalized_build and normalized_build != "GRCh38"
     if normalized_build:
-        logging.info(f"User requested {normalized_build}, skipping harmonised files and searching base directory")
-        
+        logging.info(f"User requested {normalized_build}, searching for a build-specific file")
+
         try:
-            r = requests.get(base_url)
+            r = requests.get(harmonised_url)
             r.raise_for_status()
             files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
-            
-            # Exclude harmonised files if they appear in the listing
-            files = [f for f in files if not f.endswith(".h.tsv.gz")]
+            files = [f for f in files if not f.endswith(".h.tsv.gz-meta.yaml")]
+            if exclude_harmonised:
+                files = [f for f in files if not f.endswith(".h.tsv.gz")]
 
             if files:
                 filename, detected_build = select_file(files, requested_build=normalized_build)
                 if filename:
-                    url = f"{base_url}/{filename}"
-                    logging.info(f"Using build-specific summary statistics (build: {detected_build})")
+                    url = f"{harmonised_url}/{filename}"
+                    if filename.endswith(".h.tsv.gz"):
+                        detected_build = "GRCh38"
+                    logging.info(f"Using build-specific summary statistics from harmonised/ (build: {detected_build})")
 
         except Exception as e:
-            logging.warning(f"Could not parse base directory listing ({e})")
+            logging.warning(f"Could not parse harmonised directory listing ({e})")
+
+        if not url:
+            try:
+                r = requests.get(base_url)
+                r.raise_for_status()
+                files = _find_candidate_files(r.text)
+
+                # Exclude harmonised files if they appear in the listing (see above)
+                if exclude_harmonised:
+                    files = [f for f in files if not f.endswith(".h.tsv.gz")]
+
+                if files:
+                    filename, detected_build = select_file(files, requested_build=normalized_build)
+                    if filename:
+                        url = f"{base_url}/{filename}"
+                        logging.info(f"Using build-specific summary statistics (build: {detected_build})")
+
+            except Exception as e:
+                logging.warning(f"Could not parse base directory listing ({e})")
 
         # If still no file found, try standard naming conventions
         if not url:
@@ -374,7 +328,7 @@ def get_gwas_catalog_study_summary_stats(
             try:
                 r = requests.get(base_url)
                 r.raise_for_status()
-                files = re.findall(r'href="([^"]*\.tsv\.gz)"', r.text)
+                files = _find_candidate_files(r.text)
 
                 if files:
                     filename, detected_build = select_file(files)
@@ -411,9 +365,15 @@ def get_gwas_catalog_study_summary_stats(
     if not url:
         raise ValueError(f"Could not find summary statistics file for {accession_id}")
 
+    if url.endswith(".gz"):
+        suffix, compression = ".gz", "gzip"
+    elif url.endswith(".zip"):
+        suffix, compression = ".zip", "zip"
+    else:
+        suffix, compression = "", None
     if not dest:
         data_home = get_data_home()
-        dest = data_home / f"{accession_id}_summary_stats.tsv.gz"
+        dest = data_home / f"{accession_id}_summary_stats.tsv{suffix}"
 
     logging.info(f"Downloading {url} to {dest}")
 
@@ -425,8 +385,84 @@ def get_gwas_catalog_study_summary_stats(
     if return_path:
         return dest
 
-    data = pd.read_csv(dest, compression="gzip", delimiter="\t")
+    data = pd.read_csv(dest, compression=compression, sep=r"\s+")
+    if translate_to_build:
+        data = liftover_gwas_summary_stats(data, source_build=detected_build or "GRCh38", target_build=translate_to_build)
     return data
+
+
+def liftover_gwas_summary_stats(
+    df: pd.DataFrame,
+    source_build: str,
+    target_build: str,
+    chrom_col: str = "chromosome",
+    pos_col: str = "base_pair_location",
+    drop_failed: bool = True,
+) -> pd.DataFrame:
+    """
+    Translate SNP positions in a GWAS summary-statistics DataFrame between genome builds.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        GWAS summary statistics DataFrame containing at least ``chrom_col`` and ``pos_col``.
+    source_build : str
+        Genome build of the input positions. Accepts 'GRCh38'/'hg38' or 'GRCh37'/'hg19'.
+    target_build : str
+        Genome build to translate positions to.
+    chrom_col : str, default='chromosome'
+        Name of the chromosome column.
+    pos_col : str, default='base_pair_location'
+        Name of the position column.
+    drop_failed : bool, default=True
+        If True, rows whose positions could not be lifted over are dropped.
+        If False, failed positions are set to ``pd.NA``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of ``df`` with ``pos_col`` replaced by translated positions.
+
+    Raises
+    ------
+    ImportError
+        If the ``liftover`` package is not installed.
+    """
+    _UCSC = {"GRCh37": "hg19", "GRCh38": "hg38"}
+    src = _UCSC[_normalize_build(source_build)]
+    tgt = _UCSC[_normalize_build(target_build)]
+
+    if src == tgt:
+        logging.info(f"source_build and target_build are both {source_build}; returning df unchanged.")
+        return df.copy()
+
+    try:
+        from liftover import get_lifter
+    except ImportError:
+        raise ImportError(
+            "The 'liftover' package is required for build translation. "
+            "Install it with: pip install cellink[datasets]"
+        )
+
+    converter = get_lifter(src, tgt, one_based=True)
+
+    chroms = df[chrom_col].astype(str).tolist()
+    positions = df[pos_col].tolist()
+    results = [converter[c][p] for c, p in zip(chroms, positions)]
+    new_positions = [r[0][1] if r else None for r in results]
+
+    out = df.copy()
+    out[pos_col] = new_positions
+    if drop_failed:
+        n_failed = sum(p is None for p in new_positions)
+        if n_failed:
+            logging.warning(f"liftover: dropped {n_failed:,} rows with no mapping from {source_build} to {target_build}")
+        out = out.dropna(subset=[pos_col])
+    else:
+        out[pos_col] = pd.array(new_positions, dtype=pd.Int64Dtype())
+
+    return out.reset_index(drop=True)
+
 
 def get_gwas_catalog_genes(data_home: str | Path | None = None, refresh: bool = False, **params: Any) -> pd.DataFrame:
     """

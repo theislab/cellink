@@ -133,7 +133,13 @@ class BaseToolRunner(ABC):
             for host_path, container_path in volumes.items():
                 bind_args.extend(["-B", f"{host_path}:{container_path}"])
 
-            cmd = ["singularity", "exec", *bind_args, self.config["singularity_image"], container_command]
+            # Inject overlay if the overlay patch strategy was used
+            overlay_args = []
+            if self.config.get("_ldsc_overlay_path"):
+                overlay_args = ["--overlay", f"{self.config['_ldsc_overlay_path']}:ro"]
+            image = self.config.get("singularity_image", "")
+            cmd = ["singularity", "exec", *bind_args, *overlay_args, image, container_command]
+
             return " ".join(cmd)
 
         return base_command
@@ -161,6 +167,17 @@ class BaseToolRunner(ABC):
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
+        
+        For Singularity, three patch modes are handled transparently:
+
+        - **overlay**: if ``_ldsc_overlay_path`` is in config (set by
+          ``check_and_patch_ldsc_parse_bug`` with ``singularity_patch_strategy="overlay"``),
+          ``--overlay <path>:ro`` is injected into the ``singularity exec`` call
+          so the patched ``parse.py`` is always active.
+        - **sandbox / rebuild**: ``singularity_image`` is updated in the runner
+          config to point at the sandbox directory or rebuilt SIF, so
+          ``_build_container_command`` picks it up automatically — no special
+          handling needed here.
 
         Parameters
         ----------
@@ -177,17 +194,21 @@ class BaseToolRunner(ABC):
             file_paths.append(os.getcwd())
 
         if self.config["execution_mode"] == "local":
-            result = subprocess.run(base_command, shell=True, check=check, capture_output=True, text=True)
+            result = subprocess.run(base_command, shell=True, check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:
                 logger.warning(result.stderr)
+            if check and result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, base_command, result.stdout, result.stderr)
         else:
             full_command = self._build_container_command(base_command, file_paths)
 
             logger.info(f"Executing: {full_command}")
-            result = subprocess.run(full_command, shell=True, check=check, capture_output=True, text=True)
+            result = subprocess.run(full_command, shell=True, check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:
                 logger.warning(result.stderr)
+            if check and result.returncode != 0:
+                raise subprocess.CalledProcessError(result.returncode, full_command, result.stdout, result.stderr)

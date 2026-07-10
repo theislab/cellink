@@ -9,7 +9,7 @@ import yaml
 
 from cellink._core import DonorData
 from cellink.io import to_plink
-from cellink.resources._utils import _download_file, get_data_home
+from cellink.resources._utils import _download_file, get_data_home, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,9 @@ def get_gene_id_mapping(
         raise ValueError(f"Invalid genome_build: {genome_build}")
 
     server = Server(host=host)
-    dataset = server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl']
-    mapping_df = dataset.query(
-        attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id']
+    dataset = retry_with_backoff(lambda: server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl'])
+    mapping_df = retry_with_backoff(
+        lambda: dataset.query(attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id'])
     )
 
     mapping_df = mapping_df.rename(columns={"Gene stable ID": "ensembl_gene_id",
@@ -387,8 +387,8 @@ def prepare_magma_inputs(
         df["SNP"] = (
             df["chromosome"].astype(str) + "_"
             + df["base_pair_location"].astype(str) + "_"
-            + df["effect_allele"].astype(str) + "_"
-            + df["other_allele"].astype(str)
+            + df["effect_allele"].astype(str).str.upper() + "_"
+            + df["other_allele"].astype(str).str.upper()
         )
 
     df = df.rename(columns=col_mapping)
@@ -402,6 +402,7 @@ def prepare_magma_inputs(
         )
 
     df = df.dropna(subset=required_cols)
+    df["BP"] = df["BP"].astype("int64")
 
     snp_loc_file = Path(f"{output_prefix}.snp_loc.txt")
     df[["SNP", "CHR", "BP"]].to_csv(snp_loc_file, sep="\t", header=False, index=False)
