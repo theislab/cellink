@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Iterable, List, Optional, Union
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -11,7 +12,6 @@ import pytorch_lightning as pl
 from ._livi import LIVIRunner, get_livi_runner
 
 if TYPE_CHECKING:
-    import torch
     from annbatch import DatasetCollection
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ def build_annbatch_collection(
     *,
     seed: int = 42,
     **add_adatas_kwargs,
-) -> "DatasetCollection":
+) -> DatasetCollection:
     """Build (if not already built) an annbatch `DatasetCollection` from a "C" group.
 
     Parameters
@@ -47,6 +47,7 @@ def build_annbatch_collection(
     The (possibly newly built) `DatasetCollection`.
     """
     import anndata as ad
+
     from annbatch import DatasetCollection
 
     # annbatch's write_sharded requires zarr format 3 (anndata defaults to 2).
@@ -80,10 +81,10 @@ def read_g_from_dd_store(path: str):
 
 
 def _resolve_indices(spec, names: Iterable[str], what: str) -> np.ndarray:
-    """int (first N) | sequence of names | boolean mask -> integer positions into `names`."""
+    """Int (first N) | sequence of names | boolean mask -> integer positions into `names`."""
     names = [str(n) for n in names]
     n = len(names)
-    if isinstance(spec, (int, np.integer)):
+    if isinstance(spec, int | np.integer):
         if spec > n:
             raise ValueError(f"requested {spec} {what} but only {n} available")
         return np.arange(int(spec))
@@ -132,9 +133,9 @@ class CisGenotype:
         gene_names: Iterable[str],
         gdata,
         *,
-        known_cis_eqtls: Optional[pd.DataFrame] = None,
-        cis_snps: Union[int, Iterable[str], np.ndarray] = 2996,
-        target_genes: Union[int, Iterable[str], np.ndarray] = 2000,
+        known_cis_eqtls: pd.DataFrame | None = None,
+        cis_snps: int | Iterable[str] | np.ndarray = 2996,
+        target_genes: int | Iterable[str] | np.ndarray = 2000,
         cis_genes_per_snp: int = 5,
         seed: int = 42,
         device: str = "cpu",
@@ -157,9 +158,9 @@ class CisGenotype:
         else:
             snp_idx = _resolve_indices(cis_snps, gdata.var_names, "cis SNPs")
             gene_idx = _resolve_indices(target_genes, gene_names, "target genes")
-            self.known_cis = self._synthetic_known(
-                len(snp_idx), len(gene_names), gene_idx, cis_genes_per_snp, seed
-            ).to(dev)
+            self.known_cis = self._synthetic_known(len(snp_idx), len(gene_names), gene_idx, cis_genes_per_snp, seed).to(
+                dev
+            )
 
         self.gt_array = self._presence(gdata, snp_idx, donor_categories).to(dev)
 
@@ -179,7 +180,8 @@ class CisGenotype:
                 "%d missing genotype calls (%.2f%%) among the selected cis SNPs; treating them as "
                 "allele-absent (0) for this binary presence feature -- NaN > 0 is always False in "
                 "numpy, so this was previously happening silently.",
-                n_missing, 100 * n_missing / raw.size,
+                n_missing,
+                100 * n_missing / raw.size,
             )
         gt_block = (raw > 0).astype(np.float32)  # NaN -> False -> 0, now logged above
         pos = {d: i for i, d in enumerate(gdata.obs_names)}
@@ -232,8 +234,6 @@ class LIVICisBatchAdapter:
         self._checked = False
 
     def _check_index_alignment(self, batch, pos):
-        import torch
-
         obs = batch.get("obs")
         if obs is None:
             return
@@ -293,7 +293,7 @@ class AnnbatchLIVIDataModule(pl.LightningDataModule):
         donor_codes,
         covar_codes,
         cis: CisGenotype,
-        covariate_keys: List[str],
+        covariate_keys: list[str],
         donor_key: str,
         donor_dtype,
         *,
@@ -328,18 +328,29 @@ class AnnbatchLIVIDataModule(pl.LightningDataModule):
         self.collection = DatasetCollection(self.collection_path)
 
     def train_dataloader(self):
-        from annbatch import Loader
         from functools import partial
 
+        from annbatch import Loader
+
         loader = Loader(
-            batch_size=self.batch_size, chunk_size=self.chunk_size, preload_nchunks=self.preload_nchunks,
-            shuffle=self.shuffle, drop_last=self.drop_last, to_torch=True,
-            preload_to_gpu=self.preload_to_gpu, rng=np.random.default_rng(self.seed),
+            batch_size=self.batch_size,
+            chunk_size=self.chunk_size,
+            preload_nchunks=self.preload_nchunks,
+            shuffle=self.shuffle,
+            drop_last=self.drop_last,
+            to_torch=True,
+            preload_to_gpu=self.preload_to_gpu,
+            rng=np.random.default_rng(self.seed),
             return_index=True,
         ).use_collection(self.collection, load_adata=partial(load_x_with_index, donor_key=self.donor_key))
         return LIVICisBatchAdapter(
-            loader, self.donor_codes, self.covar_codes, self.cis, self.covariate_keys,
-            self.donor_key, self.donor_dtype,
+            loader,
+            self.donor_codes,
+            self.covar_codes,
+            self.cis,
+            self.covariate_keys,
+            self.donor_key,
+            self.donor_dtype,
         )
 
 
@@ -350,15 +361,15 @@ def train_livi_annbatch(
     collection_path: str,
     *,
     donor_key: str = "donor_id",
-    covariates_keys: Optional[List[str]] = None,
-    known_cis_eqtls: Optional[pd.DataFrame] = None,
-    cis_snps: Union[int, Iterable[str], np.ndarray] = 2996,
-    target_genes: Union[int, Iterable[str], np.ndarray] = 2000,
+    covariates_keys: list[str] | None = None,
+    known_cis_eqtls: pd.DataFrame | None = None,
+    cis_snps: int | Iterable[str] | np.ndarray = 2996,
+    target_genes: int | Iterable[str] | np.ndarray = 2000,
     cis_genes_per_snp: int = 5,
     z_dim: int = 15,
     n_dxc_factors: int = 100,
     n_persistent_factors: int = 5,
-    encoder_hidden_dims: Optional[List[int]] = None,
+    encoder_hidden_dims: list[int] | None = None,
     learning_rate: float = 8e-4,
     warmup_epochs_vae: int = 30,
     warmup_epochs_G: int = 0,
@@ -374,20 +385,20 @@ def train_livi_annbatch(
     l1_weight: float = 1e-3,
     A_weight: float = 1e-3,
     batch_norm_decoder: bool = False,
-    genetics_seed: Optional[int] = None,
+    genetics_seed: int | None = None,
     cell_state_cis: bool = True,
     log_every_n_steps: int = 10,
     enable_progress_bar: bool = True,
     enable_checkpointing: bool = False,
     enable_logger: bool = False,
-    gradient_clip_val: Optional[float] = None,
+    gradient_clip_val: float | None = None,
     accumulate_grad_batches: int = 1,
-    limit_train_batches: Optional[Union[int, float]] = None,
+    limit_train_batches: int | float | None = None,
     deterministic: bool = False,
-    callbacks: Optional[list] = None,
+    callbacks: list | None = None,
     run: bool = True,
-    runner: Optional[LIVIRunner] = None,
-) -> "pl.Trainer | None":
+    runner: LIVIRunner | None = None,
+) -> pl.Trainer | None:
     """Train a LIVI cis-eQTL model with `annbatch`-streamed cell expression.
 
     Counterpart to :func:`train_livi` for cell counts too large to load into
@@ -483,7 +494,9 @@ def train_livi_annbatch(
     donor_dtype = pd.CategoricalDtype(categories=donor_categories, ordered=False)
     n_donors = len(donor_categories)
 
-    covar_dtypes = {k: pd.CategoricalDtype(categories=_categories(obs[k]), ordered=False) for k in (covariates_keys or [])}
+    covar_dtypes = {
+        k: pd.CategoricalDtype(categories=_categories(obs[k]), ordered=False) for k in (covariates_keys or [])
+    }
     covariates_dims = [len(covar_dtypes[k].categories) for k in (covariates_keys or [])]
 
     if not run:
@@ -492,8 +505,13 @@ def train_livi_annbatch(
             "  x_dim=%d, y_dim=%d, z_dim=%d\n"
             "  n_dxc_factors=%d, n_persistent_factors=%d\n"
             "  covariates_keys=%s, covariates_dims=%s",
-            n_genes, n_donors, z_dim, n_dxc_factors, n_persistent_factors,
-            covariates_keys, covariates_dims,
+            n_genes,
+            n_donors,
+            z_dim,
+            n_dxc_factors,
+            n_persistent_factors,
+            covariates_keys,
+            covariates_dims,
         )
         return None
 
@@ -505,25 +523,52 @@ def train_livi_annbatch(
     covar_codes = {k: _code_tensor(obs[k], covar_dtypes[k], k, code_dev) for k in (covariates_keys or [])}
 
     cis = CisGenotype(
-        donor_categories, gene_names, gdata,
-        known_cis_eqtls=known_cis_eqtls, cis_snps=cis_snps, target_genes=target_genes,
-        cis_genes_per_snp=cis_genes_per_snp, seed=seed, device=device,
+        donor_categories,
+        gene_names,
+        gdata,
+        known_cis_eqtls=known_cis_eqtls,
+        cis_snps=cis_snps,
+        target_genes=target_genes,
+        cis_genes_per_snp=cis_genes_per_snp,
+        seed=seed,
+        device=device,
     )
 
     datamodule = AnnbatchLIVIDataModule(
-        collection_path, donor_codes, covar_codes, cis, covariates_keys or [], donor_key, donor_dtype,
-        batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload_nchunks,
-        shuffle=shuffle, drop_last=drop_last, preload_to_gpu=preload_to_gpu, seed=seed,
+        collection_path,
+        donor_codes,
+        covar_codes,
+        cis,
+        covariates_keys or [],
+        donor_key,
+        donor_dtype,
+        batch_size=batch_size,
+        chunk_size=chunk_size,
+        preload_nchunks=preload_nchunks,
+        shuffle=shuffle,
+        drop_last=drop_last,
+        preload_to_gpu=preload_to_gpu,
+        seed=seed,
     )
 
     model = LIVI(
-        x_dim=n_genes, z_dim=z_dim, y_dim=n_donors,
-        n_DxC_factors=n_dxc_factors, n_persistent_factors=n_persistent_factors,
-        n_cis_snps=cis.n_cis_snps, cell_state_cis=cell_state_cis,
-        encoder_hidden_dims=encoder_hidden_dims, learning_rate=learning_rate,
-        warmup_epochs_vae=warmup_epochs_vae, warmup_epochs_G=warmup_epochs_G,
-        covariates_dims=covariates_dims, l1_weight=l1_weight, A_weight=A_weight,
-        batch_norm_decoder=batch_norm_decoder, genetics_seed=genetics_seed, device=device,
+        x_dim=n_genes,
+        z_dim=z_dim,
+        y_dim=n_donors,
+        n_DxC_factors=n_dxc_factors,
+        n_persistent_factors=n_persistent_factors,
+        n_cis_snps=cis.n_cis_snps,
+        cell_state_cis=cell_state_cis,
+        encoder_hidden_dims=encoder_hidden_dims,
+        learning_rate=learning_rate,
+        warmup_epochs_vae=warmup_epochs_vae,
+        warmup_epochs_G=warmup_epochs_G,
+        covariates_dims=covariates_dims,
+        l1_weight=l1_weight,
+        A_weight=A_weight,
+        batch_norm_decoder=batch_norm_decoder,
+        genetics_seed=genetics_seed,
+        device=device,
     )
 
     os.makedirs(output_dir, exist_ok=True)
@@ -531,15 +576,20 @@ def train_livi_annbatch(
 
     if callbacks and any(isinstance(c, ModelCheckpoint) for c in callbacks):
         enable_checkpointing = True  # PL rejects enable_checkpointing=False + a ModelCheckpoint callback
-    trainer_kwargs: dict = dict(
-        max_epochs=max_epochs, min_epochs=min_epochs,
-        accelerator="gpu" if device == "cuda" else "cpu", devices=1,
-        default_root_dir=output_dir,
-        callbacks=list(callbacks) if callbacks else None,
-        enable_checkpointing=enable_checkpointing, logger=enable_logger,
-        log_every_n_steps=log_every_n_steps, enable_progress_bar=enable_progress_bar,
-        accumulate_grad_batches=accumulate_grad_batches, deterministic=deterministic,
-    )
+    trainer_kwargs: dict = {
+        "max_epochs": max_epochs,
+        "min_epochs": min_epochs,
+        "accelerator": "gpu" if device == "cuda" else "cpu",
+        "devices": 1,
+        "default_root_dir": output_dir,
+        "callbacks": list(callbacks) if callbacks else None,
+        "enable_checkpointing": enable_checkpointing,
+        "logger": enable_logger,
+        "log_every_n_steps": log_every_n_steps,
+        "enable_progress_bar": enable_progress_bar,
+        "accumulate_grad_batches": accumulate_grad_batches,
+        "deterministic": deterministic,
+    }
     if gradient_clip_val is not None:
         trainer_kwargs["gradient_clip_val"] = gradient_clip_val
     if limit_train_batches is not None:

@@ -28,7 +28,12 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 
 import cellink as cl  # noqa: F401
-from cellink.tl.external import build_annbatch_collection, configure_livi_runner, read_g_from_dd_store, train_livi_annbatch
+from cellink.tl.external import (
+    build_annbatch_collection,
+    configure_livi_runner,
+    read_g_from_dd_store,
+    train_livi_annbatch,
+)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 # zarrs' Rust threadpool defaults (threading.max_workers=None) to the node's full
@@ -64,8 +69,8 @@ else:
 BATCH_SIZE = 256
 CHUNK_SIZE = 512
 PRELOAD_NCHUNKS = 32
-COLLECTION_N_OBS_PER_CHUNK = 512   # fixed at collection-build time; matched to CHUNK_SIZE
-COLLECTION_SHARD_SIZE = "2GB"      # 2× default (1GB); fewer file handles on SSD
+COLLECTION_N_OBS_PER_CHUNK = 512  # fixed at collection-build time; matched to CHUNK_SIZE
+COLLECTION_SHARD_SIZE = "2GB"  # 2× default (1GB); fewer file handles on SSD
 
 CELL_STATE_CIS = False  # paper "cell-state" variant; set True to match exactly
 
@@ -119,7 +124,8 @@ _dd_zarr = zarr.open(DD_CACHE_PATH_ZARR_REALISTIC, mode="r")
 print(f"building/verifying annbatch collection at {C_COLLECTION!r} ...")
 t_coll = time.perf_counter()
 build_annbatch_collection(
-    _dd_zarr["C"], C_COLLECTION,
+    _dd_zarr["C"],
+    C_COLLECTION,
     n_obs_per_chunk=COLLECTION_N_OBS_PER_CHUNK,
     shard_size=COLLECTION_SHARD_SIZE,
     seed=SEED,
@@ -152,7 +158,8 @@ class ThroughputCallback(Callback):
 
 t0 = time.perf_counter()
 trainer = train_livi_annbatch(
-    _dd_zarr["C"], gdata,
+    _dd_zarr["C"],
+    gdata,
     output_dir=OUTPUT_DIR,
     collection_path=C_COLLECTION,
     donor_key=DONOR_KEY,
@@ -183,8 +190,9 @@ trainer = train_livi_annbatch(
     enable_checkpointing=True,  # we pass our own ModelCheckpoint below
     callbacks=[
         ThroughputCallback(),
-        ModelCheckpoint(dirpath=f"{OUTPUT_DIR}/checkpoints", save_last=True,
-                         monitor="train/livi_loss", mode="min", save_top_k=1),
+        ModelCheckpoint(
+            dirpath=f"{OUTPUT_DIR}/checkpoints", save_last=True, monitor="train/livi_loss", mode="min", save_top_k=1
+        ),
     ],
 )
 print("\n==== ANNBATCH cis (REALISTIC paper-scale config) ====")
