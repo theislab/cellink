@@ -4,6 +4,7 @@
 :hidden: true
 :maxdepth: 1
 
+donordata_basics
 pseudobulk_eqtl
 pseudobulk_eqtl_jaxqtl_tensorqtl
 explore_annotations

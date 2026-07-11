@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning][].
 - Tests for `cellink.io.stream_pgen_to_zarr`/`read_pgen_zarr` and the `cellink-pgen` CLI
 - Tests for previously untested pure functions (`utils.column_normalize`, `utils.gaussianize`,
   `tl.external.scores_to_gmt`/`scores_to_covar`, `tl.external.compute_escore`, `JointNMFWrapper`)
+- New "DonorData basics" tutorial: building a `DonorData` from your own genotype/expression
+  data (including loading genotypes via `read_sgkit_zarr`/`stream_pgen_to_zarr`), how donor
+  syncing works, selecting subsets, aggregating, and saving/loading — no analysis, just the
+  data structure itself
 
 ### Fixed
 

@@ -16,14 +16,11 @@ Integrating genetic data with cellular heterogeneity is crucial for advancing pe
 
 **cellink** introduces the `DonorData` class, unifying individual-level and single-cell data. It extends standard formats (AnnData, MuData) with GenoAnnData for efficient genotype (via dask) and phenotype (via ehrapy) handling.
 
+<!-- schematic-image-start -->
+
 ![Data structure schematic](docs/_static/img/schematic_figure.png)
 
-````{only} html
-```{image} _static/img/schematic_figure.png
-:width: 750px
-:alt: Data structure schematic
-```
-````
+<!-- schematic-image-end -->
 
 - **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
 - **Cell-level Data (C):** `AnnData`/ `MuData`, Stores single-cell omics data such as gene expression.
@@ -52,6 +49,7 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 
 ## 🚀 Getting Started
 
+- New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html)** — no analysis, just how to build a `DonorData` from your own genotype/expression data, slice it, and save it.
 - Check out the **[Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html)** section for step-by-step guides on analysis workflows.
 - Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html)** for detailed documentation.
 

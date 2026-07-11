@@ -1,4 +1,14 @@
 ```{include} ../README.md
+:end-before: '<!-- schematic-image-start -->'
+```
+
+```{image} _static/img/schematic_figure.png
+:width: 750px
+:alt: Data structure schematic
+```
+
+```{include} ../README.md
+:start-after: '<!-- schematic-image-end -->'
 :end-before: '## Release notes'
 ```
 
