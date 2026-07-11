@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _safe_name(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s)).strip("_")
 
@@ -52,8 +53,8 @@ def load_ensembl_to_entrez_map(
     map_tsv: str | Path,
 ) -> pd.Series:
     """
-    Load a mapping TSV with columns:
-      ensembl_gene_id   entrez_id
+    Load a mapping TSV with columns: ensembl_gene_id, entrez_id.
+
     Returns a Series indexed by ENSG (upper, no version) with values as string Entrez IDs.
 
     Used internally by :func:`genesets_dir_to_entrez_gmt`, and can also be passed
@@ -284,7 +285,7 @@ def scores_to_gmt(
     set_name_prefix: str = "",
     min_genes: int = 1,
 ) -> Path:
-    """
+    r"""
     Convert a genes × cell-types score DataFrame to MAGMA GMT format.
 
     Each cell type becomes one gene set containing the top (or bottom)
@@ -328,10 +329,8 @@ def scores_to_gmt(
     Examples
     --------
     >>> from cellink.tl.external import scores_to_gmt, run_magma_gsa
-    >>> gmt = scores_to_gmt(specificity_df, "ExcL23_top10.gmt",
-    ...                     set_name_prefix="brainscope_seismic_top")
-    >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt),
-    ...               out_prefix="results/scz_gsa")
+    >>> gmt = scores_to_gmt(specificity_df, "ExcL23_top10.gmt", set_name_prefix="brainscope_seismic_top")
+    >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt), out_prefix="results/scz_gsa")
 
     See Also
     --------
@@ -372,7 +371,11 @@ def scores_to_gmt(
 
     logger.info(
         "scores_to_gmt: wrote %d gene sets (%s %d%%, %d skipped) → %s",
-        n_written, selection, int(top_frac * 100), n_skipped, out_file,
+        n_written,
+        selection,
+        int(top_frac * 100),
+        n_skipped,
+        out_file,
     )
     return out_file
 
@@ -422,8 +425,7 @@ def scores_to_covar(
     --------
     >>> from cellink.tl.external import scores_to_covar, run_magma_gpa
     >>> covar = scores_to_covar(specificity_df, "brainscope_seismic.covar")
-    >>> run_magma_gpa(gene_results="scz.genes.raw", gene_covar=str(covar),
-    ...               out_prefix="results/scz_gpa")
+    >>> run_magma_gpa(gene_results="scz.genes.raw", gene_covar=str(covar), out_prefix="results/scz_gpa")
 
     See Also
     --------
@@ -463,6 +465,7 @@ def scores_to_covar(
 # ---------------------------------------------------------------------------
 # MAGMA steps I–III from scratch
 # ---------------------------------------------------------------------------
+
 
 def run_magma_annotate(
     snp_loc: str,
@@ -611,8 +614,10 @@ def run_magma_gene_analysis(
     """
     cmd = [
         magma_bin,
-        "--bfile", bfile,
-        "--pval", pval_file,
+        "--bfile",
+        bfile,
+        "--pval",
+        pval_file,
     ]
     if n_samples is not None and ncol is not None:
         raise ValueError("Pass only one of n_samples or ncol, not both.")
@@ -621,8 +626,10 @@ def run_magma_gene_analysis(
     elif ncol is not None:
         cmd += [f"ncol={ncol}"]
     cmd += [
-        "--gene-annot", gene_annot,
-        "--out", out_prefix,
+        "--gene-annot",
+        gene_annot,
+        "--out",
+        out_prefix,
     ]
     for k, v in kwargs.items():
         cmd += [f"--{k}", str(v)]
@@ -662,15 +669,12 @@ def run_magma_gsa(
     1. From continuous per-gene scores (e.g. specificity, SEISMIC):
 
        >>> gmt = scores_to_gmt(specificity_df, "top10.gmt")
-       >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt),
-       ...               out_prefix="results/scz_gsa")
+       >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt), out_prefix="results/scz_gsa")
 
     2. From LDSC binary ``.GeneSet`` files:
 
-       >>> gmt = genesets_dir_to_entrez_gmt(geneset_dir="ldsc_genesets",
-       ...                                  out_gmt="magma_genesets/genesets.gmt")
-       >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt),
-       ...               out_prefix="results/scz_gsa")
+       >>> gmt = genesets_dir_to_entrez_gmt(geneset_dir="ldsc_genesets", out_gmt="magma_genesets/genesets.gmt")
+       >>> run_magma_gsa(gene_results="scz.genes.raw", set_annot=str(gmt), out_prefix="results/scz_gsa")
 
     Parameters
     ----------
@@ -747,8 +751,7 @@ def run_magma_gpa(
     **LDSC → MAGMA GPA workflow**
 
     >>> covar = scores_to_covar(specificity_df, "brainscope_seismic.covar")
-    >>> run_magma_gpa(gene_results="scz.genes.raw", gene_covar=str(covar),
-    ...               out_prefix="results/scz_gpa_seismic")
+    >>> run_magma_gpa(gene_results="scz.genes.raw", gene_covar=str(covar), out_prefix="results/scz_gpa_seismic")
 
     Parameters
     ----------
@@ -826,7 +829,7 @@ def run_magma_gpa(
     with tempfile.TemporaryDirectory() as tmpdir:
         for ct in cell_types:
             ct_covar = os.path.join(tmpdir, "ct.covar")
-            ct_out   = os.path.join(tmpdir, "ct_out")
+            ct_out = os.path.join(tmpdir, "ct_out")
             covar[[ct]].to_csv(ct_covar, sep="\t", na_rep="NA")
 
             cmd = [magma_bin, "--gene-results", gene_results, "--gene-covar", ct_covar, "--out", ct_out]
@@ -849,7 +852,7 @@ def run_magma_gpa(
                     if header is None:
                         header = parts
                         continue
-                    row = dict(zip(header, parts))
+                    row = dict(zip(header, parts, strict=False))
                     row["FULL_NAME"] = ct
                     rows.append(row)
                     break
@@ -878,8 +881,6 @@ def run_magma_gpa(
 
     logger.info("GPA univariate: wrote %d cell types → %s", len(rows), results_file)
     return {"results_file": results_file, "files_created": [results_file]}
-
-
 
 
 if __name__ == "__main__":

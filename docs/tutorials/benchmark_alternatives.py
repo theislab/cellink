@@ -1,9 +1,6 @@
 import time
 import zarr
-import numpy as np
-import anndata as ad
 import dask.array as da
-from annbatch import DatasetCollection
 
 # Open the zarr group
 z_group = zarr.open("dd_G_collection.zarr/dataset_0", mode="r")
@@ -30,4 +27,3 @@ t0 = time.perf_counter()
 row_dask = dask_arr[0].compute()
 t_dask = time.perf_counter() - t0
 print(f"Dask array read (compute) of 1 row: {t_dask:.4f}s")
-

@@ -103,9 +103,9 @@ class LDSCRunner(BaseToolRunner):
             "munge_command": "munge_sumstats.py",
             "parse_script": "ldscore/parse.py",
             "singularity_patch_strategy": "overlay",
-            "singularity_overlay_path": None,       
+            "singularity_overlay_path": None,
             "singularity_overlay_size_mb": 256,
-            "singularity_sandbox_path": None,       
+            "singularity_sandbox_path": None,
         }
 
     @property
@@ -123,7 +123,7 @@ class LDSCRunner(BaseToolRunner):
     @property
     def execution_mode(self) -> str:
         return self.config["execution_mode"]
-    
+
     @property
     def parse_script(self) -> str | None:
         return self.config.get("parse_script")
@@ -354,9 +354,7 @@ def _run_ldsc_estimate_ld_scores(
     runner: LDSCRunner | None = None,
     **kwargs,
 ) -> str | None:
-    """
-    Estimate LD Scores from genotype data
-    """
+    """Estimate LD Scores from genotype data."""
     if runner is None:
         runner = get_ldsc_runner()
 
@@ -603,9 +601,7 @@ def _run_ldsc_heritability(
     runner: LDSCRunner | None = None,
     **kwargs,
 ) -> str | None:
-    """
-    Estimate SNP heritability using LD Score regression
-    """
+    """Estimate SNP heritability using LD Score regression."""
     if runner is None:
         runner = get_ldsc_runner()
 
@@ -796,9 +792,7 @@ def _run_ldsc_genetic_correlation(
     runner: LDSCRunner | None = None,
     **kwargs,
 ) -> str | None:
-    """
-    Estimate genetic correlation using LD Score regression
-    """
+    """Estimate genetic correlation using LD Score regression."""
     if runner is None:
         runner = get_ldsc_runner()
 
@@ -1058,8 +1052,7 @@ def _expand_annot_to_full_format(bimfile: str, annot_file: str) -> None:
     annot = pd.read_csv(annot_file, sep="\t")
     if annot.shape[1] > 1:
         return
-    bim = pd.read_csv(bimfile, sep="\t", header=None,
-                      names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
+    bim = pd.read_csv(bimfile, sep="\t", header=None, names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
     full = bim[["CHR", "BP", "SNP", "CM"]].copy()
     full["ANNOT"] = annot["ANNOT"].values
     compression = "gzip" if annot_file.endswith(".gz") else None
@@ -1155,30 +1148,43 @@ def make_annot_from_bimfile(
             raise ValueError("gene_coord_file is required for continuous annotations.")
         gene_coords = _load_gene_coord_file(gene_coord_file)
         annot_df = _compute_continuous_annot_for_bimfile(
-            bimfile=bimfile, scores=scores,
-            gene_coords=gene_coords, windowsize=windowsize, score_agg=score_agg,
+            bimfile=bimfile,
+            scores=scores,
+            gene_coords=gene_coords,
+            windowsize=windowsize,
+            score_agg=score_agg,
         )
         os.makedirs(os.path.dirname(os.path.abspath(annot_file)), exist_ok=True)
         compression = "gzip" if annot_file.endswith(".gz") else None
-        annot_df[["CHR", "BP", "SNP", "CM", "ANNOT"]].to_csv(
-            annot_file, sep="\t", index=False, compression=compression
-        )
+        annot_df[["CHR", "BP", "SNP", "CM", "ANNOT"]].to_csv(annot_file, sep="\t", index=False, compression=compression)
         n_nonzero = int((annot_df["ANNOT"] != 0).sum())
         chrom = str(annot_df["CHR"].iloc[0])
         chrom_genes = gene_coords[gene_coords["chr"].astype(str) == chrom]
         n_matched = int(chrom_genes["gene"].isin(scores.index.astype(str)).sum())
-        logger.info("Wrote continuous annotation: %s (%d non-zero SNPs, %d genes matched)",
-                    annot_file, n_nonzero, n_matched)
-        return {"annot_file": annot_file, "files_created": [annot_file],
-                "n_nonzero_snps": n_nonzero, "n_genes_matched": n_matched}
+        logger.info(
+            "Wrote continuous annotation: %s (%d non-zero SNPs, %d genes matched)", annot_file, n_nonzero, n_matched
+        )
+        return {
+            "annot_file": annot_file,
+            "files_created": [annot_file],
+            "n_nonzero_snps": n_nonzero,
+            "n_genes_matched": n_matched,
+        }
 
     if runner is None:
         runner = get_ldsc_runner()
     results = {"annot_file": annot_file, "files_created": []}
     result_file = _run_ldsc_make_annot(
-        bimfile=bimfile, annot_file=annot_file, gene_set_file=gene_set_file,
-        gene_coord_file=gene_coord_file, windowsize=windowsize,
-        bed_file=bed_file, nomerge=nomerge, run=run, runner=runner, **kwargs,
+        bimfile=bimfile,
+        annot_file=annot_file,
+        gene_set_file=gene_set_file,
+        gene_coord_file=gene_coord_file,
+        windowsize=windowsize,
+        bed_file=bed_file,
+        nomerge=nomerge,
+        run=run,
+        runner=runner,
+        **kwargs,
     )
     if run:
         _expand_annot_to_full_format(bimfile, annot_file)
@@ -1257,15 +1263,19 @@ def make_annot_from_donor_data(
     Binary annotation:
 
     >>> make_annot_from_donor_data(
-    ...     dd=my_donor_data, annot_file="CD8_Naive.annot.gz",
-    ...     gene_set_file="CD8_Naive.GeneSet", gene_coord_file="gene_coords.txt",
+    ...     dd=my_donor_data,
+    ...     annot_file="CD8_Naive.annot.gz",
+    ...     gene_set_file="CD8_Naive.GeneSet",
+    ...     gene_coord_file="gene_coords.txt",
     ... )
 
     Continuous annotation:
 
     >>> make_annot_from_donor_data(
-    ...     dd=my_donor_data, annot_file="CD8_Naive.annot.gz",
-    ...     scores=specificity_df["CD8 Naive"], gene_coord_file="gene_coords.txt",
+    ...     dd=my_donor_data,
+    ...     annot_file="CD8_Naive.annot.gz",
+    ...     scores=specificity_df["CD8 Naive"],
+    ...     gene_coord_file="gene_coords.txt",
     ... )
     """
     if plink_export_kwargs is None:
@@ -1275,10 +1285,18 @@ def make_annot_from_donor_data(
     bimfile = f"{out_prefix}.bim"
 
     results = make_annot_from_bimfile(
-        bimfile=bimfile, annot_file=annot_file,
-        gene_set_file=gene_set_file, bed_file=bed_file, nomerge=nomerge,
-        run=run, runner=runner, scores=scores, score_agg=score_agg,
-        gene_coord_file=gene_coord_file, windowsize=windowsize, **kwargs,
+        bimfile=bimfile,
+        annot_file=annot_file,
+        gene_set_file=gene_set_file,
+        bed_file=bed_file,
+        nomerge=nomerge,
+        run=run,
+        runner=runner,
+        scores=scores,
+        score_agg=score_agg,
+        gene_coord_file=gene_coord_file,
+        windowsize=windowsize,
+        **kwargs,
     )
 
     if cleanup_files and (scores is not None or run):
@@ -1288,7 +1306,6 @@ def make_annot_from_donor_data(
                 os.remove(fname)
                 logger.info("Cleaned up: %s", fname)
     return results
-
 
 
 def compute_ld_scores_with_annotations_from_bimfile(
@@ -1645,8 +1662,8 @@ def estimate_celltype_specific_heritability(
     runner: LDSCRunner | None = None,
     **kwargs,
 ) -> dict[str, Any]:
-    """
-    Estimate cell-type-specific heritability using LD Score regression
+    r"""
+    Estimate cell-type-specific heritability using LD Score regression.
 
     This is the second step in cell-type-specific LDSC analysis. It tests whether
     SNP heritability is enriched in specific cell types by regressing GWAS summary
@@ -1826,8 +1843,7 @@ def _load_gene_coord_file(gene_coord_file: str) -> "pd.DataFrame":
         df.columns = [c.strip().upper() for c in df.columns]
         df = df.rename(columns={"GENE": "gene", "CHR": "chr", "START": "start", "END": "end"})
     else:
-        df = pd.read_csv(gene_coord_file, sep="\t", header=None,
-                         names=["gene", "chr", "start", "end"])
+        df = pd.read_csv(gene_coord_file, sep="\t", header=None, names=["gene", "chr", "start", "end"])
     # Normalize to bare numeric/X/Y chromosome names (PLINK .bim convention),
     # regardless of whether the source file used a "chr" prefix.
     df["chr"] = df["chr"].astype(str).str.replace("^chr", "", regex=True, case=False)
@@ -1849,16 +1865,14 @@ def _compute_continuous_annot_for_bimfile(
 
     Returns DataFrame with columns: CHR, BP, SNP, CM, ANNOT.
     """
-    bim = pd.read_csv(bimfile, sep="\t", header=None,
-                      names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
+    bim = pd.read_csv(bimfile, sep="\t", header=None, names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
     chrom = str(bim["CHR"].iloc[0])
     scores_idx = scores.copy()
     scores_idx.index = scores_idx.index.astype(str)
     chr_genes = gene_coords[gene_coords["chr"].astype(str) == chrom].copy()
-    chr_genes = chr_genes.merge(scores_idx.rename("score").to_frame(),
-                                left_on="gene", right_index=True, how="inner")
+    chr_genes = chr_genes.merge(scores_idx.rename("score").to_frame(), left_on="gene", right_index=True, how="inner")
     chr_genes["win_start"] = chr_genes["start"] - windowsize
-    chr_genes["win_end"]   = chr_genes["end"]   + windowsize
+    chr_genes["win_end"] = chr_genes["end"] + windowsize
     bp = bim["BP"].values
     score_vals = np.zeros(len(bim), dtype=np.float64)
     if score_agg == "max":

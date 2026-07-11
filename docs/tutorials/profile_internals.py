@@ -1,19 +1,21 @@
 import time
-import asyncio
 import numpy as np
 import pandas as pd
 import anndata as ad
 from annbatch import DatasetCollection, Loader
 from annbatch.samplers import RandomSampler
+from annbatch.utils import to_torch
 import zarr.core.sync as zsync
-from annbatch.loader import _cupy_dtype
 
 # Setup collections to mimic the training run
 print("Setting up loader_G...")
 rs1 = RandomSampler(
-    batch_size=1024, chunk_size=128, preload_nchunks=64,
-    replacement=False, drop_last=True,
-    rng=np.random.default_rng(42)    
+    batch_size=1024,
+    chunk_size=128,
+    preload_nchunks=64,
+    replacement=False,
+    drop_last=True,
+    rng=np.random.default_rng(42),
 )
 loader_C = Loader(
     return_index=True,

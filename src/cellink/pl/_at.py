@@ -170,7 +170,7 @@ def manhattan(
     titlesize: int = None,
     title: str = None,
     palette_mode: str = "alternating",
-    palette_alternating_colors: list | np.ndarray = ["#E24E42", "#008F95"],
+    palette_alternating_colors: list | np.ndarray | None = None,
     significant_hit_color: str = "#D62728",
     palette: str = None,
     show: bool | None = None,
@@ -234,6 +234,8 @@ def manhattan(
     """
     if palette_mode is not None and palette is not None:
         raise ValueError("Both palette and palette_mode are set.")
+    if palette_alternating_colors is None:
+        palette_alternating_colors = ["#E24E42", "#008F95"]
 
     figsize = figsize or plt.rcParams.get("figure.figsize", (14, 6))
     labelsize = labelsize or plt.rcParams.get("axes.labelsize", 8)
@@ -273,7 +275,7 @@ def manhattan(
     x_labels = []
     x_labels_pos = []
 
-    for i, (chr_num, group) in enumerate(pvals_df.groupby(chromosome_col)):
+    for _i, (chr_num, group) in enumerate(pvals_df.groupby(chromosome_col)):
         color = colors[chr_num]
         ax.scatter(group["cum_pos"], group["-log10(P)"], color=color, s=point_size, label=f"Chr {chr_num}", zorder=2)
 
@@ -319,8 +321,6 @@ def manhattan(
     if title:
         ax.set_title(title)
 
-    min_x, max_x = pvals_df["cum_pos"].min(), pvals_df["cum_pos"].max()
-    pad = (max_x - min_x) * 0.005  # 0.5% padding
     ax.set_xlim(pvals_df["cum_pos"].min(), pvals_df["cum_pos"].max())
     ax.set_ylim(bottom=0)
 
@@ -328,7 +328,10 @@ def manhattan(
 
     if len(texts) > 0:
         adjust_text(
-            texts, ax=ax, only_move={"points": "y", "text": "y"}, arrowprops=dict(arrowstyle="-", color="grey", lw=0.5)
+            texts,
+            ax=ax,
+            only_move={"points": "y", "text": "y"},
+            arrowprops={"arrowstyle": "-", "color": "grey", "lw": 0.5},
         )
 
     if save:
@@ -528,7 +531,10 @@ def locus(
     plt.tight_layout()
     if texts:
         adjust_text(
-            texts, ax=ax, only_move={"points": "y", "text": "y"}, arrowprops=dict(arrowstyle="-", color="grey", lw=0.5)
+            texts,
+            ax=ax,
+            only_move={"points": "y", "text": "y"},
+            arrowprops={"arrowstyle": "-", "color": "grey", "lw": 0.5},
         )
 
     if save:

@@ -6,8 +6,6 @@ import numpy.linalg as la
 import pandas as pd
 import scipy
 import scipy.stats as st
-#from limix_core.covar import FreeFormCov 
-#from limix_core.gp import GP2KronSumLR
 
 from cellink._core import DonorData
 from cellink.at.utils import (
@@ -63,6 +61,12 @@ def _skat_test(
     -----
     This method uses a Gaussian process to fit the null model and compute the skat test statistic.
     """
+    try:
+        from limix_core.covar import FreeFormCov
+        from limix_core.gp import GP2KronSumLR
+    except ImportError as e:
+        raise ImportError("Skat requires `limix-core`. Install it with:\n\n    pip install limix-core") from e
+
     # fit exact null model
     E = np.ones([X.shape[0], 1])
     if F is None:

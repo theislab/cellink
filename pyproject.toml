@@ -41,22 +41,17 @@ dependencies = [
   "requests",
   "rich",
   "scanpy",
-  "xarray",
-  "zarr>=3",
   # for debug logging (referenced from the issue template)
   "session-info",
+  "xarray",
+  "zarr>=3",
 ]
 
 optional-dependencies.datasets = [
-  "liftover",
-  "sgkit[plink]", # TODO cbgen is a pain to install on mac. I think cmake issues.
   "bio2zarr[all]",
+  "liftover",
   "setuptools<82",
-]
-
-optional-dependencies.pgen = [
-  "pgenlib",
-  "zarr>3",
+  "sgkit[plink]",  # TODO cbgen is a pain to install on mac. I think cmake issues.
 ]
 
 optional-dependencies.dev = [
@@ -65,9 +60,9 @@ optional-dependencies.dev = [
 ]
 optional-dependencies.doc = [
   "docutils>=0.8,!=0.18.*,!=0.19.*",
-  "linkify-it-py",
   "ipykernel",
   "ipython",
+  "linkify-it-py",
   "myst-nb>=1.1",
   # Until pybtex >0.23.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
   "setuptools",
@@ -94,11 +89,29 @@ optional-dependencies.mixmil = [
 optional-dependencies.ml = [
   "pytorch-lightning",
 ]
+optional-dependencies.pgen = [
+  "pgenlib",
+  "zarr>3",
+]
+
 optional-dependencies.rvat = [
   # installation wit pip doesn't work, install via conda install -c conda-forge chiscore
   # "chiscore",
   "limix-core",
   "pybiomart",
+]
+optional-dependencies.scdrs = [
+  "numpy<2",
+  "scdrs",
+]
+optional-dependencies.scprs = [
+  "ncls",
+  "networkx",
+  "statsmodels",
+  "torch-geometric",
+]
+optional-dependencies.seismic_torch = [
+  "torch",
 ]
 optional-dependencies.snpeff = [
   # not available via pip, has to be installed via conda install bioconda::snpeff
@@ -108,19 +121,6 @@ optional-dependencies.tensorqtl = [
   "tensorqtl",
   #"plink2"
 ]
-optional-dependencies.scdrs = [
-  "scdrs",
-  "numpy<2.0.0",
-]
-optional-dependencies.seismic_torch = [
-  "torch",
-]
-optional-dependencies.scprs = [
-  "torch_geometric",
-  "statsmodels",
-  "networkx",
-  "ncls",
-]
 optional-dependencies.test = [
   "coverage",
   "pytest",
@@ -129,6 +129,8 @@ optional-dependencies.test = [
 urls.Documentation = "https://cellink-docs.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/cellink"
 urls.Source = "https://github.com/theislab/cellink"
+
+scripts.cellink-pgen = "cellink.cli.pgen:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/cellink" ]
@@ -182,8 +184,11 @@ lint.ignore = [
   "E741", # allow I, O, l as variable names -> I is the identity matrix
 ]
 lint.per-file-ignores."*/__init__.py" = [ "F401" ]
-lint.per-file-ignores."docs/*" = [ "I" ]
-lint.per-file-ignores."tests/*" = [ "D" ]
+# tutorial/benchmark scripts and notebooks are not library code: no docstring
+# requirements, bare expressions display cell output, imports and error handling
+# don't follow strict production conventions
+lint.per-file-ignores."docs/*" = [ "B007", "B018", "BLE001", "D", "E402", "I" ]
+lint.per-file-ignores."tests/*" = [ "D", "E402" ]
 lint.pydocstyle.convention = "numpy"
 
 [tool.pytest.ini_options]
@@ -213,6 +218,3 @@ skip = [
   "docs/references.md",
   "docs/notebooks/example.ipynb",
 ]
-
-[project.scripts]
-cellink-pgen = "cellink.cli.pgen:main"

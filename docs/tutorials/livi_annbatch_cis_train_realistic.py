@@ -112,31 +112,53 @@ class ThroughputCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         dt = time.perf_counter() - self.t0
         cells = self.n * BATCH_SIZE
-        print(f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
-              f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch")
+        print(
+            f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
+            f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch"
+        )
 
 
 t0 = time.perf_counter()
 trainer = train_livi_annbatch(
-    _dd_zarr["C"], gdata,
+    _dd_zarr["C"],
+    gdata,
     output_dir="livi_annbatch_run_realistic",
     collection_path=C_COLLECTION,
     donor_key=DONOR_KEY,
     covariates_keys=COVARIATE_KEYS,
     known_cis_eqtls=known_cis_eqtls,  # real mapping -> cis_snps/target_genes/cis_genes_per_snp unused
-    z_dim=Z_DIM, n_dxc_factors=N_DXC_FACTORS, n_persistent_factors=N_PERSISTENT_FACTORS,
-    encoder_hidden_dims=ENCODER_HIDDEN_DIMS, learning_rate=LEARNING_RATE,
-    warmup_epochs_vae=WARMUP_EPOCHS_VAE, warmup_epochs_G=WARMUP_EPOCHS_G,
-    max_epochs=MAX_EPOCHS, min_epochs=MIN_EPOCHS, batch_size=BATCH_SIZE,
-    chunk_size=CHUNK_SIZE, preload_nchunks=PRELOAD_NCHUNKS, preload_to_gpu=PRELOAD_TO_GPU,
-    seed=SEED, l1_weight=L1_WEIGHT, A_weight=A_WEIGHT, batch_norm_decoder=BATCH_NORM_DECODER,
-    genetics_seed=GENETICS_SEED, cell_state_cis=CELL_STATE_CIS,
-    enable_progress_bar=True, log_every_n_steps=10, enable_logger=True,
+    z_dim=Z_DIM,
+    n_dxc_factors=N_DXC_FACTORS,
+    n_persistent_factors=N_PERSISTENT_FACTORS,
+    encoder_hidden_dims=ENCODER_HIDDEN_DIMS,
+    learning_rate=LEARNING_RATE,
+    warmup_epochs_vae=WARMUP_EPOCHS_VAE,
+    warmup_epochs_G=WARMUP_EPOCHS_G,
+    max_epochs=MAX_EPOCHS,
+    min_epochs=MIN_EPOCHS,
+    batch_size=BATCH_SIZE,
+    chunk_size=CHUNK_SIZE,
+    preload_nchunks=PRELOAD_NCHUNKS,
+    preload_to_gpu=PRELOAD_TO_GPU,
+    seed=SEED,
+    l1_weight=L1_WEIGHT,
+    A_weight=A_WEIGHT,
+    batch_norm_decoder=BATCH_NORM_DECODER,
+    genetics_seed=GENETICS_SEED,
+    cell_state_cis=CELL_STATE_CIS,
+    enable_progress_bar=True,
+    log_every_n_steps=10,
+    enable_logger=True,
     enable_checkpointing=True,  # we pass our own ModelCheckpoint below
     callbacks=[
         ThroughputCallback(),
-        ModelCheckpoint(dirpath="livi_annbatch_run_realistic/checkpoints", save_last=True,
-                         monitor="train/livi_loss", mode="min", save_top_k=1),
+        ModelCheckpoint(
+            dirpath="livi_annbatch_run_realistic/checkpoints",
+            save_last=True,
+            monitor="train/livi_loss",
+            mode="min",
+            save_top_k=1,
+        ),
     ],
 )
 print("\n==== ANNBATCH cis (REALISTIC paper-scale config) ====")

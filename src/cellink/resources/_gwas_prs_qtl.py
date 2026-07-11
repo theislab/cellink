@@ -2,6 +2,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
 from urllib.request import urlretrieve
 
 import pandas as pd
@@ -131,6 +132,7 @@ def get_gwas_catalog_study(accession_id: str, **params: Any) -> dict:
     """
     return _fetch(f"studies/{accession_id}", params=params, paginate=False)
 
+
 def get_gwas_catalog_study_summary_stats(
     accession_id: str,
     dest: str | Path | None = None,
@@ -224,9 +226,9 @@ def get_gwas_catalog_study_summary_stats(
         files.sort(key=build_priority, reverse=True)
         selected_file = files[0]
         detected_build = get_build_from_filename(selected_file)
-        
+
         logging.info(f"Selected file with build {detected_build} (priority selection): {selected_file}")
-        
+
         return selected_file, detected_build
 
     url = None
@@ -253,7 +255,7 @@ def get_gwas_catalog_study_summary_stats(
                         detected_build = "GRCh38"
                     logging.info(f"Using build-specific summary statistics from harmonised/ (build: {detected_build})")
 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logging.warning(f"Could not parse harmonised directory listing ({e})")
 
         if not url:
@@ -272,14 +274,14 @@ def get_gwas_catalog_study_summary_stats(
                         url = f"{base_url}/{filename}"
                         logging.info(f"Using build-specific summary statistics (build: {detected_build})")
 
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logging.warning(f"Could not parse base directory listing ({e})")
 
         # If still no file found, try standard naming conventions
         if not url:
             logging.info("Trying standard naming conventions for requested build")
-            
-            if normalized_build == 'GRCh38':
+
+            if normalized_build == "GRCh38":
                 possible_files = [
                     f"{accession_id}_buildGRCh38.tsv.gz",
                     f"{accession_id}.tsv.gz",
@@ -298,9 +300,11 @@ def get_gwas_catalog_study_summary_stats(
                         url = test_url
                         filename = test_filename
                         detected_build = get_build_from_filename(test_filename)
-                        logging.info(f"Found file via standard naming convention (build: {detected_build}): {test_filename}")
+                        logging.info(
+                            f"Found file via standard naming convention (build: {detected_build}): {test_filename}"
+                        )
                         break
-                except:
+                except requests.exceptions.RequestException:
                     continue
 
     else:
@@ -318,13 +322,13 @@ def get_gwas_catalog_study_summary_stats(
                     url = f"{harmonised_url}/{filename}"
                     logging.info(f"Using harmonised summary statistics (build: {detected_build})")
 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logging.warning(f"Could not access harmonised directory ({e})")
 
         # If no harmonised files found, try base directory
         if not url:
             logging.info("No harmonised files found, trying base directory")
-            
+
             try:
                 r = requests.get(base_url)
                 r.raise_for_status()
@@ -336,13 +340,13 @@ def get_gwas_catalog_study_summary_stats(
                         url = f"{base_url}/{filename}"
                         logging.info(f"Using non-harmonised summary statistics (build: {detected_build})")
 
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logging.warning(f"Could not parse base directory listing ({e})")
 
         # If still no file found, try standard naming conventions
         if not url:
             logging.info("Trying standard naming conventions")
-            
+
             possible_files = [
                 f"{accession_id}_buildGRCh38.tsv.gz",
                 f"{accession_id}_buildGRCh37.tsv.gz",
@@ -357,9 +361,11 @@ def get_gwas_catalog_study_summary_stats(
                         url = test_url
                         filename = test_filename
                         detected_build = get_build_from_filename(test_filename)
-                        logging.info(f"Found file via standard naming convention (build: {detected_build}): {test_filename}")
+                        logging.info(
+                            f"Found file via standard naming convention (build: {detected_build}): {test_filename}"
+                        )
                         break
-                except:
+                except requests.exceptions.RequestException:
                     continue
 
     if not url:
@@ -379,15 +385,17 @@ def get_gwas_catalog_study_summary_stats(
 
     try:
         urlretrieve(url, dest)
-    except Exception as e:
-        raise RuntimeError(f"Failed to download summary statistics from {url}: {e}")
+    except (OSError, URLError) as e:
+        raise RuntimeError(f"Failed to download summary statistics from {url}: {e}") from e
 
     if return_path:
         return dest
 
     data = pd.read_csv(dest, compression=compression, sep=r"\s+")
     if translate_to_build:
-        data = liftover_gwas_summary_stats(data, source_build=detected_build or "GRCh38", target_build=translate_to_build)
+        data = liftover_gwas_summary_stats(
+            data, source_build=detected_build or "GRCh38", target_build=translate_to_build
+        )
     return data
 
 
@@ -438,17 +446,17 @@ def liftover_gwas_summary_stats(
 
     try:
         from liftover import get_lifter
-    except ImportError:
+    except ImportError as e:
         raise ImportError(
             "The 'liftover' package is required for build translation. "
             "Install it with: pip install cellink[datasets]"
-        )
+        ) from e
 
     converter = get_lifter(src, tgt, one_based=True)
 
     chroms = df[chrom_col].astype(str).tolist()
     positions = df[pos_col].tolist()
-    results = [converter[c][p] for c, p in zip(chroms, positions)]
+    results = [converter[c][p] for c, p in zip(chroms, positions, strict=False)]
     new_positions = [r[0][1] if r else None for r in results]
 
     out = df.copy()
@@ -456,7 +464,9 @@ def liftover_gwas_summary_stats(
     if drop_failed:
         n_failed = sum(p is None for p in new_positions)
         if n_failed:
-            logging.warning(f"liftover: dropped {n_failed:,} rows with no mapping from {source_build} to {target_build}")
+            logging.warning(
+                f"liftover: dropped {n_failed:,} rows with no mapping from {source_build} to {target_build}"
+            )
         out = out.dropna(subset=[pos_col])
     else:
         out[pos_col] = pd.array(new_positions, dtype=pd.Int64Dtype())

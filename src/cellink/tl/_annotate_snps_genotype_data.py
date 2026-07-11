@@ -162,8 +162,7 @@ def _download_favor(
     file_id = re.search(r"(\d+)", URL).group(1)
     subprocess.run(
         ["tar", "-xvf", file_id],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         cwd=database_dir,
         text=True,
         check=True,

@@ -6,7 +6,6 @@ from pathlib import Path
 import dask.array as da
 import numpy as np
 import pandas as pd
-
 import xarray as xr
 from anndata import AnnData
 from anndata.utils import asarray
@@ -49,6 +48,7 @@ SGVAR_TO_GDATA = {
     "variant_contig": VAnn.contig,
 }
 
+
 def _get_snp_index(var: pd.DataFrame) -> pd.Index:
     df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
     index = df.apply("_".join, axis=1)
@@ -62,7 +62,8 @@ def _to_df_only_dim(gdata, dims):
 
 
 def _collapse_multiallelic_dosage_scalar(ds_array: da.Array) -> da.Array:
-    """
+    """Collapse multiallelic dosage to scalar.
+
     ds_array: dask array with shape either (variants, samples) (biallelic scalar DS)
               or (variants, samples, n_alt) (vector DS).
     Returns collapsed scalar DS (variants, samples) by summing over alt axis if exists.
@@ -73,7 +74,8 @@ def _collapse_multiallelic_dosage_scalar(ds_array: da.Array) -> da.Array:
 
 
 def _collapse_multiallelic_ac_scalar_from_gt(gt_array: da.Array, mask_array: da.Array | None = None) -> da.Array:
-    """
+    """Collapse multiallelic genotypes to scalar allele-count.
+
     gt_array: dask array (variants, samples, ploidy)
     returns scalar allele-count of ALT (non-zero allele indices) per variant/sample
     shape -> (variants, samples)
@@ -93,7 +95,7 @@ def from_sgkit_dataset(
     var_rename: dict | None = None,
     obs_rename: dict | None = None,
     X_field: str = "GT",
-    hard_call: bool = True, 
+    hard_call: bool = True,
     keep_multiallelic: bool = False,
     load_call_fields: Iterable[str] | None = None,
 ) -> AnnData:
@@ -154,7 +156,9 @@ def from_sgkit_dataset(
     X = None
     if X_field in ("GT", "AC"):
         if gt_da is None:
-            warnings.warn("Requested X_field='GT' but call_genotype is not present. X will be unset.", UserWarning)
+            warnings.warn(
+                "Requested X_field='GT' but call_genotype is not present. X will be unset.", UserWarning, stacklevel=2
+            )
             X = None
         else:
             gt_da_data: da.Array = gt_da.data
@@ -164,7 +168,9 @@ def from_sgkit_dataset(
 
     elif X_field == "DS":
         if ds_da is None:
-            warnings.warn("Requested X_field='DS' but call_DS is not present. X will be unset.", UserWarning)
+            warnings.warn(
+                "Requested X_field='DS' but call_DS is not present. X will be unset.", UserWarning, stacklevel=2
+            )
             X = None
         else:
             ds_data = ds_da.data
@@ -173,7 +179,9 @@ def from_sgkit_dataset(
 
     elif X_field == "GP":
         if gp_da is None:
-            warnings.warn("Requested X_field='GP' but call_genotype_probability not present. X unset.", UserWarning)
+            warnings.warn(
+                "Requested X_field='GP' but call_genotype_probability not present. X unset.", UserWarning, stacklevel=2
+            )
             X = None
         else:
             gp_data = gp_da.data
@@ -204,14 +212,14 @@ def from_sgkit_dataset(
         if keep_multiallelic and alleles_arr.shape[1] > 2:
             for ai in range(2, alleles_arr.shape[1]):
                 var_df[f"a{ai}"] = alleles_arr[:, ai]
-        
+
     if SgVars.contig_label in ds.data_vars:
         contigs = asarray(ds[SgVars.contig_label])
         if "variant_contig" in ds.data_vars:
             vc = asarray(ds["variant_contig"])
             try:
                 var_df["chrom"] = pd.Index(vc).map(dict(enumerate(contigs)))
-            except Exception:
+            except (KeyError, TypeError, ValueError):
                 var_df["chrom"] = vc
         else:
             pass
@@ -283,7 +291,7 @@ def read_sgkit_zarr(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
-    hard_call=True, 
+    hard_call=True,
     keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
@@ -315,12 +323,20 @@ def read_sgkit_zarr(
     """
     try:
         import sgkit as sg
-    except ImportError:
-        raise ImportError("sgkit is required for `read_sgkit_zarr`. Install with `pip install cellink[datasets]`.")
+    except ImportError as e:
+        raise ImportError(
+            "sgkit is required for `read_sgkit_zarr`. Install with `pip install cellink[datasets]`."
+        ) from e
 
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
     gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
+        sgkit_dataset,
+        var_rename=var_rename,
+        obs_rename=obs_rename,
+        X_field=X_field,
+        hard_call=hard_call,
+        keep_multiallelic=keep_multiallelic,
+        load_call_fields=load_call_fields,
     )
     return gdata
 
@@ -331,7 +347,7 @@ def read_plink(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
-    hard_call=True, 
+    hard_call=True,
     keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
@@ -363,12 +379,18 @@ def read_plink(
     """
     try:
         from sgkit.io import plink as sg_plink
-    except ImportError:
-        raise ImportError("sgkit is required for `read_plink`. Install with `pip install cellink[datasets]`.")
+    except ImportError as e:
+        raise ImportError("sgkit is required for `read_plink`. Install with `pip install cellink[datasets]`.") from e
 
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
     gdata = from_sgkit_dataset(
-        sgkit_dataset, var_rename=var_rename, obs_rename=obs_rename, X_field=X_field, hard_call=hard_call, keep_multiallelic=keep_multiallelic, load_call_fields=load_call_fields
+        sgkit_dataset,
+        var_rename=var_rename,
+        obs_rename=obs_rename,
+        X_field=X_field,
+        hard_call=hard_call,
+        keep_multiallelic=keep_multiallelic,
+        load_call_fields=load_call_fields,
     )
     return gdata
 
@@ -381,7 +403,7 @@ def read_bgen(
     var_rename=None,
     obs_rename=None,
     X_field: str = "GT",
-    hard_call=True, 
+    hard_call=True,
     keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
     **kwargs,
@@ -413,9 +435,16 @@ def read_bgen(
     """
     try:
         from sgkit.io import bgen as sg_bgen
-    except ImportError:
-        raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.")
+    except ImportError as e:
+        raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.") from e
 
     sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
-    gdata = from_sgkit_dataset(sgkit_dataset, metafile_path=metafile_path, sample_path=sample_path, var_rename=var_rename, obs_rename=obs_rename, hard_call=hard_call)
+    gdata = from_sgkit_dataset(
+        sgkit_dataset,
+        metafile_path=metafile_path,
+        sample_path=sample_path,
+        var_rename=var_rename,
+        obs_rename=obs_rename,
+        hard_call=hard_call,
+    )
     return gdata

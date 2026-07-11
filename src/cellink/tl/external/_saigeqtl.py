@@ -177,7 +177,7 @@ def run_saigeqtl(
     dd: DonorData,
     gene_col: str,
     prefix: str = "saigeqtl_temp",
-    steps: list[int] = [1, 2],
+    steps: list[int] | None = None,
     mode: Literal["cis", "genome_wide"] = "cis",
     analysis_type: Literal["single_variant", "set_based"] = "single_variant",
     n_pcs: int = 50,
@@ -550,6 +550,8 @@ def run_saigeqtl(
         runner = get_saigeqtl_runner()
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
+    if steps is None:
+        steps = [1, 2]
 
     if steps == "all":
         steps = [1, 2, 3]

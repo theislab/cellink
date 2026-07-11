@@ -94,10 +94,10 @@ def to_plink(
                 if donor_paternal_id in gdata.obs.columns
                 else np.full(len(gdata.obs), "0"),
             ),
-            "paternal_id": (
+            "maternal_id": (
                 "sample",
-                gdata.obs[donor_paternal_id]
-                if donor_paternal_id in gdata.obs.columns
+                gdata.obs[donor_maternal_id]
+                if donor_maternal_id in gdata.obs.columns
                 else np.full(len(gdata.obs), "0"),
             ),
             "pat": (
@@ -141,7 +141,7 @@ def to_plink(
             "pos": ("variant", gdata.var[pos]),
             "a0": ("variant", gdata.var[a0]),
             "a1": ("variant", gdata.var[a1]),
-            "i": ("variant", range(len(gdata.var))),
+            "vi": ("variant", range(len(gdata.var))),
         },
         name="genotypes",
     )

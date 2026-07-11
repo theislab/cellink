@@ -1,17 +1,16 @@
 import logging
 import subprocess
-import sys
 from pathlib import Path
-from typing import Tuple, Literal, Optional, Union
+from typing import Literal
 
 import pandas as pd
 import yaml
 
 from cellink._core import DonorData
-from cellink.io import to_plink
 from cellink.resources._utils import _download_file, get_data_home, retry_with_backoff
 
 logger = logging.getLogger(__name__)
+
 
 def load_magma_config(config_file: str) -> dict:
     """
@@ -31,9 +30,9 @@ def load_magma_config(config_file: str) -> dict:
         config = yaml.safe_load(f)
     return config
 
+
 def get_gene_id_mapping(
-    genome_build: str = "GRCh38",
-    gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
+    genome_build: str = "GRCh38", gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
 ) -> pd.DataFrame:
     """
     Get gene ID mapping from Ensembl using pybiomart.
@@ -52,51 +51,47 @@ def get_gene_id_mapping(
     """
     try:
         from pybiomart import Server
-    except ImportError:
-        raise ImportError(
-            "pybiomart is required for gene ID mapping. "
-            "Install it with: pip install pybiomart"
-        )
+    except ImportError as e:
+        raise ImportError("pybiomart is required for gene ID mapping. Install it with: pip install pybiomart") from e
 
     logger.info(f"Fetching gene ID mappings from Ensembl ({genome_build})")
 
     if genome_build == "GRCh37":
-        host = 'http://grch37.ensembl.org'
+        host = "http://grch37.ensembl.org"
     elif genome_build == "GRCh38":
-        host = 'http://www.ensembl.org'
+        host = "http://www.ensembl.org"
     else:
         raise ValueError(f"Invalid genome_build: {genome_build}")
 
     server = Server(host=host)
-    dataset = retry_with_backoff(lambda: server.marts['ENSEMBL_MART_ENSEMBL'].datasets['hsapiens_gene_ensembl'])
+    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
     mapping_df = retry_with_backoff(
-        lambda: dataset.query(attributes=['ensembl_gene_id', 'external_gene_name', 'entrezgene_id'])
+        lambda: dataset.query(attributes=["ensembl_gene_id", "external_gene_name", "entrezgene_id"])
     )
 
-    mapping_df = mapping_df.rename(columns={"Gene stable ID": "ensembl_gene_id",
-                                            "Gene name": "external_gene_name",
-                                            "NCBI gene (formerly Entrezgene) ID": "entrezgene_id"})
+    mapping_df = mapping_df.rename(
+        columns={
+            "Gene stable ID": "ensembl_gene_id",
+            "Gene name": "external_gene_name",
+            "NCBI gene (formerly Entrezgene) ID": "entrezgene_id",
+        }
+    )
 
     mask = ~mapping_df["entrezgene_id"].isna()
     mapping_df_filtered = mapping_df[mask]
-    mapping_df = mapping_df_filtered[
-        ~mapping_df_filtered["ensembl_gene_id"].duplicated(keep=False)
-    ]
+    mapping_df = mapping_df_filtered[~mapping_df_filtered["ensembl_gene_id"].duplicated(keep=False)]
 
-    mapping_df = mapping_df.dropna(subset=['entrezgene_id'])
-    mapping_df['entrezgene_id'] = mapping_df['entrezgene_id'].astype(int)
+    mapping_df = mapping_df.dropna(subset=["entrezgene_id"])
+    mapping_df["entrezgene_id"] = mapping_df["entrezgene_id"].astype(int)
 
     if gene_id_type == "entrez":
-        mapping_df = mapping_df.set_index('entrezgene_id')
+        mapping_df = mapping_df.set_index("entrezgene_id")
     elif gene_id_type == "ensembl":
-        mapping_df = mapping_df.set_index('ensembl_gene_id')
+        mapping_df = mapping_df.set_index("ensembl_gene_id")
     elif gene_id_type == "gene_name":
-        mapping_df = mapping_df.set_index('external_gene_name')
+        mapping_df = mapping_df.set_index("external_gene_name")
     else:
-        raise ValueError(
-            f"Invalid gene_id_type: {gene_id_type}. "
-            "Options: 'entrez', 'ensembl', 'gene_name'"
-        )
+        raise ValueError(f"Invalid gene_id_type: {gene_id_type}. " "Options: 'entrez', 'ensembl', 'gene_name'")
 
     logger.info(f"Retrieved {len(mapping_df)} gene mappings")
     return mapping_df
@@ -106,7 +101,7 @@ def convert_gene_loc_file(
     gene_loc_file: Path,
     output_file: Path,
     genome_build: str = "GRCh38",
-    gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
+    gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
 ) -> Path:
     """
     Convert gene location file to use different gene ID types.
@@ -137,37 +132,28 @@ def convert_gene_loc_file(
     logger.info(f"Converting gene location file to {gene_id_type} IDs")
 
     gene_loc = pd.read_csv(
-        gene_loc_file,
-        sep=r'\s+',
-        header=None,
-        names=['entrez_id', 'chr', 'start', 'end', 'strand', 'gene_name']
+        gene_loc_file, sep=r"\s+", header=None, names=["entrez_id", "chr", "start", "end", "strand", "gene_name"]
     )
 
     mapping_df = get_gene_id_mapping(genome_build=genome_build, gene_id_type="entrez")
 
     if gene_id_type == "ensembl":
-        gene_loc = gene_loc.merge(
-            mapping_df[['ensembl_gene_id']],
-            left_on='entrez_id',
-            right_index=True,
-            how='left'
-        )
-        gene_loc = gene_loc.dropna(subset=['ensembl_gene_id'])
-        gene_loc['new_id'] = gene_loc['ensembl_gene_id']
+        gene_loc = gene_loc.merge(mapping_df[["ensembl_gene_id"]], left_on="entrez_id", right_index=True, how="left")
+        gene_loc = gene_loc.dropna(subset=["ensembl_gene_id"])
+        gene_loc["new_id"] = gene_loc["ensembl_gene_id"]
     elif gene_id_type == "gene_name":
-        gene_loc['new_id'] = gene_loc['gene_name']
+        gene_loc["new_id"] = gene_loc["gene_name"]
 
-    output_df = gene_loc[['new_id', 'chr', 'start', 'end', 'strand', 'gene_name']]
-    output_df.columns = ['gene_id', 'chr', 'start', 'end', 'strand', 'gene_name']
+    output_df = gene_loc[["new_id", "chr", "start", "end", "strand", "gene_name"]]
+    output_df.columns = ["gene_id", "chr", "start", "end", "strand", "gene_name"]
 
-    output_df.to_csv(output_file, sep='\t', header=False, index=False)
+    output_df.to_csv(output_file, sep="\t", header=False, index=False)
 
-    logger.info(
-        f"Converted {len(output_df)} genes from Entrez to {gene_id_type} IDs"
-    )
+    logger.info(f"Converted {len(output_df)} genes from Entrez to {gene_id_type} IDs")
     logger.info(f"Converted gene location file: {output_file}")
 
     return output_file
+
 
 def download_magma_references(
     genome_build: str = "GRCh38",
@@ -175,7 +161,7 @@ def download_magma_references(
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
     config_file: str = "configs/magma.yaml",
     data_home: str | Path | None = None,
-) -> Tuple[Path, Path]:
+) -> tuple[Path, Path]:
     """
     Download MAGMA reference files (gene locations and optionally LD reference panel).
 
@@ -208,16 +194,11 @@ def download_magma_references(
     Examples
     --------
     >>> # Download gene locations with Ensembl IDs
-    >>> gene_loc, _ = download_magma_references(
-    ...     genome_build="GRCh38",
-    ...     gene_id_type="ensembl"
-    ... )
+    >>> gene_loc, _ = download_magma_references(genome_build="GRCh38", gene_id_type="ensembl")
 
     >>> # Download gene locations and EUR reference panel
     >>> gene_loc, ref_prefix = download_magma_references(
-    ...     genome_build="GRCh38",
-    ...     reference_panel="EUR",
-    ...     gene_id_type="gene_name"
+    ...     genome_build="GRCh38", reference_panel="EUR", gene_id_type="gene_name"
     ... )
 
     Notes
@@ -236,10 +217,7 @@ def download_magma_references(
     config = load_magma_config(config_file)
 
     if genome_build not in config["gene_loc"]:
-        raise ValueError(
-            f"Invalid genome_build: {genome_build}. "
-            f"Options: {list(config['gene_loc'].keys())}"
-        )
+        raise ValueError(f"Invalid genome_build: {genome_build}. " f"Options: {list(config['gene_loc'].keys())}")
 
     gene_loc_info = config["gene_loc"][genome_build]
     gene_loc_zip = magma_dir / f"{genome_build}.zip"
@@ -267,7 +245,7 @@ def download_magma_references(
                 gene_loc_file=gene_loc_file,
                 output_file=converted_file,
                 genome_build=genome_build,
-                gene_id_type=gene_id_type
+                gene_id_type=gene_id_type,
             )
         else:
             logger.info(f"Using cached converted gene location file: {converted_file}")
@@ -277,8 +255,7 @@ def download_magma_references(
     if reference_panel is not None:
         if reference_panel not in config["reference_data"]:
             raise ValueError(
-                f"Invalid reference_panel: {reference_panel}. "
-                f"Options: {list(config['reference_data'].keys())}"
+                f"Invalid reference_panel: {reference_panel}. " f"Options: {list(config['reference_data'].keys())}"
             )
 
         ref_info = config["reference_data"][reference_panel]
@@ -289,9 +266,7 @@ def download_magma_references(
 
         if not all_exist:
             logger.info(f"Downloading {ref_info['description']}")
-            logger.warning(
-                f"Reference panel is large (~1GB). Consider using your own genotypes instead."
-            )
+            logger.warning("Reference panel is large (~1GB). Consider using your own genotypes instead.")
             _download_file(ref_info["url"], ref_zip)
 
             import zipfile
@@ -307,18 +282,19 @@ def download_magma_references(
 
     return gene_loc_file, ref_prefix
 
+
 def prepare_magma_inputs(
     gwas_sumstats: pd.DataFrame,
     output_prefix: str = "magma_input",
     genome_build: str = "GRCh38",
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
     ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
-    dd: DonorData = None,                                  
-    reference_panel: Optional[str] = None,    # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
-    external_ld_prefix: Optional[Union[str, Path]] = None,  # only if ld_source="external"
+    dd: DonorData = None,
+    reference_panel: str | None = None,  # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
+    external_ld_prefix: str | Path | None = None,  # only if ld_source="external"
     col_mapping: dict = None,
     config_file: str = "configs/magma.yaml",
-) -> Tuple[Path, Path, Path, Optional[Path]]:
+) -> tuple[Path, Path, Path, Path | None]:
     """
     Prepare all input files needed for MAGMA analysis.
 
@@ -379,15 +355,15 @@ def prepare_magma_inputs(
     df = gwas_sumstats.copy()
 
     identifier_columns = ["variant_id", "rsID", "SNP"]
-    has_valid_identifier = any(
-        col in df.columns and df[col].notna().any()
-        for col in identifier_columns
-    )
+    has_valid_identifier = any(col in df.columns and df[col].notna().any() for col in identifier_columns)
     if not has_valid_identifier:
         df["SNP"] = (
-            df["chromosome"].astype(str) + "_"
-            + df["base_pair_location"].astype(str) + "_"
-            + df["effect_allele"].astype(str).str.upper() + "_"
+            df["chromosome"].astype(str)
+            + "_"
+            + df["base_pair_location"].astype(str)
+            + "_"
+            + df["effect_allele"].astype(str).str.upper()
+            + "_"
             + df["other_allele"].astype(str).str.upper()
         )
 
@@ -397,8 +373,7 @@ def prepare_magma_inputs(
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(
-            f"Missing required columns after renaming: {missing_cols}\n"
-            f"Available columns: {df.columns.tolist()}"
+            f"Missing required columns after renaming: {missing_cols}\n" f"Available columns: {df.columns.tolist()}"
         )
 
     df = df.dropna(subset=required_cols)
@@ -419,6 +394,7 @@ def prepare_magma_inputs(
         ld_ref_prefix = Path(f"{output_prefix}_ld_ref")
 
         import numpy as np
+
         from cellink.io import to_plink
 
         maf = dd.G.X.sum(axis=0) / (2 * dd.G.n_obs)
@@ -426,10 +402,7 @@ def prepare_magma_inputs(
         common_variants = maf > 0.01
 
         gdata = dd.G[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.G
-        logger.info(
-            f"Exporting {common_variants.sum()} common variants (MAF > 0.01) "
-            f"out of {len(maf)} total"
-        )
+        logger.info(f"Exporting {common_variants.sum()} common variants (MAF > 0.01) " f"out of {len(maf)} total")
         to_plink(gdata, str(ld_ref_prefix))
         logger.info(f"Created PLINK files: {ld_ref_prefix}.{{bed,bim,fam}}")
 
@@ -451,9 +424,7 @@ def prepare_magma_inputs(
             if not ld_ref_prefix.with_suffix(ext).exists()
         ]
         if missing_plink:
-            raise FileNotFoundError(
-                f"External LD reference PLINK files not found: {missing_plink}"
-            )
+            raise FileNotFoundError(f"External LD reference PLINK files not found: {missing_plink}")
         logger.info(f"Using external LD reference: {ld_ref_prefix}")
 
     elif ld_source is None:
@@ -469,7 +440,7 @@ def run_magma_annotation(
     snp_loc_file: Path,
     gene_loc_file: Path,
     output_prefix: str,
-    window_size: Tuple[int, int] = (35, 10),
+    window_size: tuple[int, int] = (35, 10),
     magma_bin: str = "magma",
 ) -> Path:
     """
@@ -506,9 +477,12 @@ def run_magma_annotation(
         magma_bin,
         "--annotate",
         f"window={window_size[0]},{window_size[1]}",
-        "--snp-loc", str(snp_loc_file),
-        "--gene-loc", str(gene_loc_file),
-        "--out", output_prefix,
+        "--snp-loc",
+        str(snp_loc_file),
+        "--gene-loc",
+        str(gene_loc_file),
+        "--out",
+        output_prefix,
     ]
 
     logger.info(f"Running: {' '.join(cmd)}")
@@ -518,7 +492,7 @@ def run_magma_annotation(
         logger.info(result.stdout)
     except subprocess.CalledProcessError as e:
         logger.error(f"MAGMA annotation failed: {e.stderr}")
-        raise RuntimeError(f"MAGMA annotation failed: {e.stderr}")
+        raise RuntimeError(f"MAGMA annotation failed: {e.stderr}") from e
 
     logger.info(f"Annotation complete: {annotation_file}")
     return annotation_file
@@ -566,10 +540,15 @@ def run_magma_gene_analysis(
 
     cmd = [
         magma_bin,
-        "--bfile", str(ld_reference_prefix),
-        "--pval", str(pval_file), f"N={str(n_samples)}",
-        "--gene-annot", str(annotation_file),
-        "--out", f"{output_prefix}",
+        "--bfile",
+        str(ld_reference_prefix),
+        "--pval",
+        str(pval_file),
+        f"N={str(n_samples)}",
+        "--gene-annot",
+        str(annotation_file),
+        "--out",
+        f"{output_prefix}",
     ]
 
     logger.info(f"Running: {' '.join(cmd)}")
@@ -579,22 +558,23 @@ def run_magma_gene_analysis(
         logger.info(result.stdout)
     except subprocess.CalledProcessError as e:
         logger.error(f"MAGMA gene analysis failed: {e.stderr}")
-        raise RuntimeError(f"MAGMA gene analysis failed: {e.stderr}")
+        raise RuntimeError(f"MAGMA gene analysis failed: {e.stderr}") from e
 
     logger.info(f"Gene analysis complete: {results_file}")
     return results_file
+
 
 def run_magma_pipeline(
     gwas_sumstats: pd.DataFrame,
     output_prefix: str = "magma_results",
     genome_build: str = "GRCh38",
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    window_size: Tuple[int, int] = (35, 10),
+    window_size: tuple[int, int] = (35, 10),
     n_samples: int = None,
     ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
     dd=None,
-    reference_panel: Optional[str] = None,
-    external_ld_prefix: Optional[Union[str, Path]] = None,
+    reference_panel: str | None = None,
+    external_ld_prefix: str | Path | None = None,
     col_mapping: dict = None,
     config_file: str = "configs/magma.yaml",
     magma_bin: str = "magma",
@@ -644,21 +624,30 @@ def run_magma_pipeline(
     --------
     >>> # Using your own cohort's genotypes
     >>> results = run_magma_pipeline(
-    ...     gwas_df, output_prefix="t2d", n_samples=100000,
-    ...     ld_source="dd_genotypes", dd=my_donor_data,
+    ...     gwas_df,
+    ...     output_prefix="t2d",
+    ...     n_samples=100000,
+    ...     ld_source="dd_genotypes",
+    ...     dd=my_donor_data,
     ...     magma_bin="./magma/magma",
     ... )
 
     >>> # Using a downloaded 1000G panel
     >>> results = run_magma_pipeline(
-    ...     gwas_df, output_prefix="t2d", n_samples=100000,
-    ...     ld_source="reference_panel", reference_panel="EUR",
+    ...     gwas_df,
+    ...     output_prefix="t2d",
+    ...     n_samples=100000,
+    ...     ld_source="reference_panel",
+    ...     reference_panel="EUR",
     ... )
 
     >>> # Using your own pre-built PLINK reference
     >>> results = run_magma_pipeline(
-    ...     gwas_df, output_prefix="t2d", n_samples=100000,
-    ...     ld_source="external", external_ld_prefix="/data/my_ref_panel",
+    ...     gwas_df,
+    ...     output_prefix="t2d",
+    ...     n_samples=100000,
+    ...     ld_source="external",
+    ...     external_ld_prefix="/data/my_ref_panel",
     ... )
     """
     if ld_source is None:

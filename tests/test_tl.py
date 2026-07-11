@@ -1,22 +1,20 @@
 import shutil
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from cellink._core.data_fields import AAnn
 from cellink._core.dummy_data import sim_gdata
-from cellink.io import read_sgkit_zarr, write_variants_to_vcf
+from cellink.io import write_variants_to_vcf
 from cellink.tl import (
     add_vep_annos_to_gdata,
     aggregate_annotations_for_varm,
     combine_annotations,
     run_vep,
-    subset_genomic_region,
     subset_gene,
+    subset_genomic_region,
 )
-
 
 DATA = Path("tests/data")
 CONFIG = Path("configs")
@@ -85,10 +83,11 @@ def test_aggregate_annotations_for_varm(gdata, sample_vep_annos):
         id_cols = [AAnn.index]
         assert len(gdata.uns["variant_annotation_vep"].reset_index()[id_cols].drop_duplicates()) == len(res.index)
 
+
 def test_get_genomic_region_nosubset(gdata):
-    chrom = gdata.var['chrom'].iloc[0]
-    start = gdata.var['pos'].min()
-    end = gdata.var['pos'].max() + 1
+    chrom = gdata.var["chrom"].iloc[0]
+    start = gdata.var["pos"].min()
+    end = gdata.var["pos"].max() + 1
 
     subset_gdata = subset_genomic_region(gdata, chrom, start, end)
 
@@ -96,27 +95,28 @@ def test_get_genomic_region_nosubset(gdata):
 
 
 def test_get_genomic_region_subset(gdata):
-    chrom = gdata.var['chrom'].iloc[0]
-    start = gdata.var['pos'].min() + 1
-    end = gdata.var['pos'].max()
+    chrom = gdata.var["chrom"].iloc[0]
+    start = gdata.var["pos"].min() + 1
+    end = gdata.var["pos"].max()
 
     subset_gdata = subset_genomic_region(gdata, chrom, start, end)
 
     assert subset_gdata.shape[1] < gdata.shape[1]
 
+
 def test_get_genomic_region_quantile_subset(gdata):
-    chrom = gdata.var['chrom'].iloc[0]
-    start = gdata.var['pos'].quantile(0.25)
-    end = gdata.var['pos'].quantile(0.75)
+    chrom = gdata.var["chrom"].iloc[0]
+    start = gdata.var["pos"].quantile(0.25)
+    end = gdata.var["pos"].quantile(0.75)
 
     subset_gdata = subset_genomic_region(gdata, chrom, start, end)
-    subset_gdata.var['pos'].min() >= start
-    subset_gdata.var['pos'].max() <= end
+    assert subset_gdata.var["pos"].min() >= start
+    assert subset_gdata.var["pos"].max() <= end
     assert subset_gdata.shape[1] < gdata.shape[1]
 
 
 def test_subset_gene_no_vep(gdata):
-   #expect value error if vep annotations have not been added to gdata
+    # expect value error if vep annotations have not been added to gdata
     with pytest.raises(ValueError):
         subset_gene(gdata, gene_id="ENSG00000141510")
 
@@ -129,6 +129,7 @@ def test_subset_non_present_gene(gdata, sample_vep_annos):
 
     assert subset_gdata.shape[1] == 0
 
+
 def test_subset_present_gene(gdata, sample_vep_annos):
     add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=gdata, dummy_consequence=True)
     gene_id = "ENSG2"
@@ -140,7 +141,7 @@ def test_subset_present_gene(gdata, sample_vep_annos):
 
 def test_subset_multiple_genes(gdata, sample_vep_annos):
     add_vep_annos_to_gdata(vep_anno_file=sample_vep_annos, gdata=gdata, dummy_consequence=True)
-    gene_ids = ["ENSG1","ENSG2", "ENSG3"] # only ENSG1 and ENSG2 are present in the sample vep annos
+    gene_ids = ["ENSG1", "ENSG2", "ENSG3"]  # only ENSG1 and ENSG2 are present in the sample vep annos
     subset_gdata = subset_gene(gdata, gene_ids)
     assert subset_gdata.shape[1] < gdata.shape[1]
     assert subset_gdata.shape[1] > 0

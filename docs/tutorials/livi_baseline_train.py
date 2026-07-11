@@ -115,6 +115,7 @@ print("\n==== BASELINE (default in-memory dataloader) ====")
 print(f"best checkpoint:      {checkpoint_path}")
 print(f"data load:            {load_secs:.1f}s")
 print(f"train_livi fit total: {fit_secs:.1f}s  ({MAX_EPOCHS} epochs)")
-print(f"aggregate throughput: {cell_passes / fit_secs:,.0f} cells/s "
-      f"({cell_passes:,} cell-passes / {fit_secs:.1f}s)")
+print(
+    f"aggregate throughput: {cell_passes / fit_secs:,.0f} cells/s " f"({cell_passes:,} cell-passes / {fit_secs:.1f}s)"
+)
 print(f"per-epoch wall (avg):  {fit_secs / MAX_EPOCHS:.1f}s")

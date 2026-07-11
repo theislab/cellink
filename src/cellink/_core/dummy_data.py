@@ -1,10 +1,10 @@
 from typing import Literal
 
-from anndata import AnnData
 import anndata as ad
-from muon import MuData
 import numpy as np
 import pandas as pd
+from anndata import AnnData
+from muon import MuData
 
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 
@@ -78,7 +78,6 @@ def _sim_donor(
         - `var` : DataFrame with columns:
             - gene name, chromosome, start, end, strand
     """
-        
     if strategy == "randn":
         X = np.random.randn(n_cells, n_genes)
     elif strategy == "poisson":
@@ -109,7 +108,11 @@ def _sim_donor(
 
 
 def sim_mudata(
-    n_donors: int = N_DONORS, n_genes: int = N_GENES, n_peaks: int = N_PEAKS, min_n_cells: int = MIN_N_CELLS, max_n_cells: int = MAX_N_CELLS
+    n_donors: int = N_DONORS,
+    n_genes: int = N_GENES,
+    n_peaks: int = N_PEAKS,
+    min_n_cells: int = MIN_N_CELLS,
+    max_n_cells: int = MAX_N_CELLS,
 ) -> MuData:
     """
     Simulate a multi-modal `MuData` object with RNA and ATAC layers.
@@ -141,7 +144,6 @@ def sim_mudata(
         - 'celltype'
         - 'donor_id'
     """
-        
     rna = sim_adata(
         n_donors=N_DONORS,
         n_genes=N_GENES,
@@ -193,7 +195,6 @@ def sim_adata(
         - `obs` : cell-level metadata including donor ID and celltype
         - `var` : gene-level metadata including chromosome, start, end
     """
-
     adatas = []
     has_all_celltypes = [True] * (n_donors - 1) + [False]
     cum_n_cells = 0
@@ -207,11 +208,7 @@ def sim_adata(
     return adata
 
 
-def sim_gdata(
-    n_donors: int = N_DONORS, 
-    n_snps: int = N_SNPS, 
-    adata: AnnData | None = None
-) -> AnnData:
+def sim_gdata(n_donors: int = N_DONORS, n_snps: int = N_SNPS, adata: AnnData | None = None) -> AnnData:
     """
     Simulate genotype data as an AnnData object.
 
@@ -237,7 +234,6 @@ def sim_gdata(
         - `obs` : donor IDs
         - `var` : SNP metadata including chromosome, position, alleles, and MAF
     """
-
     if adata is None:
         pos = np.arange(1, n_snps + 1)
     else:

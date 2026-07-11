@@ -1,10 +1,11 @@
 import logging
 import time
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+import scanpy as sc
 import scipy.stats as st
 import torch
 import torch.distributions as td
@@ -12,7 +13,6 @@ import torch.linalg as la
 import torch.nn as nn
 from anndata import AnnData
 from scipy.sparse import issparse
-import scanpy as sc
 
 logger = logging.getLogger(__name__)
 
@@ -172,10 +172,7 @@ class RegressionNLL(nn.Module):
         n = 1.0 / (GG - (FG * A0iFG).sum(0))
         M = -n * A0iFG
 
-        self.beta_F = (
-            self.beta_F0[:, None]
-            + torch.einsum("ks,sp->ksp", M, M.T * self.FY) / n[None, :, None]
-        )
+        self.beta_F = self.beta_F0[:, None] + torch.einsum("ks,sp->ksp", M, M.T * self.FY) / n[None, :, None]
         self.beta_F += torch.einsum("ks,sp->ksp", M, GY)
         self.beta_g = torch.einsum("ks,kp->sp", M, self.FY)
         self.beta_g += n[:, None] * GY
@@ -190,12 +187,8 @@ class RegressionNLL(nn.Module):
             logger.info(f"RegressionNLL: {G.shape[1]} columns in {time.time() - t0:.2f}s")
 
         if return_all:
-            pval_two_sided = torch.tensor(
-                st.chi2(1).sf(self.lrt.cpu().data.numpy()), device=self.F.device
-            )
-            pval_one_sided = torch.where(
-                self.beta_g > 0, pval_two_sided / 2.0, 1.0 - (pval_two_sided / 2.0)
-            )
+            pval_two_sided = torch.tensor(st.chi2(1).sf(self.lrt.cpu().data.numpy()), device=self.F.device)
+            pval_one_sided = torch.where(self.beta_g > 0, pval_two_sided / 2.0, 1.0 - (pval_two_sided / 2.0))
             z = np.sign(self.beta_g.cpu().data.numpy()) * np.sqrt(
                 st.chi2.ppf(1.0 - pval_two_sided.cpu().data.numpy(), df=1)
             )
@@ -222,7 +215,7 @@ def _adata_to_sparse_csr_tensor(adata: AnnData, layer: str | None, dtype=torch.f
 
 def run_seismic_torch(
     adata: AnnData,
-    magma_file: Union[str, Path],
+    magma_file: str | Path,
     cell_type_col: str,
     species: Literal["human", "mouse"] = "human",
     layer: str | None = None,
@@ -297,15 +290,12 @@ def run_seismic_torch(
     with torch.no_grad():
         scores = score_module(mask)  # [G, C]
 
-    scores_df = pd.DataFrame(
-        scores.cpu().numpy(), index=adata.var_names, columns=cell_types
-    )
+    scores_df = pd.DataFrame(scores.cpu().numpy(), index=adata.var_names, columns=cell_types)
 
     magma_df = pd.read_csv(magma_file, sep=r"\s+")
     if magma_gene_col not in magma_df.columns or magma_z_col not in magma_df.columns:
         raise ValueError(
-            f"MAGMA file must have columns '{magma_gene_col}' and '{magma_z_col}'; "
-            f"found {list(magma_df.columns)}"
+            f"MAGMA file must have columns '{magma_gene_col}' and '{magma_z_col}'; " f"found {list(magma_df.columns)}"
         )
     magma_df = magma_df.set_index(magma_gene_col)
 
@@ -336,13 +326,19 @@ def run_seismic_torch(
 
     _, fdr, _, _ = multipletests(pvals, method="fdr_bh")
 
-    associations_df = pd.DataFrame({
-        "cell_type": cell_types,
-        "pvalue": pvals,
-        "beta": betas,
-        "se": stes,
-        "FDR": fdr,
-    }).sort_values("pvalue").reset_index(drop=True)
+    associations_df = (
+        pd.DataFrame(
+            {
+                "cell_type": cell_types,
+                "pvalue": pvals,
+                "beta": betas,
+                "se": stes,
+                "FDR": fdr,
+            }
+        )
+        .sort_values("pvalue")
+        .reset_index(drop=True)
+    )
 
     if save_results and prefix:
         out_file = f"{prefix}_associations.tsv"

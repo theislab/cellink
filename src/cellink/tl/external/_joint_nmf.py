@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from time import time
-from typing import Optional, Tuple
 
 import numpy as np
 from scipy import sparse
@@ -26,7 +25,8 @@ class JointNMFWrapper:
         Dense matrix (cells x genes) for the healthy condition.
     Xd
         Dense matrix (cells x genes) for the disease condition.
-        Must share the same gene dimension as ``Xh``.
+        Must have the same shape as ``Xh`` (paired cells x genes) since factor
+        alignment correlates loadings across the two conditions cell-by-cell.
     n_shared
         Number of programs shared between healthy and disease (KC in paper).
     n_healthy_specific
@@ -56,7 +56,7 @@ class JointNMFWrapper:
         n_healthy_specific: int = 5,
         n_disease_specific: int = 5,
         gamma: float = 1.0,
-        mu: Optional[float] = None,
+        mu: float | None = None,
         n_init: int = 5,
         max_iters: int = 1000,
         tol: float = _SMALL,
@@ -94,7 +94,7 @@ class JointNMFWrapper:
         else:
             self.mu = mu
 
-    def fit(self) -> "JointNMFWrapper":
+    def fit(self) -> JointNMFWrapper:
         """Run multiplicative updates until convergence."""
         t0 = time()
         chi2 = self._cost()
@@ -114,10 +114,7 @@ class JointNMFWrapper:
                 raise ValueError("Joint NMF diverged (NaN/Inf cost). Check input data.")
 
             if niter % 50 == 0:
-                logger.debug(
-                    f"JointNMF iter {niter}: cost={chi2:.4f}, "
-                    f"Δ={100*(old_chi2-chi2)/old_chi2:.3f}%"
-                )
+                logger.debug(f"JointNMF iter {niter}: cost={chi2:.4f}, " f"Δ={100*(old_chi2-chi2)/old_chi2:.3f}%")
             niter += 1
 
         elapsed = (time() - t0) / 60.0
@@ -173,20 +170,19 @@ class JointNMFWrapper:
         )
         Wshd = self._Wd[:, : self.n_shared]
         num1 = safe_sparse_dot(self.Xh, self._Hh.T)
-        zeros = sparse.csr_matrix(
-            np.zeros((self.Xh.shape[0], self.n_healthy_specific))
-        )
+        zeros = sparse.csr_matrix(np.zeros((self.Xh.shape[0], self.n_healthy_specific)))
         num2 = sparse.hstack([Wshd.multiply(self.gamma), zeros])
-        den = (
-            safe_sparse_dot(self._Wh, safe_sparse_dot(self._Hh, self._Hh.T))
-            + safe_sparse_dot(self._Wh, np.diag(scale))
+        den = safe_sparse_dot(self._Wh, safe_sparse_dot(self._Hh, self._Hh.T)) + safe_sparse_dot(
+            self._Wh, np.diag(scale)
         )
-        self._Wh = self._Wh.multiply((num1 + num2) / (den + _SMALL)).tocsr()
+        self._Wh = self._Wh.multiply(
+            (num1 + num2) / ((den.toarray() if issparse(den) else np.asarray(den)) + _SMALL)
+        ).tocsr()
 
     def _update_Hh(self):
         num = safe_sparse_dot(self._Wh.T, self.Xh)
         den = safe_sparse_dot(safe_sparse_dot(self._Wh.T, self._Wh), self._Hh)
-        self._Hh = self._Hh.multiply(num / (den + _SMALL)).tocsr()
+        self._Hh = self._Hh.multiply(num / ((den.toarray() if issparse(den) else np.asarray(den)) + _SMALL)).tocsr()
 
     def _update_Wd(self):
         scale = np.append(
@@ -197,21 +193,22 @@ class JointNMFWrapper:
         num1 = safe_sparse_dot(self.Xd, self._Hd.T)
         zeros = np.zeros((self.Xd.shape[0], self.n_disease_specific))
         num2 = sparse.hstack([Wshh.multiply(self.gamma), sparse.csr_matrix(zeros)])
-        den = (
-            safe_sparse_dot(self._Wd, safe_sparse_dot(self._Hd, self._Hd.T))
-            + safe_sparse_dot(self._Wd, np.diag(scale))
+        den = safe_sparse_dot(self._Wd, safe_sparse_dot(self._Hd, self._Hd.T)) + safe_sparse_dot(
+            self._Wd, np.diag(scale)
         )
-        self._Wd = self._Wd.multiply((num1 + num2) / (den + _SMALL)).tocsr()
+        self._Wd = self._Wd.multiply(
+            (num1 + num2) / ((den.toarray() if issparse(den) else np.asarray(den)) + _SMALL)
+        ).tocsr()
 
     def _update_Hd(self):
         num = safe_sparse_dot(self._Wd.T, self.Xd)
         den = safe_sparse_dot(safe_sparse_dot(self._Wd.T, self._Wd), self._Hd)
-        self._Hd = self._Hd.multiply(num / (den + _SMALL)).tocsr()
+        self._Hd = self._Hd.multiply(num / ((den.toarray() if issparse(den) else np.asarray(den)) + _SMALL)).tocsr()
 
     @staticmethod
     def _best_nmf(
         X: sparse.spmatrix, n_components: int, n_init: int, seed: int
-    ) -> Tuple[sparse.spmatrix, sparse.spmatrix]:
+    ) -> tuple[sparse.spmatrix, sparse.spmatrix]:
         best_err = _LARGE
         best_W = best_H = None
         for i in range(n_init):

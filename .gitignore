@@ -190,7 +190,7 @@ software
 *.sqlite
 
 misc
-data
+/docs/tutorials/data/
 *.code-workspace
 
 _build/*

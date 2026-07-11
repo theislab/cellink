@@ -15,4 +15,9 @@ gsmap
 single_cell_eqtl_saigeqtl
 ehrdataset
 run_dataloader
+cell_level_ldsc_analysis
+ldsc_duncan_merge_anndatas
+magma_analysis_tutorial
+sclinker
+livi
 ```

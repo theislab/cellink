@@ -19,7 +19,7 @@ def calculate_ld(
     r2_threshold: float = 0.2,
     run: bool = True,
     save_cmd_file: str | None = None,
-    plink_export_kwargs: dict | None = {},
+    plink_export_kwargs: dict | None = None,
 ) -> pd.DataFrame | str:
     """
     Estimate LD patterns using PLINK.
@@ -50,6 +50,9 @@ def calculate_ld(
     pd.DataFrame or str
         LD dataframe or command string.
     """
+    if plink_export_kwargs is None:
+        plink_export_kwargs = {}
+
     if run and shutil.which("plink") is None:
         raise ImportError("plink is required for `calculate_pcs`. Please install it.")
 

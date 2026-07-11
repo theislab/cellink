@@ -1,14 +1,19 @@
-import torch
+import logging
+from typing import TYPE_CHECKING, Any, Literal
+
 import numpy as np
 import scanpy as sc
-from typing import Literal, List, Optional, Tuple
+import torch
 from anndata.utils import asarray
-from cellink._core.data_fields import DAnn
-from cellink._core import DonorData
-from typing import Tuple, Dict, Any
 
-import logging
+from cellink._core import DonorData
+from cellink._core.data_fields import DAnn
+
+if TYPE_CHECKING:
+    from mixmil import MixMIL
+
 logger = logging.getLogger(__name__)
+
 
 def run_mixmil(
     dd: DonorData,
@@ -16,16 +21,16 @@ def run_mixmil(
     donor_key: str = DAnn.donor,
     bag_phenotype_key: str = None,
     embedding_key: str = "X_pca",
-    likelihood: Optional[Literal["binomial", "categorical"]] = "binomial",
-    n_trials: Optional[int] = 2,
+    likelihood: Literal["binomial", "categorical"] | None = "binomial",
+    n_trials: int | None = 2,
     n_epochs: int = 2000,
     batch_size: int = 64,
     lr: float = 1e-3,
     encode_sex: bool = True,
     encode_age: bool = True,
-    additional_covariates: Optional[List[str]] = None,
-    dtype: str = "float32"
-) -> Tuple[Dict[str, Any], "MixMIL"]:
+    additional_covariates: list[str] | None = None,
+    dtype: str = "float32",
+) -> tuple[dict[str, Any], "MixMIL"]:
     """
     Train a MixMIL model on donor-level data with flexible covariate encoding.
 
@@ -61,11 +66,10 @@ def run_mixmil(
     model : MixMIL
         Trained MixMIL model instance.
     """
-
     try:
         from mixmil import MixMIL
-    except ImportError:
-        raise ImportError("mixmil is required for `run_mixmil`. Install with `pip install cellink[mixmil]`.")
+    except ImportError as e:
+        raise ImportError("mixmil is required for `run_mixmil`. Install with `pip install cellink[mixmil]`.") from e
 
     if "X_pca" not in dd.C.obsm:
         logger.info("Calculating PCA.")
@@ -74,24 +78,26 @@ def run_mixmil(
     iidx = dd.C.obs[donor_key].astype("category").cat.codes
     indptr = np.concatenate([[0], np.cumsum(np.bincount(iidx))])
     X = dd.C.obsm[embedding_key].astype(dtype)
-    Xs = [
-        torch.from_numpy(X[start:end]) for start, end in zip(indptr[:-1], indptr[1:], strict=True)
-    ]
+    Xs = [torch.from_numpy(X[start:end]) for start, end in zip(indptr[:-1], indptr[1:], strict=True)]
 
     dtype = getattr(torch, dtype)
     covariate_list = []
     covariate_list.append(torch.ones((dd.shape[0], 1), dtype=dtype))
 
     if encode_sex:
-        sex_tensor = torch.unsqueeze(torch.tensor(dd.G.obs["sex"].astype("category").cat.codes.values, dtype=dtype), dim=1)
+        sex_tensor = torch.unsqueeze(
+            torch.tensor(dd.G.obs["sex"].astype("category").cat.codes.values, dtype=dtype), dim=1
+        )
         covariate_list.append(sex_tensor)
 
     if encode_age:
         age_tensor = torch.tensor(dd.G.obs[["age"]].values, dtype=dtype)
         mean = age_tensor.mean()
         std = age_tensor.std()
-        tolerance = 1e-2 
-        already_z_normalized = torch.isclose(mean, torch.tensor(0.0), atol=tolerance) and torch.isclose(std, torch.tensor(1.0), atol=tolerance)
+        tolerance = 1e-2
+        already_z_normalized = torch.isclose(mean, torch.tensor(0.0), atol=tolerance) and torch.isclose(
+            std, torch.tensor(1.0), atol=tolerance
+        )
         if not already_z_normalized and std > 0:
             logger.info("Performing z-normalization of age.")
             age_tensor = (age_tensor - mean) / std

@@ -50,8 +50,10 @@ class DonorData:
         C: AnnData | MuData,
         donor_id: str = DAnn.donor,
         var_dims_to_sync: list[str] = None,
-        uns: dict = {},
+        uns: dict | None = None,
     ):
+        if uns is None:
+            uns = {}
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
         if donor_id not in G.obs.columns and donor_id != G.obs.index.name:

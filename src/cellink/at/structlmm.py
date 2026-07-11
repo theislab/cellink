@@ -1,14 +1,16 @@
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
-#from limix_core.covar import FreeFormCov #TODO ARNOLDT
-#from limix_core.gp import GP2KronSumLR #TODO ARNOLDT
-#from limix_lmm import LMM #TODO ARNOLDT
-from tqdm import tqdm
 import scipy.linalg as la
+from tqdm import tqdm
 
-from cellink.at.utils import davies_pvalue, ensure_float64_array, compute_eigenvals
+from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
+if TYPE_CHECKING:
+    from limix_core.gp import GP2KronSumLR
 
 __all__ = ["StructLMM"]
 
@@ -18,17 +20,11 @@ logger = logging.getLogger(__name__)
 class StructLMM:
     """Faster version of StructLMM."""
 
-    def __init__(
-        self,
-        y: np.ndarray,
-        E: np.ndarray,
-        F: np.ndarray,
-        verbose: bool = False
-    ) -> None:
+    def __init__(self, y: np.ndarray, E: np.ndarray, F: np.ndarray, verbose: bool = False) -> None:
         """Initialize the OurStructLMM class.
-        
-        parameters
-        ---------- 
+
+        Parameters
+        ----------
         y : np.ndarray
             Phenotype data.
         E : np.ndarray
@@ -37,7 +33,6 @@ class StructLMM:
             Covariates data. If not specified, an intercept is assumed.
         verbose: bool, optional
         """
-
         # type casting
         y = ensure_float64_array(y)
         E = ensure_float64_array(E)
@@ -55,14 +50,20 @@ class StructLMM:
         exact: bool = False,
     ) -> np.ndarray:
         """Perform the interaction test for association between y and G.
-        
-        parameters
+
+        Parameters
         ----------
         G : np.ndarray
             Genotype data.
         exact : bool, optional
             If True, perform the exact test. If False, perform the approximate test using GPs.
         """
+        try:
+            from limix_core.covar import FreeFormCov
+            from limix_core.gp import GP2KronSumLR
+        except ImportError as e:
+            raise ImportError("StructLMM requires `limix-core`. Install it with:\n\n    pip install limix-core") from e
+
         # type casting
         G = ensure_float64_array(G)
 
@@ -81,13 +82,21 @@ class StructLMM:
         gp = GP2KronSumLR(Y=self.y, Cn=FreeFormCov(1), G=self.E, F=self.F, A=np.ones((1, 1)))
         gp.covar.Cr.setCovariance(0.5 * np.ones((1, 1)))
         gp.covar.Cn.setCovariance(0.5 * np.ones((1, 1)))
-        self.info_opt = gp.optimize(verbose=False)  # noqa: F841
+        self.info_opt = gp.optimize(verbose=False)
+
+        try:
+            from limix_lmm import LMM
+        except ImportError as e:
+            raise ImportError(
+                "The approximate (non-exact) interaction test requires `limix-lmm`. "
+                "Install it with:\n\n    pip install limix-lmm"
+            ) from e
 
         # fit null
         self.lmm = LMM(self.y, self.F, gp.covar.solve)
         self.lmm.process(G)
         pv = self.lmm.getPv()  # noqa: F841
-        beta = self.lmm.getBetaSNP()  # noqa: F841
+        beta = self.lmm.getBetaSNP()
         beta_ste = self.lmm.getBetaSNPste()  # noqa: F841
         lrt = self.lmm.getLRT()  # noqa: F841
 
@@ -114,7 +123,6 @@ class StructLMM:
         self.G = G
         return self.pvs
 
-    
     def _P(
         self,
         X: np.ndarray,
@@ -123,7 +131,7 @@ class StructLMM:
         """
         Compute the projection of X onto the null space of the mean model.
 
-        parameters
+        Parameters
         ----------
         X : np.ndarray
             Input data to project.
@@ -140,18 +148,24 @@ class StructLMM:
         #    KiFAiFtKiX = gp.covar.solve(gp.mean.W.dot(gp.Areml.solve(FtKiX)))
         out = KiX - KiFAiFtKiX
         return out
-    
+
     def single_interaction_test(
-            self,
-            g: np.ndarray,
-        ) -> np.ndarray:
+        self,
+        g: np.ndarray,
+    ) -> np.ndarray:
         """Single interaction test.
-        
-        parameters
+
+        Parameters
         ----------
         g : np.ndarray
             Genotype data for a single variant.
         """
+        try:
+            from limix_core.covar import FreeFormCov
+            from limix_core.gp import GP2KronSumLR
+        except ImportError as e:
+            raise ImportError("StructLMM requires `limix-core`. Install it with:\n\n    pip install limix-core") from e
+
         # type casting
         g = ensure_float64_array(g)
 
@@ -163,7 +177,7 @@ class StructLMM:
         self.info_opt = gp.optimize(verbose=False)
 
         # make interaction test
-        PY = self._P(self.y,gp)
+        PY = self._P(self.y, gp)
 
         # score statistics
         W = g * self.E
@@ -171,7 +185,7 @@ class StructLMM:
         Q = (WPY**2).sum()
 
         # eigenvalues
-        PW = self._P(W,gp)
+        PW = self._P(W, gp)
         Lambda = W.T.dot(PW)
         lambdas = compute_eigenvals(Lambda)
         return davies_pvalue(Q, lambdas)

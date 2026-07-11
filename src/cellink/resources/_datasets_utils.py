@@ -1,9 +1,8 @@
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pathlib import Path
-from typing import Union
 
 try:
     from liftover import get_lifter
@@ -13,10 +12,7 @@ except ImportError:
     converter = None
 
 
-def preprocess_vcf_to_plink(
-    vcf_filename: str = None, 
-    DATA: Union[str, Path] = None
-) -> None:
+def preprocess_vcf_to_plink(vcf_filename: str = None, DATA: str | Path = None) -> None:
     """
     Convert a VCF file to PLINK binary format (BED/BIM/FAM).
 
@@ -58,10 +54,7 @@ def preprocess_vcf_to_plink(
     bim.to_csv(DATA / f"{vcf_filename.replace('.vcf.gz', '')}.bim", sep="\t", header=None, index=None)
 
 
-def plink_filter_prune(
-    fname: str = None, 
-    DATA: Union[str, Path] = None
-) -> None:
+def plink_filter_prune(fname: str = None, DATA: str | Path = None) -> None:
     """
     Perform quality control filtering and LD-based pruning on a PLINK dataset.
 
@@ -144,10 +137,7 @@ def plink_filter_prune(
     subprocess.run(cmd, check=True)
 
 
-def plink_kinship(
-    fname: str = None, 
-    DATA: Union[str, Path] = None
-) -> None:
+def plink_kinship(fname: str = None, DATA: str | Path = None) -> None:
     """
     Compute a kinship matrix from a PLINK dataset.
 
@@ -171,7 +161,7 @@ def plink_kinship(
     # genodir = DATA / "eqtl_cat_genotypes"
     # plinkdir = genodir / "plink"
     DATA = Path(DATA)
-    
+
     prunedir = DATA / "prunedir"
     kinshipdir = DATA / "kinship"
 
@@ -217,7 +207,7 @@ def plink_kinship(
     subprocess.run(cmd, check=True)
 
 
-def try_liftover(row) -> Union[int, float]:
+def try_liftover(row) -> int | float:
     """
     Attempt to lift over a genomic coordinate from hg19 to hg38.
 

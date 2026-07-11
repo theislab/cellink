@@ -1,9 +1,7 @@
-import argparse
 import gc
 import logging
-import sys
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import anndata as ad
 import dask.array as da
@@ -20,6 +18,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
 
 def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     """
@@ -74,11 +73,9 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
 
     def callback(func, elem_name: str, elem, iospec):
         if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
-            return ad.AnnData(**{
-                k: read_dispatched(v, callback)
-                for k, v in dict(elem).items()
-                if not k.startswith("raw.")
-            })
+            return ad.AnnData(
+                **{k: read_dispatched(v, callback) for k, v in dict(elem).items() if not k.startswith("raw.")}
+            )
         elif elem_name == "/X" and iospec.encoding_type in (
             "dataframe",
             "csr_matrix",
@@ -93,12 +90,13 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
 
     return read_dispatched(f, callback=callback)
 
+
 def stream_pgen_to_zarr(
-    pgen_path: Union[str, list[str]],
+    pgen_path: str | list[str],
     output_path: str,
     *,
-    max_variants: Optional[int] = None,
-    max_samples: Optional[int] = None,
+    max_variants: int | None = None,
+    max_samples: int | None = None,
     chunk_samples: int = 4096,
     chunk_variants: int = 2048,
     memory_limit_gb: float = 10.0,
@@ -106,7 +104,8 @@ def stream_pgen_to_zarr(
     compression_level: int = 7,
     sparse: bool = False,
     sparse_format: Literal["csc", "csr"] = "csc",
-) -> ad.AnnData:
+    return_adata: bool = False,
+) -> ad.AnnData | None:
     """
     Stream one or more PGEN files → a single Zarr v3 AnnData-compatible store.
 
@@ -144,20 +143,28 @@ def stream_pgen_to_zarr(
         more efficient for variant-wise access (e.g. association tests, per-variant
         filtering). Use 'csr' if your workload is primarily sample-wise (e.g.
         per-sample operations).
+    return_adata : bool
+        If True, return the written `AnnData` (Dask-backed `X` for the dense path).
+        Default is False: this is normally a one-off conversion step, so the data
+        isn't re-opened/held onto unless asked for. Load it back later with
+        :func:`read_pgen_zarr`.
 
     Returns
     -------
-    AnnData with Dask-backed X.
+    AnnData or None
+        The written `AnnData` if `return_adata=True`, otherwise None.
     """
     try:
         import pgenlib
-    except ImportError:
-        raise ImportError("pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`.")
+    except ImportError as e:
+        raise ImportError(
+            "pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`."
+        ) from e
 
     try:
         from zarr.codecs import BloscCodec, BloscShuffle
-    except ImportError:
-        raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.")
+    except ImportError as e:
+        raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.") from e
 
     if isinstance(pgen_path, str):
         pgen_paths = [pgen_path]
@@ -181,24 +188,19 @@ def stream_pgen_to_zarr(
             nv = min(nv, max_variants)
         n_variants_per_file.append(nv)
         readers.append((reader, ns, _base(p)))
-        logger.info(f"  {pgen_file.name}: {ns:,} samples x {reader.get_variant_ct():,} variants "
-                    f"(using {nv:,})")
+        logger.info(f"  {pgen_file.name}: {ns:,} samples x {reader.get_variant_ct():,} variants " f"(using {nv:,})")
 
     raw_sample_counts = [ns for _, ns, _ in readers]
     if len(set(raw_sample_counts)) > 1:
-        raise ValueError(
-            f"All pgen files must have the same number of samples. "
-            f"Got: {raw_sample_counts}"
-        )
+        raise ValueError(f"All pgen files must have the same number of samples. " f"Got: {raw_sample_counts}")
     n_samples_total = raw_sample_counts[0]
     n_samples = min(max_samples, n_samples_total) if max_samples else n_samples_total
     n_variants_total = sum(n_variants_per_file)
 
-    logger.info(f"Total: {n_samples:,} samples × {n_variants_total:,} variants "
-                f"({'sparse' if sparse else 'dense'})")
+    logger.info(f"Total: {n_samples:,} samples × {n_variants_total:,} variants " f"({'sparse' if sparse else 'dense'})")
 
     first_base = readers[0][2]
-    psam_file  = Path(first_base + ".psam")
+    psam_file = Path(first_base + ".psam")
     logger.info(f"Loading sample metadata from {psam_file} ...")
     psam = pd.read_csv(psam_file, sep="\t")
     psam.columns = [c.lower().replace("#", "") for c in psam.columns]
@@ -207,15 +209,15 @@ def stream_pgen_to_zarr(
         psam = psam.set_index("genotype_id")
     psam = psam.iloc[:n_samples].copy()
     psam.columns = psam.columns.astype(str)
-    psam.index   = psam.index.astype(str)
+    psam.index = psam.index.astype(str)
 
     pvar_frames = []
-    for nv, (_, _, base) in zip(n_variants_per_file, readers):
+    for nv, (_, _, base) in zip(n_variants_per_file, readers, strict=False):
         pvar_file = Path(base + ".pvar")
         pv = pd.read_csv(pvar_file, sep="\t", comment="#", header=None)
         pv = pv.iloc[:nv].copy()
         pv.columns = pv.columns.astype(str)
-        pv.index   = pv.index.astype(str)
+        pv.index = pv.index.astype(str)
         pvar_frames.append(pv)
     pvar = pd.concat(pvar_frames, ignore_index=True)
     pvar.index = pvar.index.astype(str)
@@ -233,20 +235,20 @@ def stream_pgen_to_zarr(
 
         csr_chunks: list[sp.csr_matrix] = []
 
-        for (reader, n_raw, base), nv in zip(readers, n_variants_per_file):
+        for (reader, n_raw, base), nv in zip(readers, n_variants_per_file, strict=False):
             pgen_file = Path(base + ".pgen")
             logger.info(f"Reading (sparse) {pgen_file.name} ...")
-            bytes_per_variant  = n_raw
-            max_vblock = max(100, int((memory_limit_gb * 1024 ** 3) / bytes_per_variant))
-            vblock     = min(chunk_variants, max_vblock, nv)
-            n_blocks   = (nv + vblock - 1) // vblock
+            bytes_per_variant = n_raw
+            max_vblock = max(100, int((memory_limit_gb * 1024**3) / bytes_per_variant))
+            vblock = min(chunk_variants, max_vblock, nv)
+            n_blocks = (nv + vblock - 1) // vblock
 
             with tqdm(total=nv, desc=f"  {pgen_file.stem}", unit="var") as pbar:
                 for i in range(n_blocks):
                     start = i * vblock
-                    end   = min(start + vblock, nv)
+                    end = min(start + vblock, nv)
                     width = end - start
-                    buf   = np.zeros((n_raw, width), dtype=np.int8)
+                    buf = np.zeros((n_raw, width), dtype=np.int8)
                     reader.read_range(start, end, geno_int_out=buf, sample_maj=1)
                     buf[buf < 0] = 0
                     csr_chunks.append(sp.csr_matrix(buf[:n_samples, :].astype(np.int8)))
@@ -258,13 +260,12 @@ def stream_pgen_to_zarr(
         logger.info(f"Stacking {len(csr_chunks)} CSR chunks ...")
         X = sp.hstack(csr_chunks, format=sparse_format)
         del csr_chunks
-        logger.info(
-            f"Sparse X: {X.shape}, nnz={X.nnz:,}, "
-            f"density={X.nnz / (X.shape[0] * X.shape[1]) * 100:.4f}%"
-        )
+        logger.info(f"Sparse X: {X.shape}, nnz={X.nnz:,}, " f"density={X.nnz / (X.shape[0] * X.shape[1]) * 100:.4f}%")
         adata = ad.AnnData(X=X, obs=psam, var=pvar)
         logger.info(f"Writing sparse AnnData → {output_path} ...")
         adata.write_zarr(output_path)
+        logger.info(f"✓ Done → {output_path}")
+        return adata if return_adata else None
 
     else:
         root = zarr.open_group(output_path, mode="w")
@@ -283,23 +284,23 @@ def stream_pgen_to_zarr(
         Xz.attrs["encoding-version"] = "0.2.0"
 
         col_offset = 0
-        for (reader, n_raw, base), nv in zip(readers, n_variants_per_file):
+        for (reader, n_raw, base), nv in zip(readers, n_variants_per_file, strict=False):
             pgen_file = Path(base + ".pgen")
             logger.info(f"Reading (dense) {pgen_file.name} ...")
-            bytes_per_variant  = n_raw
-            max_vblock = max(100, int((memory_limit_gb * 1024 ** 3) / bytes_per_variant))
-            vblock     = min(chunk_variants, max_vblock, nv)
-            n_blocks   = (nv + vblock - 1) // vblock
+            bytes_per_variant = n_raw
+            max_vblock = max(100, int((memory_limit_gb * 1024**3) / bytes_per_variant))
+            vblock = min(chunk_variants, max_vblock, nv)
+            n_blocks = (nv + vblock - 1) // vblock
 
             with tqdm(total=nv, desc=f"  {pgen_file.stem}", unit="var") as pbar:
                 for i in range(n_blocks):
                     start = i * vblock
-                    end   = min(start + vblock, nv)
+                    end = min(start + vblock, nv)
                     width = end - start
-                    buf   = np.zeros((n_raw, width), dtype=np.int8)
+                    buf = np.zeros((n_raw, width), dtype=np.int8)
                     reader.read_range(start, end, geno_int_out=buf, sample_maj=1)
                     buf[buf < 0] = 0
-                    Xz[:, col_offset + start: col_offset + end] = buf[:n_samples, :]
+                    Xz[:, col_offset + start : col_offset + end] = buf[:n_samples, :]
                     del buf
                     pbar.update(width)
                     if i % 5 == 0:
@@ -314,4 +315,5 @@ def stream_pgen_to_zarr(
             root.create_group(gname)
         zarr.consolidate_metadata(root.store)
 
-    logger.info(f"✓ Done → {output_path}")
+        logger.info(f"✓ Done → {output_path}")
+        return read_pgen_zarr(output_path) if return_adata else None
