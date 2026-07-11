@@ -221,8 +221,8 @@ def get_1000genomes_plink_files(
     data_home: str | Path | None = None,
     refresh: bool = False,
 ) -> Path:
-    """
-    Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
+    """Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
+
     This function downloads population-specific PLINK files from the 1000 Genomes project,
     extracts them to a local directory, and returns the path to the extracted files.
 
@@ -274,6 +274,7 @@ def get_1000genomes_plink_files(
 
     return DATA, prefix
 
+
 def get_1000genomes_frq(
     config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
     population: str = "EUR",
@@ -283,10 +284,10 @@ def get_1000genomes_frq(
 ) -> tuple[Path, str]:
     """
     Download and extract 1000 Genomes allele frequency files.
- 
+
     Required for ``ldsc.py --overlap-annot --frqfile-chr``.
     Downloaded from Zenodo record 10515792 (``1000G_Phase3_frq.tgz``).
- 
+
     Parameters
     ----------
     config_path : str or pathlib.Path
@@ -301,44 +302,44 @@ def get_1000genomes_frq(
         files are passed as a prefix to ldsc.py rather than loaded into memory.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist.
- 
+
     Returns
     -------
     tuple
         If ``return_path=True``: ``(DATA, prefix)`` where ``DATA`` is a
         ``Path`` to the directory containing the extracted ``.frq`` files and
         ``prefix`` is the file name prefix (e.g. ``"1000G.EUR.QC."``).
- 
+
         If ``return_path=False``: ``(DATA, frq_df)`` where ``frq_df`` is a
         concatenated ``pd.DataFrame`` of all per-chromosome frq files.
- 
+
     Raises
     ------
     ValueError
         If ``population`` is not listed in the configuration.
- 
+
     Examples
     --------
     >>> frq_dir, frq_prefix = get_1000genomes_frq(population="EUR", return_path=True)
-    >>> frqfile_chr = str(frq_dir / frq_prefix)   # passed as --frqfile-chr
+    >>> frqfile_chr = str(frq_dir / frq_prefix)  # passed as --frqfile-chr
     """
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_frq_{population}"
     DATA.mkdir(exist_ok=True)
- 
+
     config = _load_config(config_path)
     if population not in config["frq"]:
         raise ValueError(f"population must be one of {list(config['frq'].keys())}")
- 
+
     prefix = config["frq"]["prefix"]
     tgz_path = DATA / config["frq"][population]["filename"]
- 
+
     _download_file(config["frq"][population]["url"], tgz_path, checksum=None)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
- 
+
     return DATA, prefix
- 
- 
+
+
 def get_1000genomes_hapmap3(
     config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
     data_home: str | Path | None = None,
@@ -346,13 +347,13 @@ def get_1000genomes_hapmap3(
 ) -> Path:
     """
     Download the HapMap3 SNP list (no MHC region).
- 
+
     Used as ``--print-snps`` when computing per-annotation LD scores to
     restrict output to well-imputed HapMap3 SNPs, and as ``--merge-alleles``
     during sumstats munging.
- 
+
     Downloaded from Zenodo record 10515792 (``hm3_no_MHC.list.txt``).
- 
+
     Parameters
     ----------
     config_path : str or pathlib.Path
@@ -361,28 +362,29 @@ def get_1000genomes_hapmap3(
         Root directory where data will be stored.
     refresh : bool, default=False
         If True, re-downloads the file even if it already exists.
- 
+
     Returns
     -------
     pathlib.Path
         Path to the downloaded ``hm3_no_MHC.list.txt`` file.
- 
+
     Examples
     --------
     >>> hapmap3_snps = get_1000genomes_hapmap3()
-    >>> print_snps = str(hapmap3_snps)   # passed as --print-snps to ldsc.py
+    >>> print_snps = str(hapmap3_snps)  # passed as --print-snps to ldsc.py
     """
     data_home = get_data_home(data_home)
     DATA = data_home / "1000genomes_hapmap3"
     DATA.mkdir(exist_ok=True)
- 
+
     config = _load_config(config_path)
     dest = DATA / config["hapmap3"]["filename"]
- 
+
     _download_file(config["hapmap3"]["url"], dest, checksum=None)
- 
+
     return dest
- 
+
+
 def merge_1000g_plink_chromosomes(
     plink_dir: str | Path,
     prefix: str,
@@ -448,9 +450,9 @@ def merge_1000g_plink_chromosomes(
 
     try:
         subprocess.run(
-            f"{plink_cmd} --bfile {chr1_bfile} "
-            f"--merge-list {merge_list_path} --make-bed --out {output_prefix}",
-            shell=True, check=True,
+            f"{plink_cmd} --bfile {chr1_bfile} " f"--merge-list {merge_list_path} --make-bed --out {output_prefix}",
+            shell=True,
+            check=True,
         )
     finally:
         Path(merge_list_path).unlink(missing_ok=True)

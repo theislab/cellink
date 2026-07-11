@@ -1,22 +1,20 @@
 import logging
 import os
 import shutil
+from collections.abc import Iterable
+from pathlib import Path
 
 import anndata as ad
 import pandas as pd
 
 import cellink as cl
+from cellink._core import DonorData
 from cellink.io import read_h5_dd, read_zarr_dd
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 from cellink.resources._utils import _download_file, _load_config, _run, get_data_home
 
-from .._core import DonorData
-
 logging.basicConfig(level=logging.INFO)
 
-
-from pathlib import Path
-from typing import Iterable
 
 def _get_1000genomes_base(
     *,
@@ -35,7 +33,6 @@ def _get_1000genomes_base(
     vcz_name: str,
     chromosomes: Iterable[int] = range(1, 23),
 ) -> ad.AnnData | None:
-    
     data_home = get_data_home(data_home)
     DATA = data_home / dataset_name
     DATA.mkdir(exist_ok=True)
@@ -53,11 +50,7 @@ def _get_1000genomes_base(
     icf_path = DATA / icf_name
 
     if not vcz_path.is_dir() or rerun_preprocessing:
-
-        vcf_names = [
-            vcf_pattern.format(chrom=chrom)
-            for chrom in chromosomes
-        ]
+        vcf_names = [vcf_pattern.format(chrom=chrom) for chrom in chromosomes]
 
         for vcf_name in vcf_names:
             if not (DATA / vcf_name).exists():
@@ -71,16 +64,10 @@ def _get_1000genomes_base(
                 cwd=DATA,
             )
         except RuntimeError as e:
-            raise RuntimeError(
-                f"vcf2zarr explode failed for {dataset_name}. "
-                f"Original error: {e}"
-            ) from e
+            raise RuntimeError(f"vcf2zarr explode failed for {dataset_name}. " f"Original error: {e}") from e
 
         encode_cmd = (
-            f"vcf2zarr encode"
-            f" -p {worker_processes}"
-            f" -l {variants_chunk_size}"
-            f" -w {samples_chunk_size}"
+            f"vcf2zarr encode" f" -p {worker_processes}" f" -l {variants_chunk_size}" f" -w {samples_chunk_size}"
         )
 
         if worker_processes > 0 and max_memory is not None:
@@ -100,6 +87,7 @@ def _get_1000genomes_base(
             ) from e
 
     return cl.io.read_sgkit_zarr(vcz_path)
+
 
 def get_1000genomes(
     config_path: str = "./cellink/resources/config/1000genomes.yaml",
@@ -159,7 +147,6 @@ def get_1000genomes(
         If `vcf2zarr` conversion fails, e.g. due to insufficient memory or
         chunk sizes that exceed array dimensions.
     """
-
     return _get_1000genomes_base(
         dataset_name="1000genomes",
         config_path=config_path,
@@ -171,19 +158,11 @@ def get_1000genomes(
         max_memory=max_memory,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
-        vcf_pattern=(
-            "ALL.chr{chrom}.phase3_shapeit2_mvncall_integrated_v5b."
-            "20130502.genotypes.vcf.gz"
-        ),
-        icf_name=(
-            "ALL.phase3_shapeit2_mvncall_integrated_v5b."
-            "20130502.genotypes.icf"
-        ),
-        vcz_name=(
-            "ALL.phase3_shapeit2_mvncall_integrated_v5b."
-            "20130502.genotypes.vcz"
-        ),
+        vcf_pattern=("ALL.chr{chrom}.phase3_shapeit2_mvncall_integrated_v5b." "20130502.genotypes.vcf.gz"),
+        icf_name=("ALL.phase3_shapeit2_mvncall_integrated_v5b." "20130502.genotypes.icf"),
+        vcz_name=("ALL.phase3_shapeit2_mvncall_integrated_v5b." "20130502.genotypes.vcz"),
     )
+
 
 def get_1000genomes_grch38(
     config_path: str = "./cellink/resources/config/1000genomes_grch38.yaml",
@@ -244,7 +223,6 @@ def get_1000genomes_grch38(
         If `vcf2zarr` conversion fails, e.g. due to insufficient memory or
         chunk sizes that exceed array dimensions.
     """
-
     return _get_1000genomes_base(
         dataset_name="1000genomes_grch38",
         config_path=config_path,
@@ -256,20 +234,12 @@ def get_1000genomes_grch38(
         max_memory=max_memory,
         variants_chunk_size=variants_chunk_size,
         samples_chunk_size=samples_chunk_size,
-        vcf_pattern=(
-            "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_"
-            "chr{chrom}.recalibrated_variants.vcf.gz"
-        ),
-        icf_name=(
-            "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_"
-            "ALL.recalibrated_variants.icf"
-        ),
-        vcz_name=(
-            "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_"
-            "ALL.recalibrated_variants.vcz"
-        ),
+        vcf_pattern=("20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_" "chr{chrom}.recalibrated_variants.vcf.gz"),
+        icf_name=("20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_" "ALL.recalibrated_variants.icf"),
+        vcz_name=("20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_" "ALL.recalibrated_variants.vcz"),
         chromosomes=chromosomes or range(1, 23),
     )
+
 
 """
 def get_1000genomes(
@@ -370,12 +340,12 @@ def get_1000genomes_grch38(
         _download_file(file["url"], DATA / file["filename"], checksum)
 
     if not only_download:
-        vcz_path = DATA / "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_ALL.recalibrated_variants.vcz" 
-        icf_path = DATA / "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_ALL.recalibrated_variants.icf" 
+        vcz_path = DATA / "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_ALL.recalibrated_variants.vcz"
+        icf_path = DATA / "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_ALL.recalibrated_variants.icf"
 
         if not os.path.isdir(vcz_path) or rerun_preprocessing:
             vcf_names = [
-                f"20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr{chrom}.recalibrated_variants.vcf.gz" 
+                f"20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr{chrom}.recalibrated_variants.vcf.gz"
                 for chrom in range(1, 23)
             ]
 
@@ -421,6 +391,7 @@ def get_1000genomes_grch38(
 
         return gdata
 """
+
 
 def get_onek1k(
     config_path: str = str(Path(__file__).parent / "config" / "onek1k.yaml"),
@@ -520,10 +491,7 @@ def get_onek1k(
                 ) from e
 
             encode_cmd = (
-                f"vcf2zarr encode"
-                f" -p {worker_processes}"
-                f" -l {variants_chunk_size}"
-                f" -w {samples_chunk_size}"
+                f"vcf2zarr encode" f" -p {worker_processes}" f" -l {variants_chunk_size}" f" -w {samples_chunk_size}"
             )
             if worker_processes > 0 and max_memory is not None:
                 encode_cmd += f" -M {max_memory}"
@@ -585,6 +553,7 @@ def get_onek1k(
         dd = DonorData(G=gdata, C=adata).copy()
 
         return dd
+
 
 def get_dummy_onek1k(
     config_path: str = str(Path(__file__).parent / "config" / "dummy_onek1k.yaml"),

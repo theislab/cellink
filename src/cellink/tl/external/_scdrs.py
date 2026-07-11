@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Literal, Union, Tuple
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -11,9 +11,11 @@ logger = logging.getLogger(__name__)
 
 try:
     import scdrs
+
     SCDRS_AVAILABLE = True
 except ImportError:
     SCDRS_AVAILABLE = False
+
 
 def run_scdrs(
     adata: AnnData,
@@ -42,7 +44,7 @@ def run_scdrs(
     prefix: str = None,
     save_results: bool = True,
     return_adata: bool = False,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, ...], AnnData]:
+) -> pd.DataFrame | tuple[pd.DataFrame, ...] | AnnData:
     """
     Run scDRS (single-cell disease-relevance score) analysis on AnnData.
 
@@ -130,15 +132,11 @@ def run_scdrs(
     ... )
 
     >>> # With custom gene sets
-    >>> gene_sets = {
-    ...     "MyDisease": (["GENE1", "GENE2", "GENE3"], [1.5, 2.0, 1.8])
-    ... }
+    >>> gene_sets = {"MyDisease": (["GENE1", "GENE2", "GENE3"], [1.5, 2.0, 1.8])}
     >>> results = run_scdrs(dd, gene_sets=gene_sets)
     """
     if not SCDRS_AVAILABLE:
-        raise ImportError(
-            "scdrs is required for run_scdrs. Install it with: pip install scdrs"
-        )
+        raise ImportError("scdrs is required for run_scdrs. Install it with: pip install scdrs")
 
     if gs_file is None and gene_sets is None:
         raise ValueError("Either gs_file or gene_sets must be provided")
@@ -149,14 +147,14 @@ def run_scdrs(
     logger.info("Filtering cells and genes")
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
-    
+
     if "log1p" not in adata.uns_keys():
         adata.layers["counts"] = adata.X
         logger.info("Normalizing and log-transforming data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
     else:
-        if not "counts" in adata.layers:
+        if "counts" not in adata.layers:
             raise ValueError(
                 "adata appears already normalized (log1p in uns) but adata.layers['counts'] does not exist. "
                 "Please pass raw counts, or set adata.layers['counts'] before normalizing."
@@ -168,7 +166,7 @@ def run_scdrs(
         adata = adata[:, adata.var.highly_variable]
         sc.pp.scale(adata, max_value=10)
         sc.tl.pca(adata, n_comps=n_pcs)
-    
+
     adata.X = adata.layers["counts"]
 
     covariate_list = []
@@ -262,10 +260,7 @@ def run_scdrs(
                     trait_results[f"group_{group_col}"] = df_group
 
                     if save_results:
-                        df_group.to_csv(
-                            f"{prefix}.{trait}.scdrs_group.{group_col}",
-                            sep="\t"
-                        )
+                        df_group.to_csv(f"{prefix}.{trait}.scdrs_group.{group_col}", sep="\t")
 
             if corr_analysis:
                 logger.info(f"Performing correlation analysis for {trait}")
@@ -278,10 +273,7 @@ def run_scdrs(
                 trait_results["cell_corr"] = df_corr
 
                 if save_results:
-                    df_corr.to_csv(
-                        f"{prefix}.{trait}.scdrs_cell_corr",
-                        sep="\t"
-                    )
+                    df_corr.to_csv(f"{prefix}.{trait}.scdrs_cell_corr", sep="\t")
 
             if gene_analysis:
                 logger.info(f"Performing gene analysis for {trait}")
@@ -293,10 +285,7 @@ def run_scdrs(
                 trait_results["gene"] = df_gene
 
                 if save_results:
-                    df_gene.to_csv(
-                        f"{prefix}.{trait}.scdrs_gene",
-                        sep="\t"
-                    )
+                    df_gene.to_csv(f"{prefix}.{trait}.scdrs_gene", sep="\t")
 
             results_downstream[trait] = trait_results
 

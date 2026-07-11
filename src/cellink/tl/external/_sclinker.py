@@ -1,27 +1,21 @@
 from __future__ import annotations
 
 import logging
-import os
-import re
-import subprocess
-import tempfile
+from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import scipy.stats
 from anndata import AnnData
-from collections import Counter
 from scipy import sparse
 
 logger = logging.getLogger(__name__)
 
 
-ENHANCER_TISSUES = Literal[
-    "BLD", "BRN", "GI", "LNG", "LIV", "KID", "SKIN", "FAT", "HRT", "ALL"
-]
+ENHANCER_TISSUES = Literal["BLD", "BRN", "GI", "LNG", "LIV", "KID", "SKIN", "FAT", "HRT", "ALL"]
 
 ENHANCER_TISSUE_MAP = {
     "BLD": "Blood",
@@ -37,7 +31,6 @@ ENHANCER_TISSUE_MAP = {
 }
 
 
-
 def compute_celltype_programs(
     adata: AnnData,
     celltype_col: str,
@@ -48,7 +41,7 @@ def compute_celltype_programs(
     prefix: str = "celltype",
     out_dir: str | Path | None = None,
     save: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Compute cell-type gene programs by differential expression (one vs rest).
 
@@ -93,10 +86,7 @@ def compute_celltype_programs(
     adata.obs[f"{celltype_col}_counts"] = [counts[ct] for ct in adata.obs[celltype_col]]
     adata_filtered = adata[adata.obs[f"{celltype_col}_counts"] > min_cells_per_type].copy()
 
-    logger.info(
-        f"Running rank_genes_groups for {celltype_col} "
-        f"({adata_filtered.n_obs} cells after filtering)"
-    )
+    logger.info(f"Running rank_genes_groups for {celltype_col} " f"({adata_filtered.n_obs} cells after filtering)")
     sc.tl.rank_genes_groups(
         adata_filtered,
         celltype_col,
@@ -110,13 +100,10 @@ def compute_celltype_programs(
     results = _extract_de_matrices(adata, de_key, label_col=celltype_col)
     genescores = _compute_genescores(results["score"])
 
-    if (genescores.index.str.startswith("ENSG").mean() > 0.5
-            and "gene_name" in adata.var.columns):
+    if genescores.index.str.startswith("ENSG").mean() > 0.5 and "gene_name" in adata.var.columns:
         gene_name_map = adata.var["gene_name"].dropna().to_dict()
         for key in list(results.keys()):
-            results[key].index = results[key].index.map(
-                lambda g: gene_name_map.get(g, g)
-            )
+            results[key].index = results[key].index.map(lambda g: gene_name_map.get(g, g))
         genescores = results["score"].copy()
         genescores = _compute_genescores(genescores)
         logger.info(
@@ -157,7 +144,7 @@ def compute_diseaseprogression_programs(
     prefix: str = "disease",
     out_dir: str | Path | None = None,
     save: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Compute disease-progression gene programs.
 
@@ -218,7 +205,7 @@ def compute_diseaseprogression_programs(
     # Build DEstatus column: "Healthy_<celltype>" or "Disease_<celltype>"
     adata.obs["_DEstatus"] = [
         disease_label_mapping.get(diag, "Unknown") + "_" + ct
-        for diag, ct in zip(adata.obs[diagnosis_col], adata.obs[celltype_col])
+        for diag, ct in zip(adata.obs[diagnosis_col], adata.obs[celltype_col], strict=False)
     ]
     destatus_counts = Counter(adata.obs["_DEstatus"])
 
@@ -268,17 +255,17 @@ def compute_diseaseprogression_programs(
 def compute_nmf_programs(
     adata: AnnData,
     *,
-    n_components: Optional[int] = None,
+    n_components: int | None = None,
     n_extra: int = 10,
     celltype_col: str = "cell_type",
-    layer: Optional[str] = "counts",
+    layer: str | None = "counts",
     normalize: bool = True,
     random_state: int = 0,
     device: str = "cuda",
     prefix: str = "nmf",
     out_dir: str | Path | None = None,
     save: bool = True,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Compute NMF cellular process programs (single healthy tissue).
 
@@ -360,15 +347,13 @@ def compute_nmf_programs(
             "Install the faster backend with:\n"
             "  pip install torchnmf"
         )
-        torch = None  
+        torch = None
 
     if torch is not None:
         if device == "cuda":
             if torch.cuda.is_available():
                 _device = "cuda"
-                logger.info(
-                    f"torchnmf: using GPU ({torch.cuda.get_device_name(0)})"
-                )
+                logger.info(f"torchnmf: using GPU ({torch.cuda.get_device_name(0)})")
             else:
                 logger.warning(
                     "device='cuda' requested but no CUDA GPU found. "
@@ -383,8 +368,8 @@ def compute_nmf_programs(
         X_t = torch.tensor(X, dtype=torch.float32, device=_device)
         model_t = TorchNMF(X_t.shape, rank=n_components).to(_device)
         model_t.fit(X_t, beta=2, max_iter=200, tol=1e-4)
-        W_arr = model_t.H.T.detach().cpu().numpy()   # (n_cells,    n_components)
-        H_arr = model_t.W.detach().cpu().numpy()     # (n_features, n_components)
+        W_arr = model_t.H.T.detach().cpu().numpy()  # (n_cells,    n_components)
+        H_arr = model_t.W.detach().cpu().numpy()  # (n_features, n_components)
         del X_t, model_t
 
     if W_arr is None:
@@ -395,8 +380,8 @@ def compute_nmf_programs(
         )
         model = NMF(
             n_components=n_components,
-            init="nndsvda",   # truncated-SVD warm start — ~5-10x faster than "random"
-            solver="cd",      # coordinate descent — faster than multiplicative update
+            init="nndsvda",  # truncated-SVD warm start — ~5-10x faster than "random"
+            solver="cd",  # coordinate descent — faster than multiplicative update
             max_iter=500,
             tol=1e-4,
             random_state=random_state,
@@ -426,12 +411,12 @@ def compute_joint_nmf_programs(
     n_healthy_specific: int = 5,
     n_disease_specific: int = 5,
     gamma: float = 1.0,
-    layer: Optional[str] = None,
+    layer: str | None = None,
     random_state: int = 0,
     prefix: str = "joint_nmf",
     out_dir: str | Path | None = None,
     save: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Compute joint NMF programs across healthy and disease tissue.
 
@@ -505,9 +490,6 @@ def compute_joint_nmf_programs(
     )
     jnmf.fit()
 
-    n_total_h = n_shared + n_healthy_specific
-    n_total_d = n_shared + n_disease_specific
-
     h_cols = [f"Shared_{i}" for i in range(n_shared)] + [f"Healthy_{i}" for i in range(n_healthy_specific)]
     d_cols = [f"Shared_{i}" for i in range(n_shared)] + [f"Disease_{i}" for i in range(n_disease_specific)]
 
@@ -536,7 +518,7 @@ def compute_joint_nmf_programs(
     return results
 
 
-def _get_dense(adata: AnnData, layer: Optional[str]) -> np.ndarray:
+def _get_dense(adata: AnnData, layer: str | None) -> np.ndarray:
     """Return a dense float32 expression matrix from an AnnData layer or X."""
     X = adata.layers[layer] if (layer and layer in adata.layers) else adata.X
     if sparse.issparse(X):
@@ -544,9 +526,9 @@ def _get_dense(adata: AnnData, layer: Optional[str]) -> np.ndarray:
     return np.array(X, dtype=np.float64)
 
 
-def _compute_contamination(adata: AnnData, celltype_col: str) -> Dict[str, list]:
+def _compute_contamination(adata: AnnData, celltype_col: str) -> dict[str, list]:
     """Identify outlier genes from global disease DE (sc-linker paper method)."""
-    contamination: Dict[str, list] = {}
+    contamination: dict[str, list] = {}
     for ct in set(adata.obs[celltype_col]):
         try:
             scores = pd.DataFrame(adata.uns["rank_genes_groups"]["scores"])[ct]
@@ -558,9 +540,7 @@ def _compute_contamination(adata: AnnData, celltype_col: str) -> Dict[str, list]
     return contamination
 
 
-def _extract_de_matrices(
-    adata: AnnData, de_key: str, label_col: str
-) -> Dict[str, pd.DataFrame]:
+def _extract_de_matrices(adata: AnnData, de_key: str, label_col: str) -> dict[str, pd.DataFrame]:
     """Extract pval / logfold / score matrices from adata.uns DE results."""
     genes = list(set(adata.var_names))
     gene2idx = {g: i for i, g in enumerate(genes)}
@@ -575,6 +555,7 @@ def _extract_de_matrices(
         adata.uns[de_key]["pvals_adj"],
         adata.uns[de_key]["logfoldchanges"],
         adata.uns[de_key]["scores"],
+        strict=False,
     ):
         for j, cs in enumerate(cellsubsets):
             g = gene_row[cs]
@@ -596,16 +577,15 @@ def _extract_de_matrices(
 
 def _extract_de_matrices_disease(
     adata: AnnData,
-    de_keys: List[str],
-    contamination: Dict[str, list],
+    de_keys: list[str],
+    contamination: dict[str, list],
     celltype_col: str,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """Extract DE matrices from disease-progression analysis."""
     genes = list(set(adata.var_names))
     gene2idx = {g: i for i, g in enumerate(genes)}
 
     all_pval, all_lf, all_sc = [], [], []
-    col_names = []
 
     for de_key in de_keys:
         ct = de_key.replace("_DE", "")
@@ -621,6 +601,7 @@ def _extract_de_matrices_disease(
             adata.uns[de_key]["pvals_adj"],
             adata.uns[de_key]["logfoldchanges"],
             adata.uns[de_key]["scores"],
+            strict=False,
         ):
             for j, cs in enumerate(cellsubsets):
                 g = gene_row[cs]
@@ -677,9 +658,7 @@ def _compute_genescores(score_mtx: pd.DataFrame) -> pd.DataFrame:
     return genescores
 
 
-def _compute_nmf_gene_correlations(
-    X: np.ndarray, W: np.ndarray, var_names, nmf_cols
-) -> pd.DataFrame:
+def _compute_nmf_gene_correlations(X: np.ndarray, W: np.ndarray, var_names, nmf_cols) -> pd.DataFrame:
     """Pearson correlation between gene expression and NMF cell program weights."""
     nrow, ncol = X.shape
     correlations = []
@@ -691,7 +670,7 @@ def _compute_nmf_gene_correlations(
         ys = yy / (np.sqrt(np.dot(yy, yy)) + 1e-12)
 
         xm = np.asarray(Xsp.mean(axis=0)).ravel()
-        xs_sq = np.add.reduceat(Xsp.data ** 2, Xsp.indptr[:-1]) - nrow * xm * xm
+        xs_sq = np.add.reduceat(Xsp.data**2, Xsp.indptr[:-1]) - nrow * xm * xm
         xs_sq = np.maximum(xs_sq, 1e-12)
         xs = np.sqrt(xs_sq)
 

@@ -1,9 +1,7 @@
-import os
-import shutil
 from pathlib import Path
-import pytest
 
 import mudata as md
+import pytest
 
 from cellink._core.data_fields import CAnn, DAnn
 from cellink._core.donordata import DonorData
@@ -191,6 +189,7 @@ def test_write_h5_dd(tmp_path, adata, gdata):
 
     assert output_path.exists()
 
+
 @pytest.mark.slow
 def test_write_zarr_dd(tmp_path, adata, gdata):
     output_path = tmp_path / "donordata.dd.zarr"
@@ -200,6 +199,7 @@ def test_write_zarr_dd(tmp_path, adata, gdata):
     dd.write_zarr_dd(str(output_path))
 
     assert output_path.exists()
+
 
 if __name__ == "__main__":
     import pytest

@@ -2,7 +2,7 @@ import anndata
 import dask.array as da
 import numpy as np
 
-from .._core import DonorData
+from cellink._core import DonorData
 
 
 def cell_level_obs_filter(
@@ -157,7 +157,7 @@ def low_abundance_filter(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, da.Array | np.ndarray):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "mean":
@@ -185,9 +185,7 @@ def missing_values_filter(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """
-    This function removes features that have a proportion of missing values
-    greater than the specified threshold.
+    """Remove features that have a proportion of missing values greater than the specified threshold.
 
     Parameters
     ----------
@@ -206,7 +204,7 @@ def missing_values_filter(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, da.Array | np.ndarray):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     is_missing = da.isnan(X) if isinstance(X, da.Array) else np.isnan(X)
@@ -253,17 +251,18 @@ def log_transform(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, da.Array | np.ndarray):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     log_base = np.log(base)
     X_log = da.log1p(X) / log_base if isinstance(X, da.Array) else np.log1p(X) / log_base
 
-    adata.X = X_log
-
     if inplace:
+        adata.X = X_log
         return None
-    return adata.copy() if copy else adata
+    adata_out = adata.copy() if copy else adata
+    adata_out.X = X_log
+    return adata_out
 
 
 def normalize(
@@ -273,8 +272,7 @@ def normalize(
     inplace: bool = True,
     copy: bool = True,
 ) -> anndata.AnnData | None:
-    """
-    This function normalizes values using the specified method.
+    """Normalize values using the specified method.
 
     Parameters
     ----------
@@ -296,7 +294,7 @@ def normalize(
     """
     X = adata.X
 
-    if not isinstance(X, (da.Array, np.ndarray)):
+    if not isinstance(X, da.Array | np.ndarray):
         raise ValueError("adata.X must be a Dask or NumPy array.")
 
     if method == "zscore":
@@ -313,8 +311,9 @@ def normalize(
     else:
         raise ValueError("Invalid method. Choose from 'zscore', 'minmax', or 'median'.")
 
-    adata.X = X_norm
-
     if inplace:
+        adata.X = X_norm
         return None
-    return adata.copy() if copy else adata
+    adata_out = adata.copy() if copy else adata
+    adata_out.X = X_norm
+    return adata_out

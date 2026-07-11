@@ -75,7 +75,7 @@ def run_jaxqtl(
     run: bool = True,
     read_results: bool = True,
     save_cmd_file: bool = False,
-    plink_export_kwargs: dict | None = {},
+    plink_export_kwargs: dict | None = None,
     remove_intermediate_files: bool = True,
     overwrite_covariates_export: bool = True,
     overwrite_phenotype_export: bool = True,
@@ -191,6 +191,8 @@ def run_jaxqtl(
     ValueError
         If required covariates are not found in the DonorData object.
     """
+    if plink_export_kwargs is None:
+        plink_export_kwargs = {}
     if not prefix:
         prefix = "jaxqtl_temp"
     if not out:
@@ -208,7 +210,7 @@ def run_jaxqtl(
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
     phenotype_df = dd.G.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
-    
+
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
         phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
         phenotype_pos_df["Geneid"] = phenotype_pos_df.index

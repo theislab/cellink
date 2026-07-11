@@ -72,16 +72,16 @@ print(f"device: {DEVICE}")
 
 # %%
 if not os.path.exists(DD_CACHE_PATH_H5):
-    raise FileNotFoundError(
-        f"{DD_CACHE_PATH_H5} not found. Run build_onek1k_dd_cache.py first to build it."
-    )
+    raise FileNotFoundError(f"{DD_CACHE_PATH_H5} not found. Run build_onek1k_dd_cache.py first to build it.")
 t_load = time.perf_counter()
 dd = read_h5_dd(DD_CACHE_PATH_H5)
 load_secs = time.perf_counter() - t_load
 N_GENES = dd.C.n_vars
 N_DONORS = int(dd.C.obs[dd.donor_id].nunique())
-print(f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {N_GENES:,}  "
-      f"donors: {N_DONORS}  snps(total): {dd.G.n_vars:,}")
+print(
+    f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {N_GENES:,}  "
+    f"donors: {N_DONORS}  snps(total): {dd.G.n_vars:,}"
+)
 
 # %% [markdown]
 # ## Deterministic synthetic cis annotation (same construction as annbatch script)
@@ -90,9 +90,7 @@ print(f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {N_GENES:,}  
 rng = np.random.default_rng(SEED)
 snp_names = list(dd.G.var_names[:N_CIS_SNPS])
 target_genes = list(dd.C.var_names[:N_TARGET_GENES])
-eqtl_genotypes = pd.DataFrame(
-    asarray(dd.G[:, :N_CIS_SNPS].X), index=dd.G.obs_names, columns=snp_names
-)
+eqtl_genotypes = pd.DataFrame(asarray(dd.G[:, :N_CIS_SNPS].X), index=dd.G.obs_names, columns=snp_names)
 # Real genotype calls can have missing entries (NaN); left as-is they'd propagate
 # into a NaN decoder output once LIVI's V/DxC path activates. Mean-impute per SNP
 # (standard eQTL practice) -- see livi_baseline_cis_train_realistic.py, which hits
@@ -124,25 +122,42 @@ class ThroughputCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         dt = time.perf_counter() - self.t0
         cells = self.n * BATCH_SIZE
-        print(f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
-              f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch")
+        print(
+            f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
+            f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch"
+        )
 
 
 t0 = time.perf_counter()
 checkpoint_path = train_livi(
     dd,
     output_dir="livi_baseline_run",
-    z_dim=Z_DIM, n_dxc_factors=N_DXC_FACTORS, n_persistent_factors=N_PERSISTENT_FACTORS,
-    n_cis_snps=N_CIS_SNPS, cell_state_cis=CELL_STATE_CIS,
-    encoder_hidden_dims=ENCODER_HIDDEN_DIMS, learning_rate=LEARNING_RATE,
+    z_dim=Z_DIM,
+    n_dxc_factors=N_DXC_FACTORS,
+    n_persistent_factors=N_PERSISTENT_FACTORS,
+    n_cis_snps=N_CIS_SNPS,
+    cell_state_cis=CELL_STATE_CIS,
+    encoder_hidden_dims=ENCODER_HIDDEN_DIMS,
+    learning_rate=LEARNING_RATE,
     covariates_keys=COVARIATE_KEYS,
-    known_cis_eqtls=known_cis_eqtls, eqtl_genotypes=eqtl_genotypes,
-    warmup_epochs_vae=WARMUP_EPOCHS_VAE, warmup_epochs_G=WARMUP_EPOCHS_G,
-    max_epochs=MAX_EPOCHS, min_epochs=1, batch_size=BATCH_SIZE,
-    seed=SEED, l1_weight=L1_WEIGHT, A_weight=A_WEIGHT, batch_norm_decoder=BATCH_NORM_DECODER,
-    genetics_seed=GENETICS_SEED, num_workers=NUM_WORKERS,
-    limit_train_batches=BENCH_BATCHES, enable_checkpointing=False, enable_logger=False,
-    enable_progress_bar=True, log_every_n_steps=10,
+    known_cis_eqtls=known_cis_eqtls,
+    eqtl_genotypes=eqtl_genotypes,
+    warmup_epochs_vae=WARMUP_EPOCHS_VAE,
+    warmup_epochs_G=WARMUP_EPOCHS_G,
+    max_epochs=MAX_EPOCHS,
+    min_epochs=1,
+    batch_size=BATCH_SIZE,
+    seed=SEED,
+    l1_weight=L1_WEIGHT,
+    A_weight=A_WEIGHT,
+    batch_norm_decoder=BATCH_NORM_DECODER,
+    genetics_seed=GENETICS_SEED,
+    num_workers=NUM_WORKERS,
+    limit_train_batches=BENCH_BATCHES,
+    enable_checkpointing=False,
+    enable_logger=False,
+    enable_progress_bar=True,
+    log_every_n_steps=10,
     callbacks=[ThroughputCallback()],
 )
 fit_secs = time.perf_counter() - t0

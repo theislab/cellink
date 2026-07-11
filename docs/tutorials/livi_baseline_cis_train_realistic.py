@@ -53,7 +53,7 @@ else:
     OUTPUT_DIR = "livi_baseline_run_realistic"
 COVARIATE_KEYS = ["pool_number", "sex"]
 
-CELL_STATE_CIS = False   # paper "cell-state" variant; set True to match exactly
+CELL_STATE_CIS = False  # paper "cell-state" variant; set True to match exactly
 
 # --- model / training config: paper values (LIVIcis_onek1k_10K-HVG-HEX.yaml) ---
 Z_DIM = 15
@@ -70,10 +70,10 @@ BATCH_NORM_DECODER = True
 GENETICS_SEED = 200
 SEED = 42
 NUM_WORKERS = 4  # was 15 in the smoke-test script; at full paper scale (14212 genes,
-                 # 1.25M cells, a 13588x14212 known_cis_eqtls one-hot) each forked
-                 # DataLoader worker ends up touching/copying large Python objects
-                 # (refcount writes break copy-on-write), multiplying memory -- this
-                 # OOM-killed the job at NUM_WORKERS=15 even with 128GB requested.
+# 1.25M cells, a 13588x14212 known_cis_eqtls one-hot) each forked
+# DataLoader worker ends up touching/copying large Python objects
+# (refcount writes break copy-on-write), multiplying memory -- this
+# OOM-killed the job at NUM_WORKERS=15 even with 128GB requested.
 MAX_EPOCHS = 600
 MIN_EPOCHS = 160
 
@@ -108,11 +108,15 @@ eqtl_genotypes = pd.DataFrame(asarray(dd.G.X), index=dd.G.obs_names, columns=dd.
 # practice) instead of leaving them as NaN or silently zeroing them.
 n_missing = int(eqtl_genotypes.isna().sum().sum())
 if n_missing:
-    print(f"imputing {n_missing} missing genotype calls ({n_missing / eqtl_genotypes.size:.2%}) "
-          "with per-SNP mean dosage")
+    print(
+        f"imputing {n_missing} missing genotype calls ({n_missing / eqtl_genotypes.size:.2%}) "
+        "with per-SNP mean dosage"
+    )
     eqtl_genotypes = eqtl_genotypes.fillna(eqtl_genotypes.mean())
-print(f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {dd.C.n_vars:,}  "
-      f"donors: {dd.G.n_obs}  cis SNPs: {N_CIS_SNPS:,}")
+print(
+    f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {dd.C.n_vars:,}  "
+    f"donors: {dd.G.n_obs}  cis SNPs: {N_CIS_SNPS:,}"
+)
 
 # %% [markdown]
 # ## Train via `train_livi`, full paper-scale (checkpointing + logging stay on)
@@ -132,24 +136,40 @@ class ThroughputCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         dt = time.perf_counter() - self.t0
         cells = self.n * BATCH_SIZE
-        print(f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
-              f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch")
+        print(
+            f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
+            f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch"
+        )
 
 
 t0 = time.perf_counter()
 checkpoint_path = train_livi(
     dd,
     output_dir=OUTPUT_DIR,
-    z_dim=Z_DIM, n_dxc_factors=N_DXC_FACTORS, n_persistent_factors=N_PERSISTENT_FACTORS,
-    n_cis_snps=N_CIS_SNPS, cell_state_cis=CELL_STATE_CIS,
-    encoder_hidden_dims=ENCODER_HIDDEN_DIMS, learning_rate=LEARNING_RATE,
+    z_dim=Z_DIM,
+    n_dxc_factors=N_DXC_FACTORS,
+    n_persistent_factors=N_PERSISTENT_FACTORS,
+    n_cis_snps=N_CIS_SNPS,
+    cell_state_cis=CELL_STATE_CIS,
+    encoder_hidden_dims=ENCODER_HIDDEN_DIMS,
+    learning_rate=LEARNING_RATE,
     covariates_keys=COVARIATE_KEYS,
-    known_cis_eqtls=known_cis_eqtls, eqtl_genotypes=eqtl_genotypes,
-    warmup_epochs_vae=WARMUP_EPOCHS_VAE, warmup_epochs_G=WARMUP_EPOCHS_G,
-    max_epochs=MAX_EPOCHS, min_epochs=MIN_EPOCHS, batch_size=BATCH_SIZE,
-    seed=SEED, l1_weight=L1_WEIGHT, A_weight=A_WEIGHT, batch_norm_decoder=BATCH_NORM_DECODER,
-    genetics_seed=GENETICS_SEED, num_workers=NUM_WORKERS,
-    deterministic=True, enable_progress_bar=True, log_every_n_steps=10,
+    known_cis_eqtls=known_cis_eqtls,
+    eqtl_genotypes=eqtl_genotypes,
+    warmup_epochs_vae=WARMUP_EPOCHS_VAE,
+    warmup_epochs_G=WARMUP_EPOCHS_G,
+    max_epochs=MAX_EPOCHS,
+    min_epochs=MIN_EPOCHS,
+    batch_size=BATCH_SIZE,
+    seed=SEED,
+    l1_weight=L1_WEIGHT,
+    A_weight=A_WEIGHT,
+    batch_norm_decoder=BATCH_NORM_DECODER,
+    genetics_seed=GENETICS_SEED,
+    num_workers=NUM_WORKERS,
+    deterministic=True,
+    enable_progress_bar=True,
+    log_every_n_steps=10,
     callbacks=[ThroughputCallback()],
 )
 fit_secs = time.perf_counter() - t0

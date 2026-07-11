@@ -4,21 +4,19 @@ import numpy as np
 import torch
 
 try:
-    from torch.utils.data import Dataset, DataLoader
+    from torch.utils.data import DataLoader, Dataset
 except ImportError:
     Dataset = None
     DataLoader = None
+
 from anndata import AnnData
-from mudata import MuData
-import numpy as np
-import dask.array as da
-from typing import Optional, List, Union, Dict, Any
-from .._core import DonorData
-from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 from anndata.utils import asarray
+from mudata import MuData
+
+from cellink._core.data_fields import CAnn, DAnn
 
 
-def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
+def get_array(array: Any, mask: np.ndarray | None = None) -> np.ndarray | None:
     """
     Convert an input array-like object to a NumPy array and optionally apply a mask.
 
@@ -40,17 +38,16 @@ def get_array(array: Any, mask: Optional[np.ndarray] = None) -> Optional[np.ndar
     masked = array[mask] if mask is not None else array
 
     masked = asarray(masked)
-    #if isinstance(masked, da.Array):
+    # if isinstance(masked, da.Array):
     #    masked = masked.compute()
-    #if issparse(masked):
+    # if issparse(masked):
     #    return masked.toarray()
 
     return masked
 
+
 class MILDataset(Dataset):
-    """
-    PyTorch Dataset for Multiple Instance Learning (MIL) using donor- and cell-level data
-    from AnnData or MuData objects.
+    """PyTorch Dataset for Multiple Instance Learning (MIL) using donor- and cell-level data from AnnData or MuData objects.
 
     This dataset supports both pre-split donor indices and random splitting. Each
     item returned by the dataset contains the donor-level and corresponding cell-level
@@ -78,7 +75,8 @@ class MILDataset(Dataset):
         split_donors: list[int] | None = None,
         split_indices: list[int] | None = None,
     ):
-        """
+        """Initialize the MIL dataset.
+
         Parameters
         ----------
         dd : DonorData object
@@ -123,7 +121,6 @@ class MILDataset(Dataset):
         ValueError
             If both `split_donors` and `split_indices` are provided.
         """
-
         if split_donors is not None and split_indices is not None:
             raise ValueError("Both split_donors and split_indices cannot be provided at the same time.")
 
@@ -201,7 +198,7 @@ class MILDataset(Dataset):
         return sample
 
     def _get_layer(
-        self, data: Union[AnnData, MuData], layer_key: Optional[str], mask: np.ndarray = None, force: bool = False
+        self, data: AnnData | MuData, layer_key: str | None, mask: np.ndarray = None, force: bool = False
     ) -> Any:
         """
         Retrieve feature matrix from donor or cell data.
@@ -226,17 +223,11 @@ class MILDataset(Dataset):
             data_list = [data.mod[key] for key in data.mod.keys()]
             if layer_key is not None:
                 arrays = [
-                    get_array(d.layers.get(layer_key), mask)
-                    for d in data_list
-                    if d.layers.get(layer_key) is not None
+                    get_array(d.layers.get(layer_key), mask) for d in data_list if d.layers.get(layer_key) is not None
                 ]
                 return np.concatenate(arrays, axis=0) if arrays else None
             else:
-                arrays = [
-                    get_array(d.X, mask)
-                    for d in data_list
-                    if d.X is not None
-                ]
+                arrays = [get_array(d.X, mask) for d in data_list if d.X is not None]
                 return np.concatenate(arrays, axis=1) if arrays else None
 
         if layer_key is not None:
@@ -301,24 +292,16 @@ def mil_collate_fn(batch):
         - 'donor_x', 'donor_y', 'donor_batch', 'donor_cat_covs', 'donor_cont_covs', 'donor_indices'
         - 'cell_x', 'cell_y', 'cell_batch', 'cell_cat_covs', 'cell_cont_covs', 'cell_indices'
     """
-
     stack_fields = [
-      "donor_x", 
-      "donor_y", 
-      "donor_batch", 
-      "donor_cat_covs", 
-      "donor_cont_covs", 
-      "donor_indices",
+        "donor_x",
+        "donor_y",
+        "donor_batch",
+        "donor_cat_covs",
+        "donor_cont_covs",
+        "donor_indices",
     ]
 
-    list_fields = [
-      "cell_x", 
-      "cell_y",
-      "cell_batch", 
-      "cell_cat_covs", 
-      "cell_cont_covs", 
-      "cell_indices"
-    ]
+    list_fields = ["cell_x", "cell_y", "cell_batch", "cell_cat_covs", "cell_cont_covs", "cell_indices"]
 
     collected = {key: [] for key in stack_fields + list_fields}
 

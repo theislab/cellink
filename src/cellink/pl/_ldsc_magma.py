@@ -1,12 +1,12 @@
-import math
 import logging
+import math
 
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from matplotlib.lines import Line2D
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from scipy.stats import spearmanr
 
 logger = logging.getLogger(__name__)
@@ -75,9 +75,7 @@ def enrichment_scatter(
 
     order = phenotype_order if phenotype_order is not None else _PHENOTYPE_ORDER
     present = df[phenotype_col].unique()
-    phenotypes = [p for p in order if p in present] + sorted(
-        p for p in present if p not in order
-    )
+    phenotypes = [p for p in order if p in present] + sorted(p for p in present if p not in order)
     n_pheno = len(phenotypes)
 
     if n_ct == 0 or n_pheno == 0:
@@ -88,17 +86,10 @@ def enrichment_scatter(
     bonf_ct = -np.log10(0.05 / n_ct)
     bonf_ct_pheno = -np.log10(0.05 / (n_ct * n_pheno))
 
-    sig_cts = {
-        ct for ct in cell_types
-        if (df.loc[df[cell_type_col] == ct, neglog10p_col] >= bonf_ct).any()
-    }
+    sig_cts = {ct for ct in cell_types if (df.loc[df[cell_type_col] == ct, neglog10p_col] >= bonf_ct).any()}
     n_sig = len(sig_cts)
-    palette = (
-        sns.color_palette("tab20", max(n_sig, 1))
-        if n_sig <= 20
-        else sns.husl_palette(n_sig, s=0.9, l=0.55)
-    )
-    ct_color = dict(zip(sorted(sig_cts), palette))
+    palette = sns.color_palette("tab20", max(n_sig, 1)) if n_sig <= 20 else sns.husl_palette(n_sig, s=0.9, l=0.55)
+    ct_color = dict(zip(sorted(sig_cts), palette, strict=False))
     grey = (0.75, 0.75, 0.75)
 
     offsets = np.linspace(-0.3, 0.3, n_ct)
@@ -124,7 +115,8 @@ def enrichment_scatter(
             x = pheno_idx[pheno] + ct_offset[ct]
             is_sig = y >= bonf_ct
             ax_.scatter(
-                x, y,
+                x,
+                y,
                 s=90 if is_sig else 30,
                 color=color if is_sig else grey,
                 alpha=1.0,
@@ -145,16 +137,21 @@ def enrichment_scatter(
     ax_.tick_params(axis="y", labelsize=12)
 
     legend_handles = [
-        Line2D([0], [0], color="grey", linestyle="--",
-               label=f"Bonf. per CT  (n={n_ct})"),
-        Line2D([0], [0], color="red", linestyle="--",
-               label=f"Bonf. CT×pheno  (n={n_ct * n_pheno})"),
+        Line2D([0], [0], color="grey", linestyle="--", label=f"Bonf. per CT  (n={n_ct})"),
+        Line2D([0], [0], color="red", linestyle="--", label=f"Bonf. CT×pheno  (n={n_ct * n_pheno})"),
     ]
     for ct in sorted(sig_cts):
         legend_handles.append(
-            Line2D([0], [0], marker="o", color="w",
-                   markerfacecolor=ct_color[ct], markeredgecolor="k",
-                   markersize=7, label=ct)
+            Line2D(
+                [0],
+                [0],
+                marker="o",
+                color="w",
+                markerfacecolor=ct_color[ct],
+                markeredgecolor="k",
+                markersize=7,
+                label=ct,
+            )
         )
     ax_.legend(
         handles=legend_handles,
@@ -240,28 +237,31 @@ def method_comparison(
     matplotlib.figure.Figure
     """
     pivot_a = df_a.pivot_table(
-        index=phenotype_col, columns=cell_type_col,
-        values=neglog10p_col, aggfunc="mean",
+        index=phenotype_col,
+        columns=cell_type_col,
+        values=neglog10p_col,
+        aggfunc="mean",
     )
     pivot_b = df_b.pivot_table(
-        index=phenotype_col, columns=cell_type_col,
-        values=neglog10p_col, aggfunc="mean",
+        index=phenotype_col,
+        columns=cell_type_col,
+        values=neglog10p_col,
+        aggfunc="mean",
     )
 
     shared_cts = sorted(set(pivot_a.columns) & set(pivot_b.columns))
     shared_phenos = sorted(set(pivot_a.index) & set(pivot_b.index))
 
     if not shared_cts or not shared_phenos:
-        logger.warning(
-            "method_comparison: no shared cell types or phenotypes between the two DataFrames."
-        )
+        logger.warning("method_comparison: no shared cell types or phenotypes between the two DataFrames.")
         fig, _ = plt.subplots()
         return fig
 
     ncols = min(n_cols, len(shared_cts))
     nrows = math.ceil(len(shared_cts) / ncols)
     fig, axes = plt.subplots(
-        nrows, ncols,
+        nrows,
+        ncols,
         figsize=(ncols * subplot_size, nrows * subplot_size),
         squeeze=False,
     )
@@ -269,35 +269,40 @@ def method_comparison(
 
     for i, ct in enumerate(shared_cts):
         ax = axes_flat[i]
-        both = pd.DataFrame({
-            "x": pivot_a.loc[shared_phenos, ct],
-            "y": pivot_b.loc[shared_phenos, ct],
-        }).dropna().reset_index()
+        both = (
+            pd.DataFrame(
+                {
+                    "x": pivot_a.loc[shared_phenos, ct],
+                    "y": pivot_b.loc[shared_phenos, ct],
+                }
+            )
+            .dropna()
+            .reset_index()
+        )
         both.columns = [phenotype_col, "x", "y"]
 
         if len(both) < 3:
-            ax.text(0.5, 0.5, "n<3", ha="center", va="center",
-                    transform=ax.transAxes, fontsize=9)
+            ax.text(0.5, 0.5, "n<3", ha="center", va="center", transform=ax.transAxes, fontsize=9)
             ax.set_title(ct[:35], fontsize=7)
             continue
 
         r, pval = spearmanr(both["x"], both["y"])
-        ax.scatter(both["x"], both["y"], s=40, alpha=0.8,
-                   color="steelblue", edgecolors="none", zorder=3)
+        ax.scatter(both["x"], both["y"], s=40, alpha=0.8, color="steelblue", edgecolors="none", zorder=3)
 
         if annotate_points:
             for _, row in both.iterrows():
                 ax.annotate(
                     str(row[phenotype_col])[:6],
                     xy=(row["x"], row["y"]),
-                    fontsize=5, alpha=0.7,
-                    xytext=(2, 2), textcoords="offset points",
+                    fontsize=5,
+                    alpha=0.7,
+                    xytext=(2, 2),
+                    textcoords="offset points",
                 )
 
         lo = min(both["x"].min(), both["y"].min())
         hi = max(both["x"].max(), both["y"].max())
-        ax.plot([lo, hi], [lo, hi], color="grey", linewidth=0.8,
-                linestyle="--", alpha=0.6, zorder=1)
+        ax.plot([lo, hi], [lo, hi], color="grey", linewidth=0.8, linestyle="--", alpha=0.6, zorder=1)
 
         p_str = f"{pval:.1e}" if pval < 0.01 else f"{pval:.2f}"
         ax.set_title(
@@ -314,7 +319,8 @@ def method_comparison(
     suptitle = title or f"{label_a}  vs  {label_b}"
     fig.suptitle(
         f"{suptitle}\n({len(shared_phenos)} phenotypes × {len(shared_cts)} cell types)",
-        fontsize=11, y=1.01,
+        fontsize=11,
+        y=1.01,
     )
     plt.tight_layout()
 

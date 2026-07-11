@@ -2,16 +2,14 @@ import warnings
 
 import h5py
 import zarr
-from anndata._io.specs.registry import read_elem
 from anndata._io.zarr import read_dataframe
 from anndata._types import StorageType
 from anndata.compat import _read_attr
 from anndata.io import read_elem
-from mudata import MuData
 from mudata._core.io import _read_h5mu_mod
 from mudata._core.mudata import ModDict, MuData
 
-from .._core import DonorData
+from cellink._core import DonorData
 
 warnings.filterwarnings(
     "ignore",
@@ -46,7 +44,6 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     - Adapted from `mudata._core.io.read_h5mu`.
     - Preserves modality ordering if the `mod-order` attribute is present in the group.
     """
-
     d = {}
     for k in group.keys():
         if k in ["obs", "var"]:
@@ -61,7 +58,7 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
             mod_order = None
             if "mod-order" in gmods.attrs:
                 mod_order = _read_attr(gmods.attrs, "mod-order")
-            if mod_order is not None and all([m in gmods for m in mod_order]):
+            if mod_order is not None and all(m in gmods for m in mod_order):
                 mods = {k: mods[k] for k in mod_order}
 
             d[k] = mods
@@ -100,7 +97,6 @@ def _read_dd(f: h5py.File) -> DonorData:
     ValueError
         If the encoding type of `G` or `C` is not recognized.
     """
-
     if f["G"].attrs.get("encoding-type") == "MuData":
         G = _read_mudata(group=f["G"])
     elif f["G"].attrs.get("encoding-type") == "anndata":
@@ -143,7 +139,6 @@ def read_h5_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-        
     with h5py.File(path, "r") as f:
         return _read_dd(f)
 
@@ -162,7 +157,6 @@ def read_zarr_dd(path: str) -> DonorData:
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-        
     f = zarr.open(path, mode="r")
     return _read_dd(f)
 
@@ -205,7 +199,6 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
     >>> dd = read_dd("donor_data.dd.zarr")
     >>> dd = read_dd("custom_data.h5", fmt="h5")
     """
-    
     if fmt is None:
         if path.endswith(".h5") or path.endswith(".dd.h5"):
             fmt = "h5"

@@ -6,8 +6,6 @@ import anndata
 import numpy as np
 import pandas as pd
 import scipy as sp
-
-# from chiscore._davies import _pvalue_lambda #TODO ARNOLDT
 from numpy import asarray, atleast_1d
 
 from cellink._core import DonorData
@@ -81,6 +79,14 @@ def davies_pvalue(tstats: np.array, weights: np.array, return_info=False) -> tup
         Estimated p-value.
         If return_info is True, also returns a dictionary with additional information.
     """
+    try:
+        from chiscore._davies import _pvalue_lambda
+    except ImportError as e:
+        raise ImportError(
+            "davies_pvalue (used by Skat) requires `chiscore`, which isn't installable via pip. "
+            "Install it with:\n\n    conda install -c conda-forge chiscore"
+        ) from e
+
     tstats = asarray(atleast_1d(tstats), float)
     weights = asarray(weights, float)
     maxstats = tstats.max()

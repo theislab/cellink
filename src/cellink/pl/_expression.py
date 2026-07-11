@@ -345,7 +345,7 @@ def volcano(
         adjust_text(
             texts,
             ax=ax,
-            arrowprops=dict(arrowstyle="-", color="gray", lw=0.5),
+            arrowprops={"arrowstyle": "-", "color": "gray", "lw": 0.5},
             expand_text=(1.05, 1.2),
             expand_points=(1.05, 1.2),
             force_text=0.5,

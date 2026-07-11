@@ -92,12 +92,10 @@ def format_gsmap_sumstats(
     Examples
     --------
     >>> # From a file path
-    >>> sumstats_path = format_gsmap_sumstats(
-    ...     "GIANT_HEIGHT.txt", out_prefix="height", beta="BETA", se="SE", n="N"
-    ... )
+    >>> sumstats_path = format_gsmap_sumstats("GIANT_HEIGHT.txt", out_prefix="height", beta="BETA", se="SE", n="N")
 
     >>> # From a GWAS Catalog DataFrame
-    >>> gwas_df['hm_beta'] = pd.to_numeric(gwas_df['hm_beta'], errors='coerce')
+    >>> gwas_df["hm_beta"] = pd.to_numeric(gwas_df["hm_beta"], errors="coerce")
     >>> sumstats_path = format_gsmap_sumstats(
     ...     sumstats=gwas_df,
     ...     out_prefix="IQ",
@@ -126,8 +124,18 @@ def format_gsmap_sumstats(
         # GWAS Catalog harmonised files contain both 'hm_beta' and a plain 'beta' column
         # with identical values — gsMap sees both as BETA and raises ValueError.
         col_map = {
-            snp: snp, a1: a1, a2: a2, beta: beta, se: se,
-            p: p, z: z, n: n, chr_col: chr_col, pos: pos, info: info, frq: frq,
+            snp: snp,
+            a1: a1,
+            a2: a2,
+            beta: beta,
+            se: se,
+            p: p,
+            z: z,
+            n: n,
+            chr_col: chr_col,
+            pos: pos,
+            info: info,
+            frq: frq,
         }
         cols_to_keep = [v for v in col_map.values() if v is not None and v in sumstats.columns]
         sumstats = sumstats[cols_to_keep].copy()
@@ -148,16 +156,30 @@ def format_gsmap_sumstats(
         sumstats_path = str(sumstats)
 
     cmd = [
-        "gsmap", "format_sumstats",
-        "--sumstats", sumstats_path,
-        "--out", str(out_prefix),
-        "--info_min", str(info_min),
-        "--maf_min", str(maf_min),
+        "gsmap",
+        "format_sumstats",
+        "--sumstats",
+        sumstats_path,
+        "--out",
+        str(out_prefix),
+        "--info_min",
+        str(info_min),
+        "--maf_min",
+        str(maf_min),
     ]
     for flag, val in {
-        "--snp": snp, "--a1": a1, "--a2": a2, "--beta": beta,
-        "--se": se, "--p": p, "--z": z, "--n": n,
-        "--chr": chr_col, "--pos": pos, "--info": info, "--frq": frq,
+        "--snp": snp,
+        "--a1": a1,
+        "--a2": a2,
+        "--beta": beta,
+        "--se": se,
+        "--p": p,
+        "--z": z,
+        "--n": n,
+        "--chr": chr_col,
+        "--pos": pos,
+        "--info": info,
+        "--frq": frq,
     }.items():
         if val is not None:
             cmd += [flag, val]
@@ -173,9 +195,7 @@ def format_gsmap_sumstats(
             logger.info(result.stdout)
         if result.returncode != 0:
             logger.error(result.stderr)
-            raise RuntimeError(
-                f"gsmap format_sumstats failed (exit {result.returncode}):\n{result.stderr}"
-            )
+            raise RuntimeError(f"gsmap format_sumstats failed (exit {result.returncode}):\n{result.stderr}")
     finally:
         if _tmp_to_clean is not None and _tmp_to_clean.exists():
             _tmp_to_clean.unlink()
@@ -228,7 +248,7 @@ def load_gsmap_results(
     ...     trait_name="IQ",
     ...     annotation="domain",
     ... )
-    >>> spot_df   = results["spatial_ldsc"]
+    >>> spot_df = results["spatial_ldsc"]
     >>> cauchy_df = results["cauchy_combination"]
     """
     workdir = Path(workdir)
@@ -253,20 +273,18 @@ def load_gsmap_results(
                     _df = pd.read_csv(ldsc_files[0], sep="\t", compression="gzip")
                 results["spatial_ldsc"] = _df
                 logger.info(f"Loaded spatial LDSC results from {ldsc_files[0]}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Could not load spatial LDSC results: {e}")
 
     # Cauchy combination
     cauchy_dir = sample_dir / "cauchy_combination"
     if cauchy_dir.exists() and annotation is not None:
-        cauchy_files = (
-            list(cauchy_dir.glob(f"*{trait_name}*.csv*")) or list(cauchy_dir.glob("*.csv*"))
-        )
+        cauchy_files = list(cauchy_dir.glob(f"*{trait_name}*.csv*")) or list(cauchy_dir.glob("*.csv*"))
         if cauchy_files:
             try:
                 results["cauchy_combination"] = pd.read_csv(cauchy_files[0], index_col=0)
                 logger.info(f"Loaded Cauchy combination results from {cauchy_files[0]}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning(f"Could not load Cauchy combination results: {e}")
 
     # Report

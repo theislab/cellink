@@ -28,7 +28,12 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import Callback, ModelCheckpoint
 
 import cellink as cl  # noqa: F401
-from cellink.tl.external import build_annbatch_collection, configure_livi_runner, read_g_from_dd_store, train_livi_annbatch
+from cellink.tl.external import (
+    build_annbatch_collection,
+    configure_livi_runner,
+    read_g_from_dd_store,
+    train_livi_annbatch,
+)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 # zarrs' Rust threadpool defaults (threading.max_workers=None) to the node's full
@@ -64,8 +69,8 @@ else:
 BATCH_SIZE = 256
 CHUNK_SIZE = 512
 PRELOAD_NCHUNKS = 32
-COLLECTION_N_OBS_PER_CHUNK = 512   # fixed at collection-build time; matched to CHUNK_SIZE
-COLLECTION_SHARD_SIZE = "2GB"      # 2× default (1GB); fewer file handles on SSD
+COLLECTION_N_OBS_PER_CHUNK = 512  # fixed at collection-build time; matched to CHUNK_SIZE
+COLLECTION_SHARD_SIZE = "2GB"  # 2× default (1GB); fewer file handles on SSD
 
 CELL_STATE_CIS = False  # paper "cell-state" variant; set True to match exactly
 
@@ -119,7 +124,8 @@ _dd_zarr = zarr.open(DD_CACHE_PATH_ZARR_REALISTIC, mode="r")
 print(f"building/verifying annbatch collection at {C_COLLECTION!r} ...")
 t_coll = time.perf_counter()
 build_annbatch_collection(
-    _dd_zarr["C"], C_COLLECTION,
+    _dd_zarr["C"],
+    C_COLLECTION,
     n_obs_per_chunk=COLLECTION_N_OBS_PER_CHUNK,
     shard_size=COLLECTION_SHARD_SIZE,
     seed=SEED,
@@ -144,31 +150,49 @@ class ThroughputCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         dt = time.perf_counter() - self.t0
         cells = self.n * BATCH_SIZE
-        print(f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
-              f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch")
+        print(
+            f"[epoch {trainer.current_epoch}] {self.n} batches, {cells:,} cells in {dt:.1f}s "
+            f"-> {cells / dt:,.0f} cells/s, {dt / max(self.n, 1) * 1000:.1f} ms/batch"
+        )
 
 
 t0 = time.perf_counter()
 trainer = train_livi_annbatch(
-    _dd_zarr["C"], gdata,
+    _dd_zarr["C"],
+    gdata,
     output_dir=OUTPUT_DIR,
     collection_path=C_COLLECTION,
     donor_key=DONOR_KEY,
     covariates_keys=COVARIATE_KEYS,
     known_cis_eqtls=known_cis_eqtls,  # real mapping -> cis_snps/target_genes/cis_genes_per_snp unused
-    z_dim=Z_DIM, n_dxc_factors=N_DXC_FACTORS, n_persistent_factors=N_PERSISTENT_FACTORS,
-    encoder_hidden_dims=ENCODER_HIDDEN_DIMS, learning_rate=LEARNING_RATE,
-    warmup_epochs_vae=WARMUP_EPOCHS_VAE, warmup_epochs_G=WARMUP_EPOCHS_G,
-    max_epochs=MAX_EPOCHS, min_epochs=MIN_EPOCHS, batch_size=BATCH_SIZE,
-    chunk_size=CHUNK_SIZE, preload_nchunks=PRELOAD_NCHUNKS, preload_to_gpu=PRELOAD_TO_GPU,
-    seed=SEED, l1_weight=L1_WEIGHT, A_weight=A_WEIGHT, batch_norm_decoder=BATCH_NORM_DECODER,
-    genetics_seed=GENETICS_SEED, cell_state_cis=CELL_STATE_CIS,
-    enable_progress_bar=True, log_every_n_steps=10, enable_logger=True,
+    z_dim=Z_DIM,
+    n_dxc_factors=N_DXC_FACTORS,
+    n_persistent_factors=N_PERSISTENT_FACTORS,
+    encoder_hidden_dims=ENCODER_HIDDEN_DIMS,
+    learning_rate=LEARNING_RATE,
+    warmup_epochs_vae=WARMUP_EPOCHS_VAE,
+    warmup_epochs_G=WARMUP_EPOCHS_G,
+    max_epochs=MAX_EPOCHS,
+    min_epochs=MIN_EPOCHS,
+    batch_size=BATCH_SIZE,
+    chunk_size=CHUNK_SIZE,
+    preload_nchunks=PRELOAD_NCHUNKS,
+    preload_to_gpu=PRELOAD_TO_GPU,
+    seed=SEED,
+    l1_weight=L1_WEIGHT,
+    A_weight=A_WEIGHT,
+    batch_norm_decoder=BATCH_NORM_DECODER,
+    genetics_seed=GENETICS_SEED,
+    cell_state_cis=CELL_STATE_CIS,
+    enable_progress_bar=True,
+    log_every_n_steps=10,
+    enable_logger=True,
     enable_checkpointing=True,  # we pass our own ModelCheckpoint below
     callbacks=[
         ThroughputCallback(),
-        ModelCheckpoint(dirpath=f"{OUTPUT_DIR}/checkpoints", save_last=True,
-                         monitor="train/livi_loss", mode="min", save_top_k=1),
+        ModelCheckpoint(
+            dirpath=f"{OUTPUT_DIR}/checkpoints", save_last=True, monitor="train/livi_loss", mode="min", save_top_k=1
+        ),
     ],
 )
 print("\n==== ANNBATCH cis (REALISTIC paper-scale config) ====")

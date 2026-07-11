@@ -1,17 +1,14 @@
 import logging
-from pathlib import Path
 
 import numpy as np
+import pytest
 
 from cellink.at import utils
 from cellink.at.acat import compute_acat
 from cellink.at.gwas import GWAS
-from cellink.at.skat import Skat
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-DATA = Path("/Users/antonio.nappi/Desktop/sc-genetics/tests/data")
 
 
 def test_generate_phenotype_data():
@@ -83,6 +80,7 @@ def test_generate_phenotype_data():
 
 def test_burden_testing():
     """Test the burden testing function."""
+    np.random.seed(0)  # noisy p-value comparison, pin the seed so this isn't flaky
     N = 100000  # number of individuals
     S = 300  # number of variants
     number_causal_variants = 50  # number of causal variants
@@ -107,8 +105,11 @@ def test_burden_testing():
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
 
-"""
+
 def test_skat_testing():
+    pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
+    from cellink.at.skat import Skat
+
     N = 10000  # number of individuals
     S = 10  # number of variants
     number_causal_variants = 3  # number of causal variants
@@ -129,7 +130,11 @@ def test_skat_testing():
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
 
+
 def test_acat_testing():
+    pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
+    from cellink.at.skat import Skat
+
     N = 10000  # number of individuals
     S = 300  # number of variants
     number_causal_variants = 50  # number of causal variants
@@ -165,17 +170,5 @@ def test_acat_testing():
     pvps = utils.ensure_float64_array(pvps)
     pvps = pvps.reshape(1, -1)
     acat_pvp = compute_acat(pvs=pvps)
-    print(f"acat_pv: {acat_pv}, acat_pvp: {acat_pvp}")
+    logger.info(f"acat_pv: {acat_pv}, acat_pvp: {acat_pvp}")
     assert acat_pv < acat_pvp, "P-value is not smaller than permutated p-value"
-"""
-
-if __name__ == "__main__":
-    logger.info("Running tests...")
-    logger.info("Testing generate_phenotype_data...")
-    test_generate_phenotype_data()
-    logger.info("Testing burden testing...")
-    test_burden_testing()
-    #logger.info("Testing skat testing...")
-    #test_skat_testing()
-    #logger.info("Testing acat testing...")
-    #test_acat_testing()

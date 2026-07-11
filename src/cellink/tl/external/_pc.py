@@ -17,7 +17,7 @@ def calculate_pcs(
     num_pcs: int = 10,
     run: bool = True,
     save_cmd_file: str | None = None,
-    plink_export_kwargs: dict | None = {},
+    plink_export_kwargs: dict | None = None,
 ) -> pd.DataFrame | str:
     """
     Run PLINK to calculate genetic PCs using the `--pca` option.
@@ -44,6 +44,9 @@ def calculate_pcs(
     pd.DataFrame or str
         PC dataframe if run, or command string if run=False.
     """
+    if plink_export_kwargs is None:
+        plink_export_kwargs = {}
+
     if run and shutil.which("plink") is None:
         raise ImportError("plink is required for `calculate_pcs`. Please install it.")
 

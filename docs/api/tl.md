@@ -17,4 +17,6 @@
     tl.run_burden_test
     tl.run_skat_test
     tl.beta_weighting
+    tl.subset_genomic_region
+    tl.subset_gene
 ```

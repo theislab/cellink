@@ -6,13 +6,6 @@
 
 # Single-cell Genetics Package (Cellink)
 
-<!-- TODO comment back in once package is public -->
-<!-- [![Tests][badge-tests]][tests]
-
-<!-- [badge-tests]: https://img.shields.io/github/actions/workflow/status/theislab/Single-cell Genetics (Cellink)/test.yaml?branch=main -->
-<!-- [![Documentation][badge-docs]][documentation]  -->
-<!-- [badge-docs]: https://cellink-docs.readthedocs.io/  -->
-
 Welcome to the official documentation for **cellink**—the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
 
 ## Motivation
@@ -23,14 +16,11 @@ Integrating genetic data with cellular heterogeneity is crucial for advancing pe
 
 **cellink** introduces the `DonorData` class, unifying individual-level and single-cell data. It extends standard formats (AnnData, MuData) with GenoAnnData for efficient genotype (via dask) and phenotype (via ehrapy) handling.
 
+<!-- schematic-image-start -->
+
 ![Data structure schematic](docs/_static/img/schematic_figure.png)
 
-````{only} html
-```{image} _static/img/schematic_figure.png
-:width: 750px
-:alt: Data structure schematic
-```
-````
+<!-- schematic-image-end -->
 
 - **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
 - **Cell-level Data (C):** `AnnData`/ `MuData`, Stores single-cell omics data such as gene expression.
@@ -47,14 +37,19 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
     - [Rare variant association studies](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html).
     - [Clumping & pruning](https://cellink-docs.readthedocs.io/en/latest/tutorials/clumping_pruning.html).
     - [Colocalization analysis](https://cellink-docs.readthedocs.io/en/latest/tutorials/colocalization.html).
-    - [Integrating GWAS with Single-Cell](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_saigeqtl.html).
+    - [Integrating GWAS with single-cell disease relevance scores (scDRS/seismic)](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_seismic.html).
     - [Integrating GWAS with Spatial](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html).
     - [Integrating DonorData with EHR data](https://cellink-docs.readthedocs.io/en/latest/tutorials/ehrdataset.html).
+    - [Cell-type specific LD score regression](https://cellink-docs.readthedocs.io/en/latest/tutorials/cell_level_ldsc_analysis.html).
+    - [Gene-set enrichment with MAGMA](https://cellink-docs.readthedocs.io/en/latest/tutorials/magma_analysis_tutorial.html).
+    - [Gene program scoring with sc-linker](https://cellink-docs.readthedocs.io/en/latest/tutorials/sclinker.html).
+    - [LIVI: donor-level representation learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html).
 - **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis
-  tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html), [eQTL analysis with SAIGEQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)  and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
+  tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html), [eQTL analysis with SAIGEQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html) and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
 
 ## 🚀 Getting Started
 
+- New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html)** — no analysis, just how to build a `DonorData` from your own genotype/expression data, slice it, and save it.
 - Check out the **[Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html)** section for step-by-step guides on analysis workflows.
 - Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html)** for detailed documentation.
 
@@ -83,9 +78,3 @@ t.b.a
 [mambaforge]: https://github.com/conda-forge/miniforge#mambaforge
 [scverse discourse]: https://discourse.scverse.org/
 [issue tracker]: https://github.com/theislab/cellink/issues
-
-<!-- [tests]: https://github.com/theislab/cellink/actions/workflows/test.yml
-[documentation]: https://Single-cell Genetics (Cellink).readthedocs.io
-[changelog]: https://Single-cell Genetics (Cellink).readthedocs.io/en/latest/changelog.html
-[api documentation]: https://Single-cell Genetics (Cellink).readthedocs.io/en/latest/api.html
-[pypi]: https://pypi.org/project/Single-cell Genetics (Cellink) -->

@@ -1,12 +1,12 @@
 import glob
 import gzip
+import importlib.util
 import logging
 import os
 import pickle
 import shutil
-import importlib.util
 import subprocess
-from typing import Literal, Tuple, Union
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -18,12 +18,13 @@ from cellink.io import to_plink
 
 logger = logging.getLogger(__name__)
 
+
 def read_tensorqtl_results(
     prefix: str = None,
     mode: str = None,
     cis_output: bool | str = None,
     interaction_df: bool | str = None,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame]]:
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame]:
     """
     Read TensorQTL result files.
 
@@ -47,7 +48,6 @@ def read_tensorqtl_results(
     pd.DataFrame or tuple
         Parsed results depending on the mode.
     """
-
     if mode == "cis_nominal":
         cis_qtl_pairs = pd.concat(
             [pd.read_parquet(path) for path in glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet")], axis=0
@@ -99,15 +99,15 @@ def _run_tensorqtl_python_api(
     fdr: float,
     qvalue_lambda: float,
     seed: int,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame]]:
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame]:
     """Run TensorQTL via the Python API directly (no subprocess/file export)."""
     try:
-        from tensorqtl import cis, trans, susie, post
-    except ImportError:
+        from tensorqtl import cis, post, susie, trans
+    except ImportError as e:
         raise ImportError(
             "tensorqtl is required for `run_tensorqtl` with `use_python_api=True`. "
             "Install with `pip install tensorqtl`. Please also install rpy2 and R package qvalue."
-        )
+        ) from e
 
     if mode == "cis_nominal":
         if prefix is None:
@@ -133,7 +133,10 @@ def _run_tensorqtl_python_api(
                 signif_df = cis_output
 
         cis.map_nominal(
-            genotype_df, variant_df, phenotype_df, phenotype_pos_df,
+            genotype_df,
+            variant_df,
+            phenotype_df,
+            phenotype_pos_df,
             prefix,
             covariates_df=covariates_df,
             interaction_df=interaction_term,
@@ -143,6 +146,7 @@ def _run_tensorqtl_python_api(
 
         if signif_df is not None:
             from tensorqtl.post import get_significant_pairs
+
             signif_pairs_df = get_significant_pairs(signif_df, prefix, fdr=fdr)
             signif_pairs_df.to_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
 
@@ -150,20 +154,19 @@ def _run_tensorqtl_python_api(
             [pd.read_parquet(path) for path in glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet")], axis=0
         )
         cis_qtl_signif_pairs = (
-            pd.read_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet")
-            if signif_df is not None
-            else None
+            pd.read_parquet(f"{prefix}.cis_qtl.signif_pairs.parquet") if signif_df is not None else None
         )
         cis_qtl_top_assoc = (
-            pd.read_csv(f"{prefix}.cis_qtl_top_assoc.txt.gz", sep="\t")
-            if interaction_term is not None
-            else None
+            pd.read_csv(f"{prefix}.cis_qtl_top_assoc.txt.gz", sep="\t") if interaction_term is not None else None
         )
         results = (cis_qtl_pairs, cis_qtl_signif_pairs, cis_qtl_top_assoc)
 
     elif mode == "cis":
         results = cis.map_cis(
-            genotype_df, variant_df, phenotype_df, phenotype_pos_df,
+            genotype_df,
+            variant_df,
+            phenotype_df,
+            phenotype_pos_df,
             covariates_df=covariates_df,
             nperm=permutations,
             window=window,
@@ -179,14 +182,13 @@ def _run_tensorqtl_python_api(
                 "cis_output can't be None in mode 'cis_independent'. "
                 "Please provide a path to the cis permutation output (with q-values) or a DataFrame."
             )
-        cis_df = (
-            pd.read_csv(cis_output, sep="\t", index_col=0)
-            if isinstance(cis_output, str)
-            else cis_output
-        )
+        cis_df = pd.read_csv(cis_output, sep="\t", index_col=0) if isinstance(cis_output, str) else cis_output
         results = cis.map_independent(
-            genotype_df, variant_df, cis_df,
-            phenotype_df, phenotype_pos_df,
+            genotype_df,
+            variant_df,
+            cis_df,
+            phenotype_df,
+            phenotype_pos_df,
             covariates_df=covariates_df,
             fdr=fdr,
             fdr_col="qval",
@@ -197,7 +199,8 @@ def _run_tensorqtl_python_api(
 
     elif mode == "trans":
         trans_df = trans.map_trans(
-            genotype_df, phenotype_df,
+            genotype_df,
+            phenotype_df,
             covariates_df=covariates_df,
             return_sparse=not return_dense,
             pval_threshold=pval_threshold,
@@ -214,9 +217,7 @@ def _run_tensorqtl_python_api(
             )
         if isinstance(cis_output, str):
             signif_df = (
-                pd.read_parquet(cis_output)
-                if cis_output.endswith(".parquet")
-                else pd.read_csv(cis_output, sep="\t")
+                pd.read_parquet(cis_output) if cis_output.endswith(".parquet") else pd.read_csv(cis_output, sep="\t")
             )
         else:
             signif_df = cis_output
@@ -228,7 +229,10 @@ def _run_tensorqtl_python_api(
         pheno_pos_df_sub = phenotype_pos_df.loc[phenotype_ids]
 
         susie_summary, susie_dict = susie.map(
-            genotype_df, variant_df, pheno_df_sub, pheno_pos_df_sub,
+            genotype_df,
+            variant_df,
+            pheno_df_sub,
+            pheno_pos_df_sub,
             covariates_df,
             L=max_effects,
             window=window,
@@ -245,15 +249,16 @@ def _run_tensorqtl_python_api(
             )
         if isinstance(susie_loci, str):
             loci_df = (
-                pd.read_parquet(susie_loci)
-                if susie_loci.endswith(".parquet")
-                else pd.read_csv(susie_loci, sep="\t")
+                pd.read_parquet(susie_loci) if susie_loci.endswith(".parquet") else pd.read_csv(susie_loci, sep="\t")
             )
         else:
             loci_df = susie_loci
 
         susie_summary, susie_dict = susie.map_loci(
-            loci_df, genotype_df, variant_df, phenotype_df,
+            loci_df,
+            genotype_df,
+            variant_df,
+            phenotype_df,
             covariates_df,
             L=max_effects,
             window=window,
@@ -302,12 +307,12 @@ def run_tensorqtl(
     run: bool = True,
     read_results: bool = True,
     save_cmd_file: bool = False,
-    plink_export_kwargs: dict | None = {},
+    plink_export_kwargs: dict | None = None,
     remove_intermediate_files: bool = True,
     overwrite_covariates_export: bool = True,
     overwrite_phenotype_export: bool = True,
     overwrite_plink_export: bool = True,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame], Tuple[dict, pd.DataFrame], str]:
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame] | str:
     """
     Run cis- or trans-QTL mapping using TensorQTL on donor-level aggregated expression and genotype data.
 
@@ -417,6 +422,8 @@ def run_tensorqtl(
     ValueError
         If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected mode.
     """
+    if plink_export_kwargs is None:
+        plink_export_kwargs = {}
 
     if "X_pca" not in dd.C.obsm:
         logger.info("Calculating PCA.")

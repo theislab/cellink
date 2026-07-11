@@ -5,13 +5,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-
 
 
 class LIVIRunner:
@@ -35,7 +34,7 @@ class LIVIRunner:
 
     def __init__(
         self,
-        livi_root: Union[str, Path],
+        livi_root: str | Path,
         execution_mode: Literal["python_api", "subprocess"] = "python_api",
         python_executable: str = "python",
         device: str = "auto",
@@ -58,19 +57,22 @@ class LIVIRunner:
     def get_livi_class(self):
         """Import and return the :class:`LIVI` model class."""
         self._ensure_on_path()
-        from src.models.livi import LIVI  
+        from src.models.livi import LIVI
+
         return LIVI
 
     def get_datamodule_classes(self):
         """Import and return ``(LIVIDataModule, LIVIDataset)``."""
         self._ensure_on_path()
-        from src.data_modules.livi_data import LIVIDataModule, LIVIDataset 
+        from src.data_modules.livi_data import LIVIDataModule, LIVIDataset
+
         return LIVIDataModule, LIVIDataset
 
     def get_association_testing_fn(self):
         """Import and return ``run_LIVI_genetic_association_testing``."""
         self._ensure_on_path()
-        from src.analysis.livi_testing import run_LIVI_genetic_association_testing  
+        from src.analysis.livi_testing import run_LIVI_genetic_association_testing
+
         return run_LIVI_genetic_association_testing
 
     def resolve_device(self) -> str:
@@ -79,16 +81,17 @@ class LIVIRunner:
             return self.device
         try:
             import torch
+
             return "cuda" if torch.cuda.is_available() else "cpu"
         except ImportError:
             return "cpu"
 
 
-_livi_runner: Optional[LIVIRunner] = None
+_livi_runner: LIVIRunner | None = None
 
 
 def configure_livi_runner(
-    livi_root: Union[str, Path],
+    livi_root: str | Path,
     execution_mode: Literal["python_api", "subprocess"] = "python_api",
     python_executable: str = "python",
     device: str = "auto",
@@ -135,16 +138,15 @@ def get_livi_runner() -> LIVIRunner:
     """Return the global :class:`LIVIRunner`, raising if not configured."""
     if _livi_runner is None:
         raise RuntimeError(
-            "LIVI runner not configured. "
-            "Call `cellink.tl.external.configure_livi_runner(livi_root=...)` first."
+            "LIVI runner not configured. " "Call `cellink.tl.external.configure_livi_runner(livi_root=...)` first."
         )
     return _livi_runner
 
 
 def _resolve_adata(
     adata_or_dd,
-    individual_col: Optional[str],
-) -> Tuple:
+    individual_col: str | None,
+) -> tuple:
     """Extract (cell_adata, individual_col, donor_gdata_or_None) from input.
 
     Accepts :class:`~anndata.AnnData` or :class:`~cellink.DonorData`.
@@ -167,19 +169,16 @@ def _resolve_adata(
 
     if isinstance(adata_or_dd, AnnData):
         if individual_col is None:
-            raise ValueError(
-                "`individual_col` must be specified when passing an AnnData directly."
-            )
+            raise ValueError("`individual_col` must be specified when passing an AnnData directly.")
         return adata_or_dd, individual_col, None
 
-    raise TypeError(
-        f"Expected AnnData or DonorData, got {type(adata_or_dd).__name__}"
-    )
+    raise TypeError(f"Expected AnnData or DonorData, got {type(adata_or_dd).__name__}")
 
 
 def _gdata_to_genotype_df(gdata) -> pd.DataFrame:
     """Convert ``dd.G`` (donors × SNPs AnnData) to a dense DataFrame."""
     from anndata.utils import asarray
+
     return pd.DataFrame(
         asarray(gdata.X),
         index=gdata.obs_names,
@@ -187,7 +186,7 @@ def _gdata_to_genotype_df(gdata) -> pd.DataFrame:
     )
 
 
-def _infer_covariates_dims(adata, covariates_keys: List[str]) -> List[int]:
+def _infer_covariates_dims(adata, covariates_keys: list[str]) -> list[int]:
     return [int(adata.obs[k].nunique()) for k in covariates_keys]
 
 
@@ -202,10 +201,10 @@ def _adata_path_or_save(adata, output_dir: str, filename: str = "_livi_input.h5a
 
 
 def _df_or_path_to_path(
-    obj: Union[str, "pd.DataFrame", None],
+    obj: str | pd.DataFrame | None,
     dest_path: str,
     sep: str = "\t",
-) -> Optional[str]:
+) -> str | None:
     """If *obj* is a DataFrame write it to *dest_path* and return the path."""
     if obj is None:
         return None
@@ -226,13 +225,13 @@ def _train_livi_python_api(
     n_dxc_factors: int,
     n_persistent_factors: int,
     n_cis_snps: int,
-    encoder_hidden_dims: List[int],
+    encoder_hidden_dims: list[int],
     learning_rate: float,
     use_size_factor: bool,
-    size_factor_key: Optional[str],
-    layer_key: Optional[str],
-    covariates_keys: Optional[List[str]],
-    covariates_dims: Optional[List[int]],
+    size_factor_key: str | None,
+    layer_key: str | None,
+    covariates_keys: list[str] | None,
+    covariates_dims: list[int] | None,
     known_cis_eqtls,
     eqtl_genotypes,
     warmup_epochs_vae: int,
@@ -244,7 +243,7 @@ def _train_livi_python_api(
     l1_weight: float,
     A_weight: float,
     batch_norm_decoder: bool,
-    genetics_seed: Optional[int],
+    genetics_seed: int | None,
     cell_state_cis: bool,
     num_workers: int,
     strict: bool,
@@ -253,26 +252,23 @@ def _train_livi_python_api(
     pin_memory: bool,
     log_every_n_steps: int,
     enable_progress_bar: bool,
-    gradient_clip_val: Optional[float],
+    gradient_clip_val: float | None,
     accumulate_grad_batches: int,
     device: str,
     runner: LIVIRunner,
     enable_checkpointing: bool = True,
     enable_logger: bool = True,
-    limit_train_batches: Optional[Union[int, float]] = None,
+    limit_train_batches: int | float | None = None,
     deterministic: bool = False,
-    callbacks: Optional[List] = None,
-) -> Optional[str]:
+    callbacks: list | None = None,
+) -> str | None:
     try:
         import pytorch_lightning as pl
         from pytorch_lightning.callbacks import ModelCheckpoint
     except ImportError as exc:
         raise ImportError(
-            "pytorch_lightning is required for LIVI training. "
-            "Install it with: pip install pytorch-lightning"
+            "pytorch_lightning is required for LIVI training. " "Install it with: pip install pytorch-lightning"
         ) from exc
-
-    import torch
 
     LIVI = runner.get_livi_class()
     LIVIDataModule, _ = runner.get_datamodule_classes()
@@ -341,20 +337,20 @@ def _train_livi_python_api(
         device=device,
     )
 
-    trainer_kwargs: dict = dict(
-        max_epochs=max_epochs,
-        min_epochs=min_epochs,
-        accelerator="gpu" if device == "cuda" else "cpu",
-        devices=1,
-        callbacks=[*([checkpoint_cb] if checkpoint_cb is not None else []), *(callbacks or [])],
-        default_root_dir=output_dir,
-        enable_checkpointing=enable_checkpointing,
-        logger=enable_logger,
-        log_every_n_steps=log_every_n_steps,
-        enable_progress_bar=enable_progress_bar,
-        accumulate_grad_batches=accumulate_grad_batches,
-        deterministic=deterministic,
-    )
+    trainer_kwargs: dict = {
+        "max_epochs": max_epochs,
+        "min_epochs": min_epochs,
+        "accelerator": "gpu" if device == "cuda" else "cpu",
+        "devices": 1,
+        "callbacks": [*([checkpoint_cb] if checkpoint_cb is not None else []), *(callbacks or [])],
+        "default_root_dir": output_dir,
+        "enable_checkpointing": enable_checkpointing,
+        "logger": enable_logger,
+        "log_every_n_steps": log_every_n_steps,
+        "enable_progress_bar": enable_progress_bar,
+        "accumulate_grad_batches": accumulate_grad_batches,
+        "deterministic": deterministic,
+    }
     if gradient_clip_val is not None:
         trainer_kwargs["gradient_clip_val"] = gradient_clip_val
     if limit_train_batches is not None:
@@ -394,13 +390,13 @@ def _train_livi_subprocess(
     n_dxc_factors: int,
     n_persistent_factors: int,
     n_cis_snps: int,
-    encoder_hidden_dims: List[int],
+    encoder_hidden_dims: list[int],
     learning_rate: float,
     use_size_factor: bool,
-    size_factor_key: Optional[str],
-    layer_key: Optional[str],
-    covariates_keys: Optional[List[str]],
-    covariates_dims: Optional[List[int]],
+    size_factor_key: str | None,
+    layer_key: str | None,
+    covariates_keys: list[str] | None,
+    covariates_dims: list[int] | None,
     known_cis_eqtls,
     eqtl_genotypes,
     warmup_epochs_vae: int,
@@ -412,7 +408,7 @@ def _train_livi_subprocess(
     l1_weight: float,
     A_weight: float,
     batch_norm_decoder: bool,
-    genetics_seed: Optional[int],
+    genetics_seed: int | None,
     cell_state_cis: bool,
     num_workers: int,
     strict: bool,
@@ -422,17 +418,11 @@ def _train_livi_subprocess(
     device: str,
     runner: LIVIRunner,
 ) -> str:
-    import yaml
-
     config_root = runner.livi_root / "configs"
 
     adata_path = _adata_path_or_save(adata, output_dir)
-    cis_path = _df_or_path_to_path(
-        known_cis_eqtls, os.path.join(output_dir, "_livi_known_cis_eqtls.tsv")
-    )
-    gt_path = _df_or_path_to_path(
-        eqtl_genotypes, os.path.join(output_dir, "_livi_eqtl_genotypes.tsv")
-    )
+    cis_path = _df_or_path_to_path(known_cis_eqtls, os.path.join(output_dir, "_livi_known_cis_eqtls.tsv"))
+    gt_path = _df_or_path_to_path(eqtl_genotypes, os.path.join(output_dir, "_livi_eqtl_genotypes.tsv"))
 
     model_cfg: dict = {
         "_target_": "src.models.livi.LIVI",
@@ -516,20 +506,20 @@ def train_livi(
     adata_or_dd,
     output_dir: str,
     *,
-    individual_col: Optional[str] = None,
+    individual_col: str | None = None,
     z_dim: int = 15,
     n_dxc_factors: int = 100,
     n_persistent_factors: int = 5,
     n_cis_snps: int = 0,
-    encoder_hidden_dims: Optional[List[int]] = None,
+    encoder_hidden_dims: list[int] | None = None,
     learning_rate: float = 8e-4,
     use_size_factor: bool = True,
-    size_factor_key: Optional[str] = None,
-    layer_key: Optional[str] = None,
-    covariates_keys: Optional[List[str]] = None,
-    covariates_dims: Optional[List[int]] = None,
-    known_cis_eqtls: Optional[Union[str, "pd.DataFrame"]] = None,
-    eqtl_genotypes: Optional[Union[str, "pd.DataFrame"]] = None,
+    size_factor_key: str | None = None,
+    layer_key: str | None = None,
+    covariates_keys: list[str] | None = None,
+    covariates_dims: list[int] | None = None,
+    known_cis_eqtls: str | pd.DataFrame | None = None,
+    eqtl_genotypes: str | pd.DataFrame | None = None,
     warmup_epochs_vae: int = 30,
     warmup_epochs_G: int = 0,
     max_epochs: int = 200,
@@ -539,7 +529,7 @@ def train_livi(
     l1_weight: float = 1e-3,
     A_weight: float = 1e-3,
     batch_norm_decoder: bool = False,
-    genetics_seed: Optional[int] = None,
+    genetics_seed: int | None = None,
     cell_state_cis: bool = True,
     num_workers: int = 0,
     strict: bool = False,
@@ -550,14 +540,14 @@ def train_livi(
     enable_progress_bar: bool = True,
     enable_checkpointing: bool = True,
     enable_logger: bool = True,
-    gradient_clip_val: Optional[float] = None,
+    gradient_clip_val: float | None = None,
     accumulate_grad_batches: int = 1,
-    limit_train_batches: Optional[Union[int, float]] = None,
+    limit_train_batches: int | float | None = None,
     deterministic: bool = False,
-    callbacks: Optional[List] = None,
+    callbacks: list | None = None,
     run: bool = True,
-    runner: Optional[LIVIRunner] = None,
-) -> Optional[str]:
+    runner: LIVIRunner | None = None,
+) -> str | None:
     """Train a LIVI model on single-cell RNA-seq data.
 
     LIVI decomposes cell × gene expression into:
@@ -742,10 +732,16 @@ def train_livi(
             "  n_dxc_factors=%d, n_persistent_factors=%d, n_cis_snps=%d\n"
             "  encoder_hidden_dims=%s, learning_rate=%g\n"
             "  covariates_keys=%s, covariates_dims=%s",
-            n_genes, n_donors, z_dim,
-            n_dxc_factors, n_persistent_factors, n_cis_snps,
-            encoder_hidden_dims, learning_rate,
-            covariates_keys, covariates_dims,
+            n_genes,
+            n_donors,
+            z_dim,
+            n_dxc_factors,
+            n_persistent_factors,
+            n_cis_snps,
+            encoder_hidden_dims,
+            learning_rate,
+            covariates_keys,
+            covariates_dims,
         )
         return None
 
@@ -753,44 +749,44 @@ def train_livi(
     device = runner.resolve_device()
     logger.info("Using device: %s", device)
 
-    shared_kwargs = dict(
-        adata=adata,
-        individual_col=individual_col,
-        output_dir=output_dir,
-        n_genes=n_genes,
-        n_donors=n_donors,
-        z_dim=z_dim,
-        n_dxc_factors=n_dxc_factors,
-        n_persistent_factors=n_persistent_factors,
-        n_cis_snps=n_cis_snps,
-        encoder_hidden_dims=encoder_hidden_dims,
-        learning_rate=learning_rate,
-        use_size_factor=use_size_factor,
-        size_factor_key=size_factor_key,
-        layer_key=layer_key,
-        covariates_keys=covariates_keys,
-        covariates_dims=covariates_dims,
-        known_cis_eqtls=known_cis_eqtls,
-        eqtl_genotypes=eqtl_genotypes,
-        warmup_epochs_vae=warmup_epochs_vae,
-        warmup_epochs_G=warmup_epochs_G,
-        max_epochs=max_epochs,
-        min_epochs=min_epochs,
-        batch_size=batch_size,
-        seed=seed,
-        l1_weight=l1_weight,
-        A_weight=A_weight,
-        batch_norm_decoder=batch_norm_decoder,
-        genetics_seed=genetics_seed,
-        cell_state_cis=cell_state_cis,
-        num_workers=num_workers,
-        strict=strict,
-        drop_last=drop_last,
-        shuffle=shuffle,
-        pin_memory=pin_memory,
-        device=device,
-        runner=runner,
-    )
+    shared_kwargs = {
+        "adata": adata,
+        "individual_col": individual_col,
+        "output_dir": output_dir,
+        "n_genes": n_genes,
+        "n_donors": n_donors,
+        "z_dim": z_dim,
+        "n_dxc_factors": n_dxc_factors,
+        "n_persistent_factors": n_persistent_factors,
+        "n_cis_snps": n_cis_snps,
+        "encoder_hidden_dims": encoder_hidden_dims,
+        "learning_rate": learning_rate,
+        "use_size_factor": use_size_factor,
+        "size_factor_key": size_factor_key,
+        "layer_key": layer_key,
+        "covariates_keys": covariates_keys,
+        "covariates_dims": covariates_dims,
+        "known_cis_eqtls": known_cis_eqtls,
+        "eqtl_genotypes": eqtl_genotypes,
+        "warmup_epochs_vae": warmup_epochs_vae,
+        "warmup_epochs_G": warmup_epochs_G,
+        "max_epochs": max_epochs,
+        "min_epochs": min_epochs,
+        "batch_size": batch_size,
+        "seed": seed,
+        "l1_weight": l1_weight,
+        "A_weight": A_weight,
+        "batch_norm_decoder": batch_norm_decoder,
+        "genetics_seed": genetics_seed,
+        "cell_state_cis": cell_state_cis,
+        "num_workers": num_workers,
+        "strict": strict,
+        "drop_last": drop_last,
+        "shuffle": shuffle,
+        "pin_memory": pin_memory,
+        "device": device,
+        "runner": runner,
+    }
 
     if runner.execution_mode == "python_api":
         return _train_livi_python_api(
@@ -819,13 +815,13 @@ def infer_livi(
     adata_or_dd,
     checkpoint_path: str,
     *,
-    individual_col: Optional[str] = None,
-    layer_key: Optional[str] = None,
+    individual_col: str | None = None,
+    layer_key: str | None = None,
     batch_size: int = 50_000,
-    variance_threshold: Optional[float] = None,
-    device: Optional[str] = None,
-    runner: Optional[LIVIRunner] = None,
-) -> Dict[str, pd.DataFrame]:
+    variance_threshold: float | None = None,
+    device: str | None = None,
+    runner: LIVIRunner | None = None,
+) -> dict[str, pd.DataFrame]:
     """Extract latent factors from a trained LIVI model.
 
     Runs batch-wise inference to obtain cell-state latent factors for every
@@ -882,7 +878,7 @@ def infer_livi(
     --------
     >>> results = cl.tl.external.infer_livi(dd, "livi_out/checkpoints/best.ckpt")
     >>> cell_state = results["cell_state_latent"]  # cells × z_dim
-    >>> D_embed = results["D_embedding"]           # donors × DxC
+    >>> D_embed = results["D_embedding"]  # donors × DxC
     """
     import torch
 
@@ -906,9 +902,7 @@ def infer_livi(
     model.eval()
 
     # Factorize donors — order must match training factorisation
-    _, y_index = pd.factorize(
-        adata.obs[individual_col], sort=False, use_na_sentinel=False
-    )
+    _, y_index = pd.factorize(adata.obs[individual_col], sort=False, use_na_sentinel=False)
 
     dataset = LIVIDataset(
         adata=adata,
@@ -925,7 +919,7 @@ def infer_livi(
 
     n_cells = len(dataset)
     # Build batch index lists
-    batch_index_lists: List[List[int]] = []
+    batch_index_lists: list[list[int]] = []
     start = 0
     while start < n_cells:
         end = min(start + batch_size, n_cells)
@@ -933,7 +927,7 @@ def infer_livi(
         start = end
 
     z_factor_cols = [f"Cell-state_Factor{f}" for f in range(1, model.z_dim + 1)]
-    cell_state_chunks: List[pd.DataFrame] = []
+    cell_state_chunks: list[pd.DataFrame] = []
     device_obj = torch.device(device)
 
     for idx_list in batch_index_lists:
@@ -944,19 +938,15 @@ def infer_livi(
                 y=data["y"].to(device_obj),
             )
         z_np = batch_res["cell-state_latent"].detach().cpu().numpy()
-        cell_state_chunks.append(
-            pd.DataFrame(z_np, index=adata.obs.index[idx_list], columns=z_factor_cols)
-        )
+        cell_state_chunks.append(pd.DataFrame(z_np, index=adata.obs.index[idx_list], columns=z_factor_cols))
 
     cell_state_latent = pd.concat(cell_state_chunks, axis=0)
 
-    results: Dict[str, pd.DataFrame] = {"cell_state_latent": cell_state_latent}
+    results: dict[str, pd.DataFrame] = {"cell_state_latent": cell_state_latent}
 
     # Cell-state decoder weights — shape (n_genes, z_dim)
     cs_dec_np = model.decoder.mean[0].weight.detach().cpu().numpy()
-    results["cell_state_decoder"] = pd.DataFrame(
-        cs_dec_np, index=adata.var.index, columns=z_factor_cols
-    )
+    results["cell_state_decoder"] = pd.DataFrame(cs_dec_np, index=adata.var.index, columns=z_factor_cols)
 
     # Donor embeddings — access weight tensors directly (avoids n_cells overhead)
     n_unique_donors = len(y_index)
@@ -992,30 +982,28 @@ def infer_livi(
         results["V_embedding"] = pd.DataFrame(V_np, index=y_index, columns=v_cols)
 
         V_dec_np = model.decoder.persistent_decoder[0].weight.detach().cpu().numpy()
-        results["V_decoder"] = pd.DataFrame(
-            V_dec_np, index=adata.var.index, columns=v_cols
-        )
+        results["V_decoder"] = pd.DataFrame(V_dec_np, index=adata.var.index, columns=v_cols)
 
     return results
 
 
 def run_livi_association_testing(
-    inference_results: Dict[str, pd.DataFrame],
-    genotype_matrix: Union[str, "pd.DataFrame", object],
+    inference_results: dict[str, pd.DataFrame],
+    genotype_matrix: str | pd.DataFrame | object,
     output_dir: str,
     *,
     method: Literal["LMM", "TensorQTL"] = "LMM",
-    kinship: Optional[Union[str, "pd.DataFrame"]] = None,
-    genotype_pcs: Optional[Union[str, "pd.DataFrame"]] = None,
-    covariates: Optional["pd.DataFrame"] = None,
+    kinship: str | pd.DataFrame | None = None,
+    genotype_pcs: str | pd.DataFrame | None = None,
+    covariates: pd.DataFrame | None = None,
     fdr_threshold: float = 0.05,
     fdr_method: str = "Benjamini-Hochberg",
     quantile_norm: bool = False,
-    variance_threshold: Optional[float] = None,
-    variable_factors: Optional[List[int]] = None,
+    variance_threshold: float | None = None,
+    variable_factors: list[int] | None = None,
     output_file_prefix: str = "livi",
-    runner: Optional[LIVIRunner] = None,
-) -> Union[pd.DataFrame, Tuple[pd.DataFrame, Optional[pd.DataFrame]]]:
+    runner: LIVIRunner | None = None,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame | None]:
     """Run genetic association testing on LIVI donor embeddings.
 
     Performs trans-eQTL-style testing between LIVI's learned donor
@@ -1105,10 +1093,7 @@ def run_livi_association_testing(
     V_persistent = inference_results.get("V_embedding")
 
     if D_context is None and V_persistent is None:
-        raise ValueError(
-            "inference_results contains neither 'D_embedding' nor 'V_embedding'. "
-            "Run infer_livi first."
-        )
+        raise ValueError("inference_results contains neither 'D_embedding' nor 'V_embedding'. " "Run infer_livi first.")
 
     # Resolve DonorData → extract dd.G components
     try:
@@ -1153,9 +1138,7 @@ def run_livi_association_testing(
     # For LMM, livi_testing does NOT merge genotype_pcs into covariates (only TensorQTL
     # does). Merge them here so they are available as fixed effects.
     if method in ("LMM", "LIMIX") and genotype_pcs is not None:
-        covariates = covariates.merge(
-            genotype_pcs, how="left", left_index=True, right_index=True
-        )
+        covariates = covariates.merge(genotype_pcs, how="left", left_index=True, right_index=True)
 
     results = run_assoc(
         D_context=D_context,
@@ -1180,11 +1163,11 @@ def run_livi_association_testing(
 
 
 def save_livi_results(
-    results: Dict[str, pd.DataFrame],
+    results: dict[str, pd.DataFrame],
     output_dir: str,
     prefix: str = "livi",
     sep: str = "\t",
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Save :func:`infer_livi` results as TSV files.
 
     Parameters
@@ -1204,7 +1187,7 @@ def save_livi_results(
         Mapping of result key → saved file path.
     """
     os.makedirs(output_dir, exist_ok=True)
-    paths: Dict[str, str] = {}
+    paths: dict[str, str] = {}
     for key, df in results.items():
         if df is None:
             continue
@@ -1219,7 +1202,7 @@ def load_livi_results(
     output_dir: str,
     prefix: str = "livi",
     sep: str = "\t",
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """Load TSV files written by :func:`save_livi_results`.
 
     Parameters
@@ -1245,7 +1228,7 @@ def load_livi_results(
         "V_decoder",
         "assignment_matrix",
     ]
-    results: Dict[str, pd.DataFrame] = {}
+    results: dict[str, pd.DataFrame] = {}
     for key in keys:
         path = os.path.join(output_dir, f"{prefix}_{key}.tsv")
         if os.path.exists(path):

@@ -57,11 +57,11 @@ cellink-pgen rare.pgen -o rare.zarr --sparse
 
 ## Chunking and Memory Control
 
-| Argument | Default | Description |
-|---|---|---|
-| `--chunk-samples` | `4096` | Zarr chunk size along the sample axis |
-| `--chunk-variants` | `2048` | Zarr chunk size along the variant axis |
-| `--memory-limit` | `10.0` | Max RAM per read block, in GB |
+| Argument           | Default | Description                            |
+| ------------------ | ------- | -------------------------------------- |
+| `--chunk-samples`  | `4096`  | Zarr chunk size along the sample axis  |
+| `--chunk-variants` | `2048`  | Zarr chunk size along the variant axis |
+| `--memory-limit`   | `10.0`  | Max RAM per read block, in GB          |
 
 The read block size (`vblock`) is computed as:
 
@@ -79,10 +79,10 @@ Chunk sizes directly affect downstream Dask task graphs. Smaller chunks increase
 
 Blosc with bitshuffle is applied to the dense Zarr dataset:
 
-| Argument | Default | Options |
-|---|---|---|
-| `--compressor` | `zstd` | `zstd`, `lz4`, `zlib` |
-| `--compression-level` | `7` | `1`–`9` |
+| Argument              | Default | Options               |
+| --------------------- | ------- | --------------------- |
+| `--compressor`        | `zstd`  | `zstd`, `lz4`, `zlib` |
+| `--compression-level` | `7`     | `1`–`9`               |
 
 Bitshuffle is particularly effective for low-cardinality integer arrays like dosage-encoded genotypes (values 0, 1, 2), often yielding better compression than byteshuffle at the same level.
 
@@ -90,10 +90,10 @@ Bitshuffle is particularly effective for low-cardinality integer arrays like dos
 
 ## Other Options
 
-| Argument | Description |
-|---|---|
+| Argument           | Description                                      |
+| ------------------ | ------------------------------------------------ |
 | `--max-variants N` | Cap variants per input file (useful for testing) |
-| `--max-samples N` | Cap samples taken from the `.psam` |
+| `--max-samples N`  | Cap samples taken from the `.psam`               |
 
 ---
 

@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -18,22 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 TISSUE_CODES = {
-    "BLD":  "Blood",
-    "BRN":  "Brain",
-    "GI":   "Colon/Intestine",
-    "LNG":  "Lung",
-    "LIV":  "Liver",
-    "KID":  "Kidney",
+    "BLD": "Blood",
+    "BRN": "Brain",
+    "GI": "Colon/Intestine",
+    "LNG": "Lung",
+    "LIV": "Liver",
+    "KID": "Kidney",
     "SKIN": "Skin",
-    "FAT":  "Adipose",
-    "HRT":  "Heart",
+    "FAT": "Adipose",
+    "HRT": "Heart",
 }
 
 
-_SCLINKER_GCS_BASE = (
-    "https://storage.googleapis.com/broad-alkesgroup-public"
-    "/LDSCORE/Jagadeesh_Dey_sclinker/extras"
-)
+_SCLINKER_GCS_BASE = "https://storage.googleapis.com/broad-alkesgroup-public" "/LDSCORE/Jagadeesh_Dey_sclinker/extras"
 
 
 def _http_download(url: str, dest: Path) -> None:
@@ -44,18 +40,20 @@ def _http_download(url: str, dest: Path) -> None:
     logger.info(f"Downloading {url}")
     try:
         from cellink.resources._utils import _download_file
+
         _download_file(url, dest, checksum=None)
-    except Exception:
+    except Exception:  # noqa: BLE001
         import urllib.request
+
         urllib.request.urlretrieve(url, str(dest))
 
 
 def download_sclinker_enhancer_links(
-    out_dir: Union[str, Path] = "sclinker_refs",
+    out_dir: str | Path = "sclinker_refs",
     *,
-    tissue: Optional[str] = None,
-    chromosomes: List[int] = list(range(1, 23)),
-) -> Dict[str, Path]:
+    tissue: str | None = None,
+    chromosomes: list[int] | None = None,
+) -> dict[str, Path]:
     """
     Download the sc-linker enhancer-gene reference files from GCS.
 
@@ -105,7 +103,7 @@ def download_sclinker_enhancer_links(
         ),
     }
 
-    downloaded: Dict[str, Path] = {}
+    downloaded: dict[str, Path] = {}
     for key, (fname, dest) in files.items():
         _http_download(f"{_SCLINKER_GCS_BASE}/{fname}", dest)
         downloaded[key] = dest
@@ -116,14 +114,15 @@ def download_sclinker_enhancer_links(
 
 def _symlink_annots_into_ld_dir(annot_prefix: str, ld_prefix: str) -> None:
     """
-    Symlink .annot.gz files from the annotations directory into the LD scores
-    directory. LDSC --overlap-annot looks for {ref-ld-chr}{chrom}.annot.gz
+    Symlink .annot.gz files from the annotations directory into the LD scores directory.
+
+    LDSC --overlap-annot looks for {ref-ld-chr}{chrom}.annot.gz
     at the same prefix as the LD score files. Cellink writes them separately,
     so we symlink (or copy if cross-filesystem) them into place.
     """
     annot_dir = Path(annot_prefix).parent
-    ld_dir    = Path(ld_prefix).parent
-    stem      = Path(annot_prefix).name 
+    ld_dir = Path(ld_prefix).parent
+    stem = Path(annot_prefix).name
 
     if not annot_dir.exists():
         logger.warning(f"Annotation directory not found: {annot_dir}")
@@ -138,6 +137,7 @@ def _symlink_annots_into_ld_dir(annot_prefix: str, ld_prefix: str) -> None:
                 linked += 1
             except OSError:
                 import shutil as _shutil
+
                 _shutil.copy2(annot_file, link)
                 linked += 1
     if linked:
@@ -145,16 +145,16 @@ def _symlink_annots_into_ld_dir(annot_prefix: str, ld_prefix: str) -> None:
 
 
 def run_sclinker_heritability(
-    ld_prefixes: Dict[str, Dict[str, str]],
-    sumstats_files: List[str],
+    ld_prefixes: dict[str, dict[str, str]],
+    sumstats_files: list[str],
     ref_ld_chr: str,
     w_ld_chr: str,
-    out_dir: Union[str, Path],
+    out_dir: str | Path,
     *,
-    annotation_prefixes: Optional[Dict[str, Dict[str, str]]] = None,
-    frqfile_chr: Optional[str] = None,
+    annotation_prefixes: dict[str, dict[str, str]] | None = None,
+    frqfile_chr: str | None = None,
     runner=None,
-) -> Dict[str, Dict[str, Dict[str, str]]]:
+) -> dict[str, dict[str, dict[str, str]]]:
     """
     Run S-LDSC ``--h2 --overlap-annot`` for every (program, strategy, trait).
 
@@ -199,8 +199,8 @@ def run_sclinker_heritability(
     """
     try:
         from cellink.tl.external._ldsc import estimate_heritability, get_ldsc_runner
-    except ImportError:
-        raise ImportError("cellink._ldsc is required for run_sclinker_heritability")
+    except ImportError as e:
+        raise ImportError("cellink._ldsc is required for run_sclinker_heritability") from e
 
     if runner is None:
         runner = get_ldsc_runner()
@@ -214,7 +214,7 @@ def run_sclinker_heritability(
 
     out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    results: Dict[str, Dict[str, Dict[str, str]]] = {}
+    results: dict[str, dict[str, dict[str, str]]] = {}
 
     for program, strategies in ld_prefixes.items():
         results[program] = {}
@@ -226,10 +226,8 @@ def run_sclinker_heritability(
             if annotation_prefixes and program in annotation_prefixes:
                 annot_prefix = annotation_prefixes[program].get(strategy_name)
             else:
-                annot_prefix = (
-                    ld_prefix
-                    .replace("/ldscores/", "/annotations/")
-                    .replace(os.sep + "ldscores" + os.sep, os.sep + "annotations" + os.sep)
+                annot_prefix = ld_prefix.replace("/ldscores/", "/annotations/").replace(
+                    os.sep + "ldscores" + os.sep, os.sep + "annotations" + os.sep
                 )
             if annot_prefix:
                 _symlink_annots_into_ld_dir(annot_prefix, ld_prefix)
@@ -261,9 +259,9 @@ def run_sclinker_heritability(
 
 
 def download_sclinker_references(
-    out_dir: Union[str, Path] = "sclinker_references",
-    tissue: Optional[str] = None,
-) -> Dict[str, Path]:
+    out_dir: str | Path = "sclinker_references",
+    tissue: str | None = None,
+) -> dict[str, Path]:
     """
     Download sc-linker reference files.
 
@@ -300,14 +298,13 @@ def download_sclinker_references(
     chromosomes
         Ignored (kept for API compatibility).
     """
-
     return download_sclinker_enhancer_links(
         out_dir=out_dir,
         tissue=tissue,
     )
 
 
-def load_roadmap_eid_map(eid_file: Union[str, Path]) -> Dict[str, str]:
+def load_roadmap_eid_map(eid_file: str | Path) -> dict[str, str]:
     """
     Load the Roadmap EID → tissue-name mapping from ``Roadmap_map_EID_names.txt``.
 
@@ -315,13 +312,13 @@ def load_roadmap_eid_map(eid_file: Union[str, Path]) -> Dict[str, str]:
     (e.g. ``"Primary mononuclear cells from peripheral blood"``).
     """
     df = pd.read_csv(eid_file, sep="\t", header=None, names=["EID", "tissue"])
-    return dict(zip(df["EID"].str.strip(), df["tissue"].str.strip()))
+    return dict(zip(df["EID"].str.strip(), df["tissue"].str.strip(), strict=False))
 
 
 def load_roadmap_links(
-    roadmap_file: Union[str, Path],
-    tissue: Optional[str] = None,
-    eid_map_file: Optional[Union[str, Path]] = None,
+    roadmap_file: str | Path,
+    tissue: str | None = None,
+    eid_map_file: str | Path | None = None,
 ) -> pd.DataFrame:
     """
     Load Roadmap enhancer-gene links from the combined all-tissue file.
@@ -349,41 +346,49 @@ def load_roadmap_links(
     -------
     pd.DataFrame with columns: chr, start, end, Gene, EID, activity (score).
     """
-
     df = pd.read_csv(roadmap_file, sep=",", compression="infer")
     if len(df.columns) == 1:
         df = pd.read_csv(roadmap_file, sep="\t", compression="infer")
     df.columns = [c.strip() for c in df.columns]
-    logger.info(
-        f"Loaded {len(df):,} Roadmap links from {Path(roadmap_file).name}. "
-        f"Columns: {df.columns.tolist()}"
-    )
+    logger.info(f"Loaded {len(df):,} Roadmap links from {Path(roadmap_file).name}. " f"Columns: {df.columns.tolist()}")
 
     if tissue is not None:
         tissue_upper = tissue.upper()
         tissue_keywords = {
-            "BLD":  ["blood", "mononuclear", "t cell", "t-cell", "b cell", "b-cell",
-                     "nk cell", "cd4", "cd8", "erythro", "hsc", "monocyte",
-                     "neutrophil", "lymph"],
-            "BRN":  ["brain", "neuron", "cortex", "cerebellum", "hippocampus",
-                     "neural", "glia"],
-            "GI":   ["colon", "intestin", "sigmoid", "rectum", "duodenum",
-                     "stomach", "bowel", "gastrointestinal"],
-            "LNG":  ["lung", "bronchial", "alveolar", "pulmonary"],
-            "LIV":  ["liver", "hepat"],
-            "KID":  ["kidney", "renal"],
-            "SKIN": ["skin", "keratinocyte", "fibroblast", "melanocyte", "dermis",
-                     "epiderm"],
-            "FAT":  ["adipos", "fat", "adipocyte"],
-            "HRT":  ["heart", "cardiac", "cardiomyo", "ventricle", "aorta"],
+            "BLD": [
+                "blood",
+                "mononuclear",
+                "t cell",
+                "t-cell",
+                "b cell",
+                "b-cell",
+                "nk cell",
+                "cd4",
+                "cd8",
+                "erythro",
+                "hsc",
+                "monocyte",
+                "neutrophil",
+                "lymph",
+            ],
+            "BRN": ["brain", "neuron", "cortex", "cerebellum", "hippocampus", "neural", "glia"],
+            "GI": ["colon", "intestin", "sigmoid", "rectum", "duodenum", "stomach", "bowel", "gastrointestinal"],
+            "LNG": ["lung", "bronchial", "alveolar", "pulmonary"],
+            "LIV": ["liver", "hepat"],
+            "KID": ["kidney", "renal"],
+            "SKIN": ["skin", "keratinocyte", "fibroblast", "melanocyte", "dermis", "epiderm"],
+            "FAT": ["adipos", "fat", "adipocyte"],
+            "HRT": ["heart", "cardiac", "cardiomyo", "ventricle", "aorta"],
         }
         keywords = tissue_keywords.get(tissue_upper, [tissue_upper.lower()])
 
         tissue_col = next(
-            (c for c in df.columns
-             if c.lower() in ("tissuename", "tissue_name", "tissue", "celltype",
-                              "cell_type", "biosample")),
-            None
+            (
+                c
+                for c in df.columns
+                if c.lower() in ("tissuename", "tissue_name", "tissue", "celltype", "cell_type", "biosample")
+            ),
+            None,
         )
         if tissue_col is not None:
             pattern = "|".join(re.escape(kw) for kw in keywords)
@@ -396,14 +401,8 @@ def load_roadmap_links(
 
         elif eid_map_file is not None:
             eid_map = load_roadmap_eid_map(eid_map_file)
-            matching_eids = {
-                eid for eid, name in eid_map.items()
-                if any(kw in name.lower() for kw in keywords)
-            }
-            eid_col = next(
-                (c for c in df.columns if "eid" in c.lower() or c.upper() == "EID"),
-                None
-            )
+            matching_eids = {eid for eid, name in eid_map.items() if any(kw in name.lower() for kw in keywords)}
+            eid_col = next((c for c in df.columns if "eid" in c.lower() or c.upper() == "EID"), None)
             if eid_col and matching_eids:
                 df = df[df[eid_col].isin(matching_eids)]
                 logger.info(
@@ -441,8 +440,8 @@ def load_roadmap_links(
 
 
 def load_abc_links(
-    abc_file: Union[str, Path],
-    tissue: Optional[str] = None,
+    abc_file: str | Path,
+    tissue: str | None = None,
 ) -> pd.DataFrame:
     """
     Load ABC model enhancer-gene predictions from the combined all-tissue file.
@@ -466,38 +465,28 @@ def load_abc_links(
     """
     df = pd.read_csv(abc_file, sep="\t", compression="infer")
     df.columns = [c.strip() for c in df.columns]
-    logger.info(
-        f"Loaded {len(df):,} ABC predictions from {Path(abc_file).name}. "
-        f"Columns: {df.columns.tolist()}"
-    )
+    logger.info(f"Loaded {len(df):,} ABC predictions from {Path(abc_file).name}. " f"Columns: {df.columns.tolist()}")
 
     if tissue is not None:
         tissue_keywords = {
             "BLD": ["blood", "k562", "gm12878", "cd4", "cd8", "nk-cell", "monocyte"],
             "BRN": ["brain", "neuron", "astrocyte", "microglia"],
-            "GI":  ["colon", "intestin", "sigmoid", "rectum", "transverse"],
+            "GI": ["colon", "intestin", "sigmoid", "rectum", "transverse"],
             "LNG": ["lung", "bronchial", "alveolar", "imr90"],
             "LIV": ["liver", "hepg2", "hepat"],
             "KID": ["kidney"],
             "SKIN": ["skin", "keratinocyte", "fibroblast", "melanocyte", "dermis"],
-            "FAT":  ["adipos", "fat"],
-            "HRT":  ["heart", "cardiac", "cardiomyo"],
+            "FAT": ["adipos", "fat"],
+            "HRT": ["heart", "cardiac", "cardiomyo"],
         }
         keywords = tissue_keywords.get(tissue.upper(), [tissue.lower()])
 
-        cell_col = next(
-            (c for c in df.columns
-             if c.lower() in ("celltype", "cell_type", "tissue", "biosample")),
-            None
-        )
+        cell_col = next((c for c in df.columns if c.lower() in ("celltype", "cell_type", "tissue", "biosample")), None)
         if cell_col:
             pattern = "|".join(re.escape(kw) for kw in keywords)
             mask = df[cell_col].str.lower().str.contains(pattern, regex=True, na=False)
             df = df[mask]
-            logger.info(
-                f"Filtered to {len(df):,} ABC rows for tissue={tissue} "
-                f"(keywords: {keywords})"
-            )
+            logger.info(f"Filtered to {len(df):,} ABC rows for tissue={tissue} " f"(keywords: {keywords})")
         else:
             logger.warning(
                 f"Could not find CellType column for tissue={tissue} filtering. "
@@ -510,7 +499,7 @@ def load_abc_links(
 
 _GENE_COORD_CACHE = {
     "ensembl": "gene_coord_ensembl.txt",
-    "hgnc":    "gene_coord_hgnc.txt",
+    "hgnc": "gene_coord_hgnc.txt",
 }
 _VALID_CHRS = {str(c) for c in range(1, 23)} | {"X", "Y", "MT"}
 
@@ -529,21 +518,24 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
         from pybiomart import Server
     except ImportError as exc:
         raise ImportError(
-            "pybiomart is required to generate the gene coordinate file.\n"
-            "Install it with:  pip install pybiomart"
+            "pybiomart is required to generate the gene coordinate file.\n" "Install it with:  pip install pybiomart"
         ) from exc
 
     logger.info("Querying Ensembl BioMart for human gene coordinates ...")
-    server  = Server(host="http://www.ensembl.org")
+    server = Server(host="http://www.ensembl.org")
     dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
 
-    df = retry_with_backoff(lambda: dataset.query(attributes=[
-        "ensembl_gene_id",
-        "external_gene_name",
-        "chromosome_name",
-        "start_position",
-        "end_position",
-    ]))
+    df = retry_with_backoff(
+        lambda: dataset.query(
+            attributes=[
+                "ensembl_gene_id",
+                "external_gene_name",
+                "chromosome_name",
+                "start_position",
+                "end_position",
+            ]
+        )
+    )
     df.columns = ["ensembl_gene_id", "hgnc_name", "CHR", "START", "END"]
 
     df = df[df["CHR"].astype(str).isin(_VALID_CHRS)]
@@ -556,17 +548,15 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
     def _dedup(frame: pd.DataFrame) -> pd.DataFrame:
         """
         Deduplicate on GENE, keeping the widest genomic span per gene.
+
         BioMart returns one row per transcript, so a single gene can appear
         many times.  We collapse to one row per unique GENE name: smallest
         START and largest END across all transcripts, which gives the full
         gene body extent.  This is what LDSC uses for window-based annotations.
         """
-        return (
-            frame
-            .groupby("GENE", as_index=False)
-            .agg(CHR=("CHR", "first"), START=("START", "min"), END=("END", "max"))
-            [["GENE", "CHR", "START", "END"]] 
-        )
+        return frame.groupby("GENE", as_index=False).agg(
+            CHR=("CHR", "first"), START=("START", "min"), END=("END", "max")
+        )[["GENE", "CHR", "START", "END"]]
 
     ensg = df[["ensembl_gene_id", "CHR", "START", "END"]].copy()
     ensg.columns = ["GENE", "CHR", "START", "END"]
@@ -583,9 +573,9 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
 
 
 def get_gene_annotation(
-    path: Optional[Union[str, Path]] = None,
+    path: str | Path | None = None,
     gene_id_type: str = "hgnc",
-    data_home: Optional[Union[str, Path]] = None,
+    data_home: str | Path | None = None,
     refresh: bool = False,
 ) -> Path:
     """
@@ -630,16 +620,15 @@ def get_gene_annotation(
         If ``pybiomart`` is not installed and no cached/explicit file exists.
     """
     if gene_id_type not in _GENE_COORD_CACHE:
-        raise ValueError(
-            f"gene_id_type must be 'ensembl' or 'hgnc', got {gene_id_type!r}"
-        )
+        raise ValueError(f"gene_id_type must be 'ensembl' or 'hgnc', got {gene_id_type!r}")
 
     if path is not None and Path(path).exists():
         return Path(path)
 
     from cellink.resources._utils import get_data_home
+
     data_dir = Path(get_data_home(data_home))
-    cache    = data_dir / _GENE_COORD_CACHE[gene_id_type]
+    cache = data_dir / _GENE_COORD_CACHE[gene_id_type]
 
     if cache.exists() and not refresh:
         logger.info(f"Using cached gene coordinates ({gene_id_type}): {cache}")
@@ -650,9 +639,9 @@ def get_gene_annotation(
 
 
 def load_gene_annotation(
-    gene_annotation_file: Optional[Union[str, Path]] = None,
+    gene_annotation_file: str | Path | None = None,
     gene_id_type: str = "hgnc",
-    data_home: Optional[Union[str, Path]] = None,
+    data_home: str | Path | None = None,
     refresh: bool = False,
 ) -> pd.DataFrame:
     """
@@ -683,10 +672,7 @@ def load_gene_annotation(
     resolved = get_gene_annotation(gene_annotation_file, gene_id_type, data_home, refresh)
     df = pd.read_csv(resolved, sep=" ")
     df.columns = [c.strip() for c in df.columns]
-    logger.info(
-        f"Loaded {len(df):,} gene coordinates "
-        f"(gene_id_type='{gene_id_type}') from {resolved.name}"
-    )
+    logger.info(f"Loaded {len(df):,} gene coordinates " f"(gene_id_type='{gene_id_type}') from {resolved.name}")
     return df
 
 
@@ -695,15 +681,15 @@ def genescores_to_abc_road_bedgraph(
     roadmap_links: pd.DataFrame,
     abc_links: pd.DataFrame,
     *,
-    roadmap_gene_col: Optional[str] = None,
-    roadmap_activity_col: Optional[str] = None,
-    abc_gene_col: Optional[str] = None,
-    abc_activity_col: Optional[str] = None,
+    roadmap_gene_col: str | None = None,
+    roadmap_activity_col: str | None = None,
+    abc_gene_col: str | None = None,
+    abc_activity_col: str | None = None,
     chr_col: str = "chr",
     start_col: str = "start",
     end_col: str = "end",
     use_bedtools_for_merge: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Convert gene scores to ABC_Road bedgraphs (Roadmap ∪ ABC strategy).
 
@@ -745,16 +731,11 @@ def genescores_to_abc_road_bedgraph(
     dict
         Program name → bedgraph DataFrame (chr, start, end, score).
     """
-
-    _ROADMAP_GENE_CANDIDATES = ["Gene", "gene", "GENE", "gene_name", "GeneName",
-                                 "target_gene", "TargetGene"]
-    _ABC_GENE_CANDIDATES     = ["TargetGene", "target_gene", "Gene", "gene",
-                                 "GENE", "GeneName", "gene_name"]
+    _ROADMAP_GENE_CANDIDATES = ["Gene", "gene", "GENE", "gene_name", "GeneName", "target_gene", "TargetGene"]
+    _ABC_GENE_CANDIDATES = ["TargetGene", "target_gene", "Gene", "gene", "GENE", "GeneName", "gene_name"]
 
     if roadmap_gene_col is None:
-        roadmap_gene_col = next(
-            (c for c in _ROADMAP_GENE_CANDIDATES if c in roadmap_links.columns), None
-        )
+        roadmap_gene_col = next((c for c in _ROADMAP_GENE_CANDIDATES if c in roadmap_links.columns), None)
         if roadmap_gene_col is None:
             raise KeyError(
                 f"Cannot find a gene-name column in roadmap_links. "
@@ -764,9 +745,7 @@ def genescores_to_abc_road_bedgraph(
         logger.info(f"Auto-detected Roadmap gene column: '{roadmap_gene_col}'")
 
     if abc_gene_col is None:
-        abc_gene_col = next(
-            (c for c in _ABC_GENE_CANDIDATES if c in abc_links.columns), None
-        )
+        abc_gene_col = next((c for c in _ABC_GENE_CANDIDATES if c in abc_links.columns), None)
         if abc_gene_col is None:
             raise KeyError(
                 f"Cannot find a gene-name column in abc_links. "
@@ -786,17 +765,17 @@ def genescores_to_abc_road_bedgraph(
     abc_links = abc_links.copy()
     abc_links["_gene_upper"] = abc_links[abc_gene_col].str.upper()
 
-    roadmap_activity_col_r = roadmap_activity_col 
-    abc_activity_col_r     = abc_activity_col
+    roadmap_activity_col_r = roadmap_activity_col
+    abc_activity_col_r = abc_activity_col
 
     def _build_gene_index(
         links: pd.DataFrame,
-        activity_col: Optional[str],
-    ) -> Dict[str, np.ndarray]:
+        activity_col: str | None,
+    ) -> dict[str, np.ndarray]:
         """
-        Return {gene_upper: array of shape (N, 4)} where columns are
-        [chr_idx, start, end, weight].  chr is stored as a categorical int
-        to avoid per-row string operations in the hot loop.
+        Return {gene_upper: array of shape (N, 4)} where columns are [chr_idx, start, end, weight].
+
+        chr is stored as a categorical int to avoid per-row string operations in the hot loop.
         """
         cols = ["_gene_upper", chr_col, start_col, end_col]
         if activity_col and activity_col in links.columns:
@@ -810,10 +789,10 @@ def genescores_to_abc_road_bedgraph(
 
         sub = links[cols].copy()
         sub[start_col] = sub[start_col].astype(np.int64)
-        sub[end_col]   = sub[end_col].astype(np.int64)
+        sub[end_col] = sub[end_col].astype(np.int64)
         sub[weight_col] = sub[weight_col].astype(np.float64)
 
-        index: Dict[str, tuple] = {}
+        index: dict[str, tuple] = {}
         for gene, grp in sub.groupby("_gene_upper", sort=False):
             index[gene] = (
                 grp[chr_col].to_numpy(),
@@ -831,7 +810,7 @@ def genescores_to_abc_road_bedgraph(
     abc_idx = _build_gene_index(abc_links, abc_activity_col_r)
     logger.info(f"  {len(abc_idx):,} unique genes in ABC index")
 
-    bedgraphs: Dict[str, pd.DataFrame] = {}
+    bedgraphs: dict[str, pd.DataFrame] = {}
 
     for program in genescores.columns:
         scores = genescores[program]
@@ -855,21 +834,23 @@ def genescores_to_abc_road_bedgraph(
                 ends_a.append(ends_g)
                 scores_a.append(weights_g * gene_score)
 
-        all_chrs   = (np.concatenate(chrs_r   + chrs_a)   if chrs_r   or chrs_a   else np.array([], dtype=object))
-        all_starts = (np.concatenate(starts_r + starts_a) if starts_r or starts_a else np.array([], dtype=np.int64))
-        all_ends   = (np.concatenate(ends_r   + ends_a)   if ends_r   or ends_a   else np.array([], dtype=np.int64))
-        all_scores = (np.concatenate(scores_r + scores_a) if scores_r or scores_a else np.array([], dtype=np.float64))
+        all_chrs = np.concatenate(chrs_r + chrs_a) if chrs_r or chrs_a else np.array([], dtype=object)
+        all_starts = np.concatenate(starts_r + starts_a) if starts_r or starts_a else np.array([], dtype=np.int64)
+        all_ends = np.concatenate(ends_r + ends_a) if ends_r or ends_a else np.array([], dtype=np.int64)
+        all_scores = np.concatenate(scores_r + scores_a) if scores_r or scores_a else np.array([], dtype=np.float64)
 
         if len(all_chrs) == 0:
             logger.warning(f"No enhancer-linked intervals for program '{program}'")
             continue
 
-        bg = pd.DataFrame({
-            "chr":   all_chrs,
-            "start": all_starts,
-            "end":   all_ends,
-            "score": all_scores,
-        })
+        bg = pd.DataFrame(
+            {
+                "chr": all_chrs,
+                "start": all_starts,
+                "end": all_ends,
+                "score": all_scores,
+            }
+        )
 
         if use_bedtools_for_merge and shutil.which("bedtools"):
             bg = _merge_bedgraph_bedtools(bg)
@@ -891,7 +872,7 @@ def genescores_to_100kb_bedgraph(
     start_col: str = "START",
     end_col: str = "END",
     use_bedtools_for_merge: bool = True,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Convert gene scores to 100kb window bedgraphs.
 
@@ -928,11 +909,11 @@ def genescores_to_100kb_bedgraph(
     ga = gene_annotation.copy()
     ga["_gene_upper"] = ga[gene_col].str.upper()
     ga = ga.set_index("_gene_upper")
-    ga_chr   = ga[chr_col].to_dict()
+    ga_chr = ga[chr_col].to_dict()
     ga_start = ga[start_col].to_dict()
-    ga_end   = ga[end_col].to_dict()
+    ga_end = ga[end_col].to_dict()
 
-    bedgraphs: Dict[str, pd.DataFrame] = {}
+    bedgraphs: dict[str, pd.DataFrame] = {}
 
     if genescores.index.duplicated().any():
         n_before = len(genescores)
@@ -941,15 +922,14 @@ def genescores_to_100kb_bedgraph(
 
     common_genes = genescores.index[genescores.index.isin(ga_chr)]
     if len(common_genes) == 0:
-        logger.warning("No overlap between genescores genes and gene_annotation. "
-                       "Check gene_id_type.")
+        logger.warning("No overlap between genescores genes and gene_annotation. " "Check gene_id_type.")
         return bedgraphs
 
     gs_sub = genescores.reindex(common_genes)
 
-    chrs_arr   = np.array([ga_chr[g]   for g in common_genes], dtype=object)
+    chrs_arr = np.array([ga_chr[g] for g in common_genes], dtype=object)
     starts_arr = np.array([max(0, int(ga_start[g]) - window_bp) for g in common_genes], dtype=np.int64)
-    ends_arr   = np.array([int(ga_end[g]) + window_bp            for g in common_genes], dtype=np.int64)
+    ends_arr = np.array([int(ga_end[g]) + window_bp for g in common_genes], dtype=np.int64)
 
     for program in gs_sub.columns:
         scores = gs_sub[program].to_numpy()
@@ -958,12 +938,14 @@ def genescores_to_100kb_bedgraph(
             logger.warning(f"No gene coordinates found for program '{program}'")
             continue
 
-        bg = pd.DataFrame({
-            "chr":   chrs_arr[nonzero],
-            "start": starts_arr[nonzero],
-            "end":   ends_arr[nonzero],
-            "score": scores[nonzero],
-        })
+        bg = pd.DataFrame(
+            {
+                "chr": chrs_arr[nonzero],
+                "start": starts_arr[nonzero],
+                "end": ends_arr[nonzero],
+                "score": scores[nonzero],
+            }
+        )
 
         if use_bedtools_for_merge and shutil.which("bedtools"):
             bg = _merge_bedgraph_bedtools(bg)
@@ -976,8 +958,8 @@ def genescores_to_100kb_bedgraph(
 
 
 def bedgraph_to_snp_annotation(
-    bedgraph: Union[pd.DataFrame, str, Path],
-    bim_file: Union[str, Path],
+    bedgraph: pd.DataFrame | str | Path,
+    bim_file: str | Path,
     out_prefix: str,
     *,
     use_bedtools: bool = True,
@@ -1006,14 +988,15 @@ def bedgraph_to_snp_annotation(
     Path
         Path to the written annotation file.
     """
-    if isinstance(bedgraph, (str, Path)):
-        bg = pd.read_csv(bedgraph, sep="\t", header=None,
-                         names=["chr", "start", "end", "score"])
+    if isinstance(bedgraph, str | Path):
+        bg = pd.read_csv(bedgraph, sep="\t", header=None, names=["chr", "start", "end", "score"])
     else:
         bg = bedgraph.copy()
 
     bim = pd.read_csv(
-        bim_file, sep=r"\s+", header=None,
+        bim_file,
+        sep=r"\s+",
+        header=None,
         names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
     )
 
@@ -1037,15 +1020,15 @@ def genescores_to_annotations(
     abc_links: pd.DataFrame,
     gene_annotation: pd.DataFrame,
     bim_prefix: str,
-    out_dir: Union[str, Path],
+    out_dir: str | Path,
     *,
     tissue: str = "BLD",
-    chromosomes: List[int] = list(range(1, 23)),
+    chromosomes: list[int] | None = None,
     window_kb: int = 100,
     save_bedgraphs: bool = True,
     use_bedtools: bool = True,
     **link_kwargs,
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """
     Full Step 2: gene scores → bedgraphs → per-chromosome SNP annotations.
 
@@ -1086,23 +1069,26 @@ def genescores_to_annotations(
         where annot_prefix is a string like ``"out_dir/program/ABC_Road_BLD/program."``
         (without the chromosome number, to be passed to LDSC).
     """
-    out_dir = Path(out_dir).resolve() 
+    if chromosomes is None:
+        chromosomes = list(range(1, 23))
+
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Computing ABC_Road bedgraphs...")
     abc_road_bgs = genescores_to_abc_road_bedgraph(
-        genescores, roadmap_links, abc_links,
-        use_bedtools_for_merge=use_bedtools, **link_kwargs
+        genescores, roadmap_links, abc_links, use_bedtools_for_merge=use_bedtools, **link_kwargs
     )
 
     logger.info("Computing 100kb bedgraphs...")
     kb100_bgs = genescores_to_100kb_bedgraph(
-        genescores, gene_annotation,
+        genescores,
+        gene_annotation,
         window_kb=window_kb,
         use_bedtools_for_merge=use_bedtools,
     )
 
-    annotation_prefixes: Dict[str, Dict[str, str]] = {}
+    annotation_prefixes: dict[str, dict[str, str]] = {}
 
     for program in genescores.columns:
         safe_name = _safe_filename(program)
@@ -1134,16 +1120,15 @@ def genescores_to_annotations(
                     continue
 
                 chrom_str = str(chrom)
-                bg_chrom = bg_df[
-                    bg_df["chr"].astype(str).str.replace("^chr", "", regex=True) == chrom_str
-                ]
+                bg_chrom = bg_df[bg_df["chr"].astype(str).str.replace("^chr", "", regex=True) == chrom_str]
 
                 if len(bg_chrom) == 0:
                     _write_zero_annotation(bim_file, str(strategy_dir / f"{safe_name}.{chrom}"))
                     continue
 
                 bedgraph_to_snp_annotation(
-                    bg_chrom, bim_file,
+                    bg_chrom,
+                    bim_file,
                     out_prefix=str(strategy_dir / f"{safe_name}.{chrom}"),
                     use_bedtools=use_bedtools,
                 )
@@ -1156,16 +1141,16 @@ def genescores_to_annotations(
 
 
 def compute_ld_scores_for_sclinker(
-    annotation_prefixes: Dict[str, Dict[str, str]],
+    annotation_prefixes: dict[str, dict[str, str]],
     bim_prefix: str,
-    ld_scores_dir: Union[str, Path],
+    ld_scores_dir: str | Path,
     *,
-    hapmap3_snps_prefix: Optional[str] = None,
-    hapmap3_snps_file: Optional[Union[str, Path]] = None,
-    chromosomes: List[int] = list(range(1, 23)),
+    hapmap3_snps_prefix: str | None = None,
+    hapmap3_snps_file: str | Path | None = None,
+    chromosomes: list[int] | None = None,
     n_jobs: int = 4,
     runner=None,
-) -> Dict[str, Dict[str, str]]:
+) -> dict[str, dict[str, str]]:
     """
     Compute LD scores for all sc-linker annotations.
 
@@ -1212,8 +1197,11 @@ def compute_ld_scores_for_sclinker(
             compute_ld_scores_with_annotations_from_bimfile,
             get_ldsc_runner,
         )
-    except ImportError:
-        raise ImportError("cellink LDSC wrappers required")
+    except ImportError as e:
+        raise ImportError("cellink LDSC wrappers required") from e
+
+    if chromosomes is None:
+        chromosomes = list(range(1, 23))
 
     if runner is None:
         runner = get_ldsc_runner()
@@ -1221,13 +1209,13 @@ def compute_ld_scores_for_sclinker(
     ld_scores_dir = Path(ld_scores_dir).resolve()
     ld_scores_dir.mkdir(parents=True, exist_ok=True)
 
-    print_snps_global: Optional[str] = None
+    print_snps_global: str | None = None
     if hapmap3_snps_file and Path(hapmap3_snps_file).exists():
         print_snps_global = str(hapmap3_snps_file)
 
     Job = tuple  # (program, strategy_name, annot_prefix, chrom, out_prefix, print_snps)
-    jobs: List[Job] = []
-    ld_prefixes: Dict[str, Dict[str, str]] = {}
+    jobs: list[Job] = []
+    ld_prefixes: dict[str, dict[str, str]] = {}
 
     for program, strategies in annotation_prefixes.items():
         ld_prefixes[program] = {}
@@ -1243,7 +1231,7 @@ def compute_ld_scores_for_sclinker(
                     logger.debug(f"Annotation missing: {annot_file}")
                     continue
 
-                bim_file  = f"{bim_prefix}{chrom}"
+                bim_file = f"{bim_prefix}{chrom}"
                 out_prefix = str(strategy_ld_dir / f"{safe_name}.{chrom}")
 
                 print_snps = print_snps_global
@@ -1252,8 +1240,7 @@ def compute_ld_scores_for_sclinker(
                     if Path(snp_file).exists():
                         print_snps = snp_file
 
-                jobs.append((program, strategy_name, chrom, annot_file,
-                             bim_file, out_prefix, print_snps))
+                jobs.append((program, strategy_name, chrom, annot_file, bim_file, out_prefix, print_snps))
 
     n_total = len(jobs)
     logger.info(
@@ -1274,7 +1261,7 @@ def compute_ld_scores_for_sclinker(
         )
         return f"{program}/{strategy_name}/chr{chrom}"
 
-    errors: List[str] = []
+    errors: list[str] = []
     completed = 0
 
     if n_jobs == 1:
@@ -1283,7 +1270,7 @@ def compute_ld_scores_for_sclinker(
                 label = _run_one(job)
                 completed += 1
                 logger.info(f"  [{completed}/{n_total}] done: {label}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 errors.append(f"{job[0]}/{job[1]}/chr{job[2]}: {exc}")
                 logger.error(f"  FAILED: {errors[-1]}")
     else:
@@ -1295,20 +1282,18 @@ def compute_ld_scores_for_sclinker(
                     label = future.result()
                     completed += 1
                     logger.info(f"  [{completed}/{n_total}] done: {label}")
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001
                     errors.append(f"{job[0]}/{job[1]}/chr{job[2]}: {exc}")
                     logger.error(f"  FAILED: {errors[-1]}")
 
     if errors:
-        logger.warning(
-            f"{len(errors)} LD score job(s) failed:\n" + "\n".join(errors)
-        )
+        logger.warning(f"{len(errors)} LD score job(s) failed:\n" + "\n".join(errors))
 
     return ld_prefixes
 
 
 def load_sclinker_heritability_results(
-    results_dir: Union[str, Path],
+    results_dir: str | Path,
     *,
     log_pattern: str = "**/*.log",
 ) -> pd.DataFrame:
@@ -1346,7 +1331,7 @@ def load_sclinker_heritability_results(
         trait = log_file.stem
         try:
             strategy = parts[-2]
-            program  = parts[-3]
+            program = parts[-3]
         except IndexError:
             program = strategy = "unknown"
 
@@ -1375,10 +1360,7 @@ def load_sclinker_heritability_results(
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
-    logger.info(
-        f"Loaded {len(df)} results: "
-        f"{df['program'].nunique()} programs, {df['trait'].nunique()} traits"
-    )
+    logger.info(f"Loaded {len(df)} results: " f"{df['program'].nunique()} programs, {df['trait'].nunique()} traits")
     return df
 
 
@@ -1386,7 +1368,7 @@ def compute_escore(
     results_df: pd.DataFrame,
     control_program: str = "AllCoding",
     *,
-    control_strategy: Optional[str] = None,
+    control_strategy: str | None = None,
     enrichment_col: str = "Enrichment",
     se_col: str = "Enrichment_std_error",
 ) -> pd.DataFrame:
@@ -1439,11 +1421,10 @@ def compute_escore(
         on=["trait", "strategy"],
         how="left",
     )
-    merged["E_score"]    = merged[enrichment_col] - merged["_ctrl_enr"]
+    merged["E_score"] = merged[enrichment_col] - merged["_ctrl_enr"]
     merged["E_score_se"] = np.sqrt(merged[se_col] ** 2 + merged["_ctrl_se"] ** 2)
-    merged["E_score_z"]  = merged["E_score"] / (merged["E_score_se"] + 1e-12)
+    merged["E_score_z"] = merged["E_score"] / (merged["E_score_se"] + 1e-12)
     return merged.drop(columns=["_ctrl_enr", "_ctrl_se"])
-
 
 
 _PARSE_PY_PATCH_MARKER = "chr_ld[0].columns"
@@ -1459,7 +1440,7 @@ _PARSE_PY_BUGGY_PATTERNS = [
 ]
 
 
-def _get_parse_py_path(runner) -> Optional[str]:
+def _get_parse_py_path(runner) -> str | None:
     """
     Return the path to ``ldscore/parse.py`` to be used for reading/writing.
 
@@ -1478,7 +1459,7 @@ def _get_parse_py_path(runner) -> Optional[str]:
     explicit = getattr(runner, "parse_script", None) or runner.config.get("parse_script")
     if explicit:
         return str(explicit)
-    
+
     ldsc_cmd = runner.config.get("ldsc_command", "ldsc.py")
     ldsc_bin = shutil.which(ldsc_cmd)
     if ldsc_bin is None:
@@ -1494,7 +1475,7 @@ def _get_parse_py_path(runner) -> Optional[str]:
     return None
 
 
-def _read_parse_py_via_runner(runner) -> Optional[str]:
+def _read_parse_py_via_runner(runner) -> str | None:
     """
     Read the source of ``ldscore/parse.py`` through the configured runner.
 
@@ -1504,7 +1485,7 @@ def _read_parse_py_via_runner(runner) -> Optional[str]:
 
     Returns the source text, or None if the file cannot be read.
     """
-    mode      = runner.config.get("execution_mode", "local")
+    mode = runner.config.get("execution_mode", "local")
     parse_path = _get_parse_py_path(runner)
 
     if parse_path is None:
@@ -1520,18 +1501,20 @@ def _read_parse_py_via_runner(runner) -> Optional[str]:
         return p.read_text() if p.exists() else None
 
     elif mode == "docker":
-        image  = runner.config.get("docker_image", "zijingliu/ldsc")
+        image = runner.config.get("docker_image", "zijingliu/ldsc")
         result = subprocess.run(
             ["docker", "run", "--rm", image, "cat", parse_path],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return result.stdout if result.returncode == 0 else None
 
     elif mode == "singularity":
-        image  = runner.config.get("singularity_image", "")
+        image = runner.config.get("singularity_image", "")
         result = subprocess.run(
             ["singularity", "exec", image, "cat", parse_path],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return result.stdout if result.returncode == 0 else None
 
@@ -1578,15 +1561,14 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
     Returns True on success, False otherwise.
     """
     import tempfile
-    mode       = runner.config.get("execution_mode", "local")
+
+    mode = runner.config.get("execution_mode", "local")
     parse_path = _get_parse_py_path(runner)
 
     if parse_path is None:
         return False
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix="_parse_patched.py", delete=False
-    ) as tf:
+    with tempfile.NamedTemporaryFile(mode="w", suffix="_parse_patched.py", delete=False) as tf:
         tf.write(patched_source)
         tmp_path = tf.name
 
@@ -1605,7 +1587,8 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
             image = runner.config.get("docker_image", "zijingliu/ldsc")
             cid_result = subprocess.run(
                 ["docker", "create", image],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if cid_result.returncode != 0:
                 logger.error(f"docker create failed: {cid_result.stderr}")
@@ -1614,15 +1597,15 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
             try:
                 subprocess.run(
                     ["docker", "cp", tmp_path, f"{cid}:{parse_path}"],
-                    check=True, capture_output=True,
+                    check=True,
+                    capture_output=True,
                 )
                 subprocess.run(
                     ["docker", "commit", cid, image],
-                    check=True, capture_output=True,
+                    check=True,
+                    capture_output=True,
                 )
-                logger.info(
-                    f"Patched {parse_path} committed to Docker image '{image}' permanently."
-                )
+                logger.info(f"Patched {parse_path} committed to Docker image '{image}' permanently.")
                 return True
             except subprocess.CalledProcessError as e:
                 logger.error(f"Docker patch failed: {e.stderr}")
@@ -1632,7 +1615,7 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
 
         elif mode == "singularity":
             strategy = runner.config.get("singularity_patch_strategy", "overlay")
-            sif      = runner.config.get("singularity_image", "")
+            sif = runner.config.get("singularity_image", "")
 
             if strategy == "overlay":
                 return _singularity_patch_overlay(runner, sif, parse_path, tmp_path)
@@ -1642,15 +1625,14 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
                 return _singularity_patch_sandbox(runner, sif, parse_path, tmp_path, rebuild=True)
             else:
                 logger.error(
-                    f"Unknown singularity_patch_strategy '{strategy}'. "
-                    "Choose 'overlay', 'sandbox', or 'rebuild'."
+                    f"Unknown singularity_patch_strategy '{strategy}'. " "Choose 'overlay', 'sandbox', or 'rebuild'."
                 )
                 return False
 
     finally:
         try:
             os.unlink(tmp_path)
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     return False
@@ -1658,9 +1640,10 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
 
 def _singularity_patch_overlay(runner, sif: str, parse_path: str, patched_tmp: str) -> bool:
     """
-    Singularity overlay strategy: create a persistent ext3 overlay image,
-    copy the patched parse.py into it, and configure the runner to always
-    mount it.
+    Singularity overlay strategy.
+
+    Create a persistent ext3 overlay image, copy the patched parse.py into it,
+    and configure the runner to always mount it.
 
     The overlay file path defaults to ``~/.cellink/ldsc_overlay.img`` but
     can be overridden via ``singularity_overlay_path`` in the runner config.
@@ -1680,9 +1663,9 @@ def _singularity_patch_overlay(runner, sif: str, parse_path: str, patched_tmp: s
         logger.info(f"Creating Singularity overlay image: {overlay_path} ({overlay_size_mb} MB)")
         Path(overlay_path).parent.mkdir(parents=True, exist_ok=True)
         result = subprocess.run(
-            ["singularity", "overlay", "create",
-             "--size", str(overlay_size_mb), overlay_path],
-            capture_output=True, text=True,
+            ["singularity", "overlay", "create", "--size", str(overlay_size_mb), overlay_path],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             logger.error(f"singularity overlay create failed: {result.stderr}")
@@ -1690,14 +1673,18 @@ def _singularity_patch_overlay(runner, sif: str, parse_path: str, patched_tmp: s
 
     result = subprocess.run(
         [
-            "singularity", "exec",
-            "--overlay", f"{overlay_path}:rw",
+            "singularity",
+            "exec",
+            "--overlay",
+            f"{overlay_path}:rw",
             sif,
-            "bash", "-c",
+            "bash",
+            "-c",
             f"mkdir -p $(dirname {parse_path}) && cp /dev/stdin {parse_path}",
         ],
         input=open(patched_tmp).read(),
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         logger.error(f"Failed to write patched parse.py into overlay: {result.stderr}")
@@ -1712,9 +1699,7 @@ def _singularity_patch_overlay(runner, sif: str, parse_path: str, patched_tmp: s
     return True
 
 
-def _singularity_patch_sandbox(
-    runner, sif: str, parse_path: str, patched_tmp: str, rebuild: bool
-) -> bool:
+def _singularity_patch_sandbox(runner, sif: str, parse_path: str, patched_tmp: str, rebuild: bool) -> bool:
     """
     Singularity sandbox strategy.
 
@@ -1736,13 +1721,15 @@ def _singularity_patch_sandbox(
         logger.info(f"Converting {sif} to writable sandbox at {sandbox_path} ...")
         result = subprocess.run(
             ["singularity", "build", "--sandbox", sandbox_path, sif],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             logger.warning("sandbox build failed without root; retrying with --fakeroot")
             result = subprocess.run(
                 ["singularity", "build", "--fakeroot", "--sandbox", sandbox_path, sif],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 logger.error(f"singularity build --sandbox failed: {result.stderr}")
@@ -1766,12 +1753,14 @@ def _singularity_patch_sandbox(
         logger.info(f"Rebuilding SIF from sandbox: {sandbox_path} → {new_sif} ...")
         result = subprocess.run(
             ["singularity", "build", new_sif, sandbox_path],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             result = subprocess.run(
                 ["singularity", "build", "--fakeroot", new_sif, sandbox_path],
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
             )
             if result.returncode != 0:
                 logger.error(f"singularity build from sandbox failed: {result.stderr}")
@@ -1789,9 +1778,10 @@ def _singularity_patch_sandbox(
 
 def check_and_patch_ldsc_parse_bug(runner) -> dict:
     """
-    Check whether the LDSC installation has the pandas column-sort bug
-    (ldsc issue `#342 <https://github.com/bulik/ldsc/issues/342>`_ /
-    PR `#341 <https://github.com/bulik/ldsc/pull/341>`_) and patch it.
+    Check whether the LDSC installation has the pandas column-sort bug and patch it.
+
+    See ldsc issue `#342 <https://github.com/bulik/ldsc/issues/342>`_ /
+    PR `#341 <https://github.com/bulik/ldsc/pull/341>`_.
 
     The bug: ``pd.concat`` in ``ldscore/parse.py`` alphabetically re-sorts
     annotation columns after ``pd.concat`` across chromosomes in ``ldscore/parse.py``
@@ -1808,12 +1798,14 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
     .. code-block:: python
 
-        runner = configure_ldsc_runner(config_dict={
-            "execution_mode":  "singularity",
-            "singularity_image": "/path/to/ldsc.sif",
-            "ldsc_command":    "ldsc.py",
-            "parse_script":   "/ldsc/ldscore/parse.py",  # ← explicit path
-        })
+        runner = configure_ldsc_runner(
+            config_dict={
+                "execution_mode": "singularity",
+                "singularity_image": "/path/to/ldsc.sif",
+                "ldsc_command": "ldsc.py",
+                "parse_script": "/ldsc/ldscore/parse.py",  # ← explicit path
+            }
+        )
 
     If ``parse_script`` is omitted, cellink tries to auto-discover the path
     from ``PATH`` (works for local installs; may fail for containers).
@@ -1846,14 +1838,14 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
         ``"parse_path"`` — resolved path to ``parse.py`` (or None)
         ``"detail"``     — human-readable explanation
     """
-    mode       = runner.config.get("execution_mode", "local")
+    mode = runner.config.get("execution_mode", "local")
     parse_path = _get_parse_py_path(runner)
-    source     = _read_parse_py_via_runner(runner)
+    source = _read_parse_py_via_runner(runner)
 
     if source is None:
         return {
-            "status":     "not_found",
-            "mode":       mode,
+            "status": "not_found",
+            "mode": mode,
             "parse_path": parse_path,
             "detail": (
                 "Could not read ldscore/parse.py. "
@@ -1864,10 +1856,10 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
     if _PARSE_PY_PATCH_MARKER in source:
         return {
-            "status":     "already_patched",
-            "mode":       mode,
+            "status": "already_patched",
+            "mode": mode,
             "parse_path": parse_path,
-            "detail":     "parse.py already patched (chr_ld[0].columns reindex present) — no action needed.",
+            "detail": "parse.py already patched (chr_ld[0].columns reindex present) — no action needed.",
         }
 
     patched = source
@@ -1879,8 +1871,8 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
     if not applied:
         return {
-            "status":     "patch_failed",
-            "mode":       mode,
+            "status": "patch_failed",
+            "mode": mode,
             "parse_path": parse_path,
             "detail": (
                 "Found parse.py but could not locate the expected pd.concat "
@@ -1892,17 +1884,16 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
     success = _write_parse_py_via_runner(runner, patched)
     if success:
         return {
-            "status":     "patched",
-            "mode":       mode,
+            "status": "patched",
+            "mode": mode,
             "parse_path": parse_path,
             "detail": (
-                f"Applied chr_ld[0].columns reindex fix to {parse_path} "
-                f"(ldsc issue #342 / PR #341) via {mode}."
+                f"Applied chr_ld[0].columns reindex fix to {parse_path} " f"(ldsc issue #342 / PR #341) via {mode}."
             ),
         }
     return {
-        "status":     "patch_failed",
-        "mode":       mode,
+        "status": "patch_failed",
+        "mode": mode,
         "parse_path": parse_path,
         "detail": (
             "Found and modified parse.py source but could not write it back. "
@@ -1913,40 +1904,42 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
 def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
     """Merge overlapping intervals using bedtools merge, summing scores."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".bed", delete=False
-    ) as f_in:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".bed", delete=False) as f_in:
         tmp_in = f_in.name
         # Sort by chr, start
         bg_sorted = bg.sort_values(["chr", "start"]).reset_index(drop=True)
         bg_sorted.to_csv(f_in, sep="\t", header=False, index=False)
 
-    with tempfile.NamedTemporaryFile(
-        mode="r", suffix=".bed", delete=False
-    ) as f_out:
+    with tempfile.NamedTemporaryFile(mode="r", suffix=".bed", delete=False) as f_out:
         tmp_out = f_out.name
 
     try:
         sort_result = subprocess.run(
             ["bedtools", "sort", "-i", tmp_in],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         merge_result = subprocess.run(
             ["bedtools", "merge", "-i", "stdin", "-c", "4", "-o", "sum"],
             input=sort_result.stdout,
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         rows = []
         for line in merge_result.stdout.strip().split("\n"):
             if not line:
                 continue
             parts = line.split("\t")
-            rows.append({
-                "chr": parts[0],
-                "start": int(parts[1]),
-                "end": int(parts[2]),
-                "score": float(parts[3]),
-            })
+            rows.append(
+                {
+                    "chr": parts[0],
+                    "start": int(parts[1]),
+                    "end": int(parts[2]),
+                    "score": float(parts[3]),
+                }
+            )
         return pd.DataFrame(rows, columns=["chr", "start", "end", "score"])
     except subprocess.CalledProcessError as e:
         logger.warning(f"bedtools merge failed: {e.stderr}. Falling back to Python merge.")
@@ -1955,7 +1948,7 @@ def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
         for f in [tmp_in, tmp_out]:
             try:
                 os.unlink(f)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
 
@@ -1964,27 +1957,35 @@ def _merge_bedgraph_python(bg: pd.DataFrame) -> pd.DataFrame:
     out_chrs, out_starts, out_ends, out_scores = [], [], [], []
     for chrom, grp in bg.groupby("chr", sort=False):
         starts = grp["start"].to_numpy(dtype=np.int64)
-        ends   = grp["end"].to_numpy(dtype=np.int64)
+        ends = grp["end"].to_numpy(dtype=np.int64)
         scores = grp["score"].to_numpy(dtype=np.float64)
-        order  = np.argsort(starts, kind="stable")
+        order = np.argsort(starts, kind="stable")
         starts, ends, scores = starts[order], ends[order], scores[order]
 
         ms, me, msc = starts[0], ends[0], scores[0]
-        for s, e, sc in zip(starts[1:], ends[1:], scores[1:]):
+        for s, e, sc in zip(starts[1:], ends[1:], scores[1:], strict=False):
             if s <= me:
-                me  = max(me, e)
+                me = max(me, e)
                 msc += sc
             else:
-                out_chrs.append(chrom); out_starts.append(ms)
-                out_ends.append(me);   out_scores.append(msc)
+                out_chrs.append(chrom)
+                out_starts.append(ms)
+                out_ends.append(me)
+                out_scores.append(msc)
                 ms, me, msc = s, e, sc
-        out_chrs.append(chrom); out_starts.append(ms)
-        out_ends.append(me);   out_scores.append(msc)
+        out_chrs.append(chrom)
+        out_starts.append(ms)
+        out_ends.append(me)
+        out_scores.append(msc)
 
-    return pd.DataFrame({
-        "chr": out_chrs, "start": out_starts,
-        "end": out_ends, "score": out_scores,
-    })
+    return pd.DataFrame(
+        {
+            "chr": out_chrs,
+            "start": out_starts,
+            "end": out_ends,
+            "score": out_scores,
+        }
+    )
 
 
 def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
@@ -1995,13 +1996,16 @@ def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
     bim_bed["_chr"] = bim_bed["CHR"].astype(str)
 
     import tempfile as _tf
+
     fa = _tf.NamedTemporaryFile(mode="w", suffix=".bed", delete=False)
-    bim_out = pd.DataFrame({
-        "chr":   bim_bed["_chr"],
-        "start": bim_bed["_start"],
-        "end":   bim_bed["_end"],
-        "idx":   bim_bed.index,
-    })
+    bim_out = pd.DataFrame(
+        {
+            "chr": bim_bed["_chr"],
+            "start": bim_bed["_start"],
+            "end": bim_bed["_end"],
+            "idx": bim_bed.index,
+        }
+    )
     bim_out.to_csv(fa, sep="\t", header=False, index=False)
     fa.close()
     snp_bed_file = fa.name
@@ -2016,12 +2020,18 @@ def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
     try:
         result = subprocess.run(
             [
-                "bedtools", "intersect",
-                "-a", snp_bed_file,
-                "-b", bg_file,
-                "-wa", "-wb",
+                "bedtools",
+                "intersect",
+                "-a",
+                snp_bed_file,
+                "-b",
+                bg_file,
+                "-wa",
+                "-wb",
             ],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         annot_values = np.zeros(len(bim))
         for line in result.stdout.strip().split("\n"):
@@ -2039,7 +2049,7 @@ def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
         for f in [snp_bed_file, bg_file]:
             try:
                 os.unlink(f)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
 
 
@@ -2062,7 +2072,7 @@ def _annotate_python(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
         ends = bg_chrom["end"].values
         scores = bg_chrom["score"].values
 
-        for idx, pos in zip(snp_indices, snp_pos):
+        for idx, pos in zip(snp_indices, snp_pos, strict=False):
             hits = np.where((starts <= pos) & (pos < ends))[0]
             if hits.size > 0:
                 annot_values[idx] = scores[hits].sum()
@@ -2070,10 +2080,12 @@ def _annotate_python(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
     return annot_values
 
 
-def _write_zero_annotation(bim_file: Union[str, Path], out_prefix: str) -> Path:
+def _write_zero_annotation(bim_file: str | Path, out_prefix: str) -> Path:
     """Write an all-zero annotation file for a chromosome with no coverage."""
     bim = pd.read_csv(
-        bim_file, sep=r"\s+", header=None,
+        bim_file,
+        sep=r"\s+",
+        header=None,
         names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
     )
     out_path = Path(f"{out_prefix}.annot.gz")
@@ -2082,7 +2094,7 @@ def _write_zero_annotation(bim_file: Union[str, Path], out_prefix: str) -> Path:
     return out_path
 
 
-def _parse_ldsc_results_file(results_file: Path) -> Optional[dict]:
+def _parse_ldsc_results_file(results_file: Path) -> dict | None:
     """
     Parse an LDSC ``.results`` file written by ``--h2 --overlap-annot``.
 
@@ -2097,7 +2109,7 @@ def _parse_ldsc_results_file(results_file: Path) -> Optional[dict]:
         return None
     try:
         df = pd.read_csv(results_file, sep="\t")
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
     if df.empty:
@@ -2107,11 +2119,11 @@ def _parse_ldsc_results_file(results_file: Path) -> Optional[dict]:
 
     result: dict = {}
     for src_col, dst_col in [
-        ("Enrichment",              "Enrichment"),
-        ("Enrichment_std_error",    "Enrichment_std_error"),
-        ("Coefficient",             "Coefficient"),
-        ("Coefficient_std_error",   "Coefficient_std_error"),
-        ("Coefficient_z-score",     "Coefficient_z_score"),
+        ("Enrichment", "Enrichment"),
+        ("Enrichment_std_error", "Enrichment_std_error"),
+        ("Coefficient", "Coefficient"),
+        ("Coefficient_std_error", "Coefficient_std_error"),
+        ("Coefficient_z-score", "Coefficient_z_score"),
     ]:
         if src_col in df.columns:
             try:
@@ -2120,14 +2132,14 @@ def _parse_ldsc_results_file(results_file: Path) -> Optional[dict]:
                 pass
 
     if "Enrichment" in result and "Enrichment_std_error" in result:
-        e  = result["Enrichment"]
+        e = result["Enrichment"]
         se = result["Enrichment_std_error"]
         result["Enrichment_z_score"] = e / (se + 1e-12)
 
     return result if result else None
 
 
-def _parse_ldsc_log(log_file: Path) -> Optional[dict]:
+def _parse_ldsc_log(log_file: Path) -> dict | None:
     """
     Parse an LDSC ``.log`` file and its companion ``.results`` file.
 
@@ -2148,15 +2160,14 @@ def _parse_ldsc_log(log_file: Path) -> Optional[dict]:
         return None
 
     import re as _re
+
     text = log_file.read_text()
 
     result: dict = {}
 
-    h2_match = _re.search(
-        r"Total Observed scale h2:\s*([\-\d.eE+]+)\s*\(([\d.eE+]+)\)", text
-    )
+    h2_match = _re.search(r"Total Observed scale h2:\s*([\-\d.eE+]+)\s*\(([\d.eE+]+)\)", text)
     if h2_match:
-        result["h2_obs"]    = float(h2_match.group(1))
+        result["h2_obs"] = float(h2_match.group(1))
         result["h2_obs_se"] = float(h2_match.group(2))
 
     results_file = log_file.with_suffix(".results")

@@ -16,11 +16,10 @@ class BaseToolRunner(ABC):
         self,
         config_path: str | None = None,
         config_dict: dict | None = None,
-        required_fields: list = ["execution_mode"],
-        prefix_tokens: list = [],
+        required_fields: list | None = None,
+        prefix_tokens: list | None = None,
     ):
-        """
-        Initialize Runner
+        """Initialize Runner.
 
         Parameters
         ----------
@@ -29,14 +28,15 @@ class BaseToolRunner(ABC):
         config_dict : dict, optional
             Configuration dictionary (takes precedence over config_path)
         """
-        self.required_fields = required_fields
-        self.prefix_tokens = prefix_tokens
+        self.required_fields = required_fields if required_fields is not None else ["execution_mode"]
+        self.prefix_tokens = prefix_tokens if prefix_tokens is not None else []
         self.config = self._load_config(config_path, config_dict)
         self._validate_config()
 
     @abstractmethod
     def _load_config(self, config_path: str | None, config_dict: dict | None) -> dict:
         """Load configuration from file or dictionary.
+
         Must be implemented by subclasses.
         """
         pass
@@ -167,7 +167,7 @@ class BaseToolRunner(ABC):
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
-        
+
         For Singularity, three patch modes are handled transparently:
 
         - **overlay**: if ``_ldsc_overlay_path`` is in config (set by

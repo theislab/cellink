@@ -17,7 +17,6 @@ from cellink.resources import get_onek1k
 import requests
 import os
 import tarfile
-from tqdm import tqdm
 
 n_gpcs = 20
 n_epcs = 15
@@ -462,7 +461,7 @@ if __name__ == "__main__":
 
     results_filt = results[results["snp"].isin(esnps)]
 
-    for index, row in tqdm(results_filt.iterrows()):
+    for _index, row in tqdm(results_filt.iterrows()):
         dd_copy = dd.copy()
 
         fig = expression_by_genotype(
@@ -483,7 +482,7 @@ if __name__ == "__main__":
         )
         print(results[results["snp"] == row["snp"]].iloc[0]["id_hg19"])
 
-    for index, row in tqdm(results_filt.iterrows()):
+    for _index, row in tqdm(results_filt.iterrows()):
         print(row["snp"])
         print(results[results["snp"] == row["snp"]].iloc[0]["id_hg19"])
         print("###")

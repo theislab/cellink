@@ -183,7 +183,7 @@ def preprocess_for_sldsc(
             logger.warning("Missing chr/start/end columns; skipping MHC filter")
 
     mask_keep = pd.Series(True, index=adata.var_names)
-    for mask_name, mask in masks.items():
+    for _mask_name, mask in masks.items():
         mask_keep &= mask
 
     n_before = adata.n_vars
@@ -249,8 +249,6 @@ def preprocess_for_sldsc(
     # If reset_index() produced column named "index" instead:
     if "gene" not in exp_wide.columns and "index" in exp_wide.columns:
         exp_wide = exp_wide.rename(columns={"index": "gene"})
-
-    clusters = [c for c in exp_wide.columns if c != "gene"]
 
     # copy wide table
     exp = exp_wide.copy()
@@ -692,6 +690,8 @@ def generate_gene_coord_file(
     coord_df.to_csv(out_path, sep="\t", index=False)
 
     logger.info(f"Successfully created gene coordinate file: {out_path}")
+
+
 def get_magma_gene_loc(
     genome_build: Literal["GRCh37", "GRCh38"] = "GRCh38",
     data_home: "str | Path | None" = None,
@@ -724,7 +724,7 @@ def get_magma_gene_loc(
     Examples
     --------
     >>> from cellink.tl.external import get_magma_gene_loc
-    >>> gene_loc = get_magma_gene_loc()          # GRCh38, cached
+    >>> gene_loc = get_magma_gene_loc()  # GRCh38, cached
     >>> run_magma_annotate(snp_loc=..., gene_loc=gene_loc, out_prefix=...)
 
     See Also
@@ -743,8 +743,7 @@ def get_magma_gene_loc(
         return str(out_path)
 
     logger.info("Fetching gene annotations for MAGMA from Ensembl %s ...", genome_build)
-    anno_df = _fetch_ensembl_annotation(genome_build=genome_build,
-                                        gene_identifier_mode="ensembl")
+    anno_df = _fetch_ensembl_annotation(genome_build=genome_build, gene_identifier_mode="ensembl")
 
     gene_loc = anno_df[["gene", "chrom", "start", "end"]].copy()
 
@@ -759,7 +758,7 @@ def get_magma_gene_loc(
     gene_loc = gene_loc[gene_loc["chrom"].isin(valid_chroms)]
 
     gene_loc["start"] = gene_loc["start"].astype(int)
-    gene_loc["end"]   = gene_loc["end"].astype(int)
+    gene_loc["end"] = gene_loc["end"].astype(int)
     gene_loc = gene_loc.drop_duplicates(subset=["gene"], keep="first")
     gene_loc = gene_loc.sort_values(["chrom", "start"])
 
@@ -767,5 +766,3 @@ def get_magma_gene_loc(
     gene_loc.to_csv(out_path, sep="\t", index=False, header=False)
     logger.info("Wrote %d gene locations to %s", len(gene_loc), out_path)
     return str(out_path)
-
-

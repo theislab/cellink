@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.linalg as la
 import scipy.stats as st
+
 from cellink.at.utils import ensure_float64_array
 
 __all__ = ["GWAS"]
@@ -9,11 +10,7 @@ __all__ = ["GWAS"]
 class GWAS:
     """Linear model for univariate association testing between `1` phenotypes and `S` inputs (`1`x`S` tests)"""
 
-    def __init__(
-        self,
-        Y: np.ndarray,
-        F: np.ndarray = None
-    ) -> None:
+    def __init__(self, Y: np.ndarray, F: np.ndarray = None) -> None:
         """
         Initialize the GWAS class.
 
@@ -78,10 +75,7 @@ class GWAS:
         self.beta_F0 = np.dot(self.A0i, self.FY)
         self.s20 = (self.YY - np.einsum("kp,kp->p", self.FY, self.beta_F0)) / self.df
 
-    def test_association(
-        self,
-        G: np.ndarray
-    ) -> None:
+    def test_association(self, G: np.ndarray) -> None:
         """Test association between phenotype and genotype matrix.
 
         Each column of G is tested independently from the others.
@@ -143,7 +137,7 @@ class GWAS:
         self,
     ) -> np.ndarray:
         """
-        get effect size SNPs
+        Get effect size SNPs
 
         Returns
         -------
@@ -155,7 +149,7 @@ class GWAS:
         self,
     ) -> np.ndarray:
         """
-        get lik ratio test statistics
+        Get lik ratio test statistics
 
         Returns
         -------
@@ -167,7 +161,7 @@ class GWAS:
         self,
     ) -> np.ndarray:
         """
-        get standard errors on betas
+        Get standard errors on betas
 
         Returns
         -------

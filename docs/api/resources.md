@@ -16,8 +16,13 @@
    resources.get_gwas_catalog_studies
    resources.get_gwas_catalog_study
    resources.get_gwas_catalog_study_summary_stats
+   resources.liftover_gwas_summary_stats
    resources.get_pgs_catalog_score
    resources.get_pgs_catalog_scores
    resources.get_1000genomes_ld_scores
    resources.get_1000genomes_ld_weights
+   resources.get_1000genomes_plink_files
+   resources.get_1000genomes_frq
+   resources.get_1000genomes_hapmap3
+   resources.merge_1000g_plink_chromosomes
 ```

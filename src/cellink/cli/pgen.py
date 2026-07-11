@@ -1,8 +1,11 @@
 import argparse
 import sys
+
 from cellink.io._pgen import stream_pgen_to_zarr
 
+
 def main() -> int:
+    """Run the cellink-pgen CLI entry point."""
     parser = argparse.ArgumentParser(
         description=(
             "Convert one or more PLINK2 PGEN genotype files into a single "
@@ -30,7 +33,7 @@ def main() -> int:
 
     # Rare variants (sparse recommended)
     cellink-pgen rare.pgen -o rare.zarr --sparse
-    """
+    """,
     )
     parser.add_argument("pgen_path", nargs="+", help="Path(s) to .pgen file(s)")
     parser.add_argument("-o", "--output", required=True, help="Output Zarr directory")
@@ -42,7 +45,12 @@ def main() -> int:
     parser.add_argument("--compressor", choices=["zstd", "lz4", "zlib"], default="zstd")
     parser.add_argument("--compression-level", type=int, default=7, choices=range(1, 10))
     parser.add_argument("--sparse", action="store_true")
-    parser.add_argument("--sparse-format", choices=["csr", "csc"], default="csc", help="Sparse matrix format for --sparse mode (default: csc, better for variant-wise access)")
+    parser.add_argument(
+        "--sparse-format",
+        choices=["csr", "csc"],
+        default="csc",
+        help="Sparse matrix format for --sparse mode (default: csc, better for variant-wise access)",
+    )
 
     args = parser.parse_args()
 
