@@ -618,19 +618,15 @@ def combine_annotations(
     gdata.uns[AAnn.name_prefix] = combined_annotations
 
 
-# return ",".join(x.unique().astype(str))  # Fallba
 def custom_agg(x, agg_type):
     if agg_type == "unique_list_max":
-        if x.dtype == "object":  # Check if column is of string type
-            return ",".join(x.unique().astype(str))  # Unique values as comma-separated string
-        elif pd.api.types.is_numeric_dtype(x):  # Check if column is numeric
+        if pd.api.types.is_numeric_dtype(x):  # Check if column is numeric
             return x.max()  # Aggregate using max value
-        else:
-            return ",".join(x.unique().astype(str))  # Fallback for other types
+        return ",".join(x.dropna().unique().astype(str))  # Unique non-null values as comma-separated string
     elif agg_type == "list":
         return list(x)  # Simply aggregate into a list
     elif agg_type == "str":
-        return ",".join(x.astype(str))  # Aggregate into a comma-separated string
+        return ",".join(x.dropna().astype(str))  # Aggregate non-null values into a comma-separated string
     else:
         raise ValueError(f"Unknown aggregation type: {agg_type}")
 

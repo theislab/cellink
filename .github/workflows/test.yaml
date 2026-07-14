@@ -24,9 +24,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            python: "3.10"
+            python: "3.11"
           - os: ubuntu-latest
             python: "3.12"
+          - os: ubuntu-latest
+            python: "3.13"
 
     name: ${{ matrix.name }} Python ${{ matrix.python }}
 
