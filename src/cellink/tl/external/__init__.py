@@ -78,7 +78,6 @@ from ._scprs import (
     write_slurm_array_job,
 )
 from ._seismic import run_seismic
-from ._seismic_torch import RegressionNLL, SparseScore, run_seismic_torch
 from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, get_magma_gene_loc, preprocess_for_sldsc
 from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
 
@@ -182,6 +181,12 @@ _LIVI_ANNBATCH_NAMES = {
     "AnnbatchLIVIDataModule",
 }
 
+_SEISMIC_TORCH_NAMES = {
+    "run_seismic_torch",
+    "SparseScore",
+    "RegressionNLL",
+}
+
 
 def __getattr__(name: str) -> Any:
     if name == "run_mixmil":
@@ -192,6 +197,15 @@ def __getattr__(name: str) -> Any:
             raise ImportError(
                 "Cannot import `run_mixmil`: this feature requires `torch` and `mixmil`. "
                 "Install with:\n\n    pip install cellink[mixmil]"
+            ) from e
+    if name in _SEISMIC_TORCH_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._seismic_torch")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`. "
+                "Install with:\n\n    pip install cellink[seismic_torch]"
             ) from e
     if name in _LIVI_ANNBATCH_NAMES:
         try:
