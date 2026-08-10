@@ -250,8 +250,14 @@ def test_get_model_matrix_missing_formulaic_raises_helpful_error(monkeypatch):
 
 
 def _block_module(monkeypatch, name):
-    """Simulate `name` being uninstalled, including any of its submodules already cached from earlier tests."""
-    for mod_name in [m for m in sys.modules if m == name or m.startswith(f"{name}.")]:
+    """Simulate `name` being uninstalled, including any of its submodules already cached from earlier tests.
+
+    Blanking only already-cached submodules isn't enough: if `name` itself was never imported by
+    an earlier test, it isn't in `sys.modules` yet either, so that lookup finds nothing to patch and
+    silently becomes a no-op, letting the real import through. Always blank `name` itself too.
+    """
+    monkeypatch.setitem(sys.modules, name, None)
+    for mod_name in [m for m in sys.modules if m.startswith(f"{name}.")]:
         monkeypatch.setitem(sys.modules, mod_name, None)
 
 
