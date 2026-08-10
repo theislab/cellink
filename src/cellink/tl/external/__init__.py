@@ -186,6 +186,8 @@ __all__ = [
     "convert_scooby_lora_checkpoint",
     "predict_scooby_profile",
     "score_variant_effects_scooby",
+    "score_variant_effects_scooby_batched",
+    "load_scooby_wrapper_and_embedder",
     "resolve_snp_and_exon_bins",
 ]
 
@@ -220,6 +222,8 @@ _SCOOBY_NAMES = {
     "convert_scooby_lora_checkpoint",
     "predict_scooby_profile",
     "score_variant_effects_scooby",
+    "score_variant_effects_scooby_batched",
+    "load_scooby_wrapper_and_embedder",
     "resolve_snp_and_exon_bins",
 }
 

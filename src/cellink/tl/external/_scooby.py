@@ -998,6 +998,136 @@ def score_variant_effects_scooby(
     )
 
 
+def load_scooby_wrapper_and_embedder(
+    model_path_or_name: str,
+    *,
+    pooling_strategy: str | None = None,
+    runner: ScoobyRunner | None = None,
+    **checkpoint_kwargs,
+):
+    """Load a Scooby checkpoint once into a ``(wrapper, embedder)`` pair for
+    repeated batched scoring via ``score_variant_effects_scooby_batched``.
+
+    Call this once per checkpoint, then pass the same ``wrapper``/``embedder``
+    into multiple ``score_variant_effects_scooby_batched`` calls (e.g. one
+    per credible set, with each call's own ``cell_embeddings``) instead of
+    reloading the checkpoint each time.
+
+    Parameters
+    ----------
+    model_path_or_name : str
+        Passed to ``load_scooby_checkpoint``.
+    pooling_strategy : str, optional
+        Forwarded to ``SNPEmbedder`` if given; ``None`` uses embpy's own
+        default.
+
+    Returns
+    -------
+    (embpy.models.scooby_models.ScoobyWrapper, embpy.tl.genomics.SNPEmbedder)
+    """
+    try:
+        from embpy.models.scooby_models import ScoobyWrapper
+        from embpy.tl.genomics import SNPEmbedder
+    except ImportError as e:
+        raise ImportError(
+            "embpy is required for Scooby variant-effect scoring. Install with:\n\n"
+            "    pip install cellink[embpy]"
+        ) from e
+
+    runner = runner or get_scooby_runner()
+    wrapper = ScoobyWrapper(model_path_or_name, device=runner.resolve_device(), **checkpoint_kwargs)
+    wrapper.load(runner.resolve_device())
+    embedder = SNPEmbedder(wrapper) if pooling_strategy is None else SNPEmbedder(wrapper, pooling_strategy=pooling_strategy)
+    return wrapper, embedder
+
+
+def score_variant_effects_scooby_batched(
+    variants: list[tuple[Any, str]],
+    model_path_or_name: str,
+    cell_embeddings: np.ndarray,
+    *,
+    bin_indices: list | None = None,
+    pseudocount: float = 1.0,
+    aggregate: Literal["pseudobulk", "none"] = "pseudobulk",
+    pooling_strategy: str | None = None,
+    runner: ScoobyRunner | None = None,
+    wrapper: Any | None = None,
+    embedder: Any | None = None,
+    **checkpoint_kwargs,
+):
+    """Score many variants against ONE loaded Scooby checkpoint.
+
+    ``score_variant_effects_scooby`` reconstructs and reloads the checkpoint
+    from disk on every call, which is the right shape for a single
+    exploratory lookup but does not scale to scoring a batch of candidates
+    (e.g. every member of a fine-mapped credible set, or a control-SNP set)
+    in one job. This function scores a whole batch against one load.
+
+    By default it loads the checkpoint itself (like
+    ``score_variant_effects_scooby``, just once for the whole ``variants``
+    list instead of once per variant). For a run that needs to score many
+    separate batches with the same checkpoint but different
+    ``cell_embeddings`` per batch (e.g. one call per credible set), load
+    once via ``load_scooby_wrapper_and_embedder`` and pass the result in as
+    ``wrapper``/``embedder`` to skip the reload on every call.
+
+    Parameters
+    ----------
+    variants : list of (snp, chromosome_sequence)
+        Each element is one variant to score: an
+        ``embpy.tl.genomics.SNPContext`` and the reference sequence window
+        it should be scored against (same meaning as
+        ``score_variant_effects_scooby``'s ``snp``/``chromosome_sequence``).
+    model_path_or_name : str
+        Passed to ``load_scooby_checkpoint`` if ``wrapper``/``embedder``
+        aren't given; ignored otherwise.
+    cell_embeddings : np.ndarray
+        Per-cell embeddings to pseudobulk over (or per-cell if
+        ``aggregate="none"``), shared across every variant in this batch.
+    bin_indices : list, optional
+        Per-variant bin restriction, same length and order as ``variants``
+        (e.g. each variant's own gene's exon bins). ``None`` scores every
+        variant over all bins; an individual entry may also be ``None``.
+    pseudocount : float
+        Added before the log2-fold-change computation.
+    pooling_strategy : str, optional
+        Forwarded to ``SNPEmbedder`` if given and ``wrapper``/``embedder``
+        aren't; ``None`` uses embpy's own default.
+    wrapper, embedder : optional
+        A ``(ScoobyWrapper, SNPEmbedder)`` pair already loaded via
+        ``load_scooby_wrapper_and_embedder``. If given, both must be given,
+        and ``model_path_or_name``/``pooling_strategy``/``runner``/
+        ``checkpoint_kwargs`` are ignored (the checkpoint is not reloaded).
+
+    Returns
+    -------
+    list of embpy.tl.genomics.snp_utils.VariantEffectResult
+        One result per element of ``variants``, in the same order.
+    """
+    if bin_indices is not None and len(bin_indices) != len(variants):
+        raise ValueError(f"bin_indices has {len(bin_indices)} entries, expected one per variant ({len(variants)}).")
+    bin_indices_per_variant = bin_indices if bin_indices is not None else [None] * len(variants)
+
+    if (wrapper is None) != (embedder is None):
+        raise ValueError("wrapper and embedder must be given together, or not at all.")
+    if wrapper is None:
+        _wrapper, embedder = load_scooby_wrapper_and_embedder(
+            model_path_or_name, pooling_strategy=pooling_strategy, runner=runner, **checkpoint_kwargs
+        )
+
+    return [
+        embedder.predict_variant_effect(
+            snp,
+            chromosome_sequence,
+            bin_indices=variant_bin_indices,
+            pseudocount=pseudocount,
+            aggregate=aggregate,
+            cell_embeddings=cell_embeddings,
+        )
+        for (snp, chromosome_sequence), variant_bin_indices in zip(variants, bin_indices_per_variant)
+    ]
+
+
 def resolve_snp_and_exon_bins(
     *,
     chrom: str,
