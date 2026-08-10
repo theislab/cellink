@@ -12,7 +12,6 @@ from cellink._core import DonorData
 
 __all__ = [
     "ArrayLike",
-    "DotPath",
     "DataContainer",
     "xgower_factor_",
     "davies_pvalue",
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 # To handle multiple data types
 ArrayLike = np.ndarray | pd.Series | pd.DataFrame | list[float] | list[int]
-DotPath = str | list[str]
 # If passing Y and X directly | If Y and X are in a DataFrame |   If Y and X are in AnnData | If Y and X are in DonorData
 DataContainer = None | pd.DataFrame | anndata.AnnData | DonorData
 

@@ -170,6 +170,23 @@ __all__ = [
     "CisGenotype",
     "LIVICisBatchAdapter",
     "AnnbatchLIVIDataModule",
+    ###
+    "ScoobyRunner",
+    "configure_scooby_runner",
+    "get_scooby_runner",
+    "KNOWN_SCOOBY_CHECKPOINTS",
+    "UCSC_TO_ENSEMBL_CHR_MAP",
+    "build_scooby_embedding",
+    "build_scooby_embedding_scpoli",
+    "build_scooby_dataset",
+    "build_scooby_multiome_dataset",
+    "train_scooby",
+    "train_scooby_multiome",
+    "load_scooby_checkpoint",
+    "convert_scooby_lora_checkpoint",
+    "predict_scooby_profile",
+    "score_variant_effects_scooby",
+    "resolve_snp_and_exon_bins",
 ]
 
 _LIVI_ANNBATCH_NAMES = {
@@ -185,6 +202,25 @@ _SEISMIC_TORCH_NAMES = {
     "run_seismic_torch",
     "SparseScore",
     "RegressionNLL",
+}
+
+_SCOOBY_NAMES = {
+    "ScoobyRunner",
+    "configure_scooby_runner",
+    "get_scooby_runner",
+    "KNOWN_SCOOBY_CHECKPOINTS",
+    "UCSC_TO_ENSEMBL_CHR_MAP",
+    "build_scooby_embedding",
+    "build_scooby_embedding_scpoli",
+    "build_scooby_dataset",
+    "build_scooby_multiome_dataset",
+    "train_scooby",
+    "train_scooby_multiome",
+    "load_scooby_checkpoint",
+    "convert_scooby_lora_checkpoint",
+    "predict_scooby_profile",
+    "score_variant_effects_scooby",
+    "resolve_snp_and_exon_bins",
 }
 
 
@@ -215,6 +251,28 @@ def __getattr__(name: str) -> Any:
             raise ImportError(
                 f"Cannot import `{name}`: this feature requires `torch`, `pytorch_lightning`, "
                 "and `annbatch`. Install with:\n\n    pip install cellink torch pytorch_lightning annbatch"
+            ) from e
+    if name in _SEISMIC_TORCH_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._seismic_torch")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`. "
+                "Install with:\n\n    pip install cellink[seismic_torch]"
+            ) from e
+    if name in _SCOOBY_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._scooby")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`, `accelerate`, `enformer-pytorch`, "
+                "`borzoi-pytorch`, and `scooby`. Install with:\n\n"
+                "    pip install cellink torch accelerate enformer-pytorch borzoi-pytorch\n"
+                "    pip install git+https://github.com/gagneurlab/scooby.git\n\n"
+                "`score_variant_effects_scooby` additionally requires the separate `embpy` package "
+                "(variant-effect scoring is not part of scooby itself). Install with `pip install cellink[embpy]`."
             ) from e
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

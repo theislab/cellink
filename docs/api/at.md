@@ -9,6 +9,8 @@
 
     at.acat_test
     at.compute_acat
+    at.get_model_matrix
     at.GWAS
     at.Skat
+    at.StructLMM
 ```

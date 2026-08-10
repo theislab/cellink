@@ -174,7 +174,14 @@ def _run_tensorqtl_python_api(
             warn_monomorphic=warn_monomorphic,
             seed=seed,
         )
-        post.calculate_qvalues(results, fdr=fdr, qvalue_lambda=qvalue_lambda)
+        try:
+            post.calculate_qvalues(results, fdr=fdr, qvalue_lambda=qvalue_lambda)
+        except (NameError, AttributeError, ImportError) as e:
+            raise RuntimeError(
+                "tensorqtl.post.calculate_qvalues failed (R/rpy2/Bioconductor qvalue unavailable in this "
+                f"environment: {type(e).__name__}: {e}). Install the real dependency (see this function's "
+                "docstring); there is no fallback."
+            ) from e
 
     elif mode == "cis_independent":
         if cis_output is None:
@@ -238,6 +245,7 @@ def _run_tensorqtl_python_api(
             window=window,
             summary_only=False,
             max_iter=500,
+            maf_threshold=maf_threshold,
         )
         results = (susie_dict, susie_summary)
 
@@ -337,6 +345,18 @@ def run_tensorqtl(
         False Discovery Rate threshold for significant hits in empirical cis-QTL mode.
     qvalue_lambda : float, optional
         Lambda parameter for q-value estimation in empirical mode.
+        ``mode="cis"`` computes q-values via ``tensorqtl.post.calculate_qvalues``,
+        which hard-requires R + the Bioconductor ``qvalue`` package + rpy2
+        (install via ``mamba install -c conda-forge -c bioconda r-base
+        bioconductor-qvalue rpy2`` into this env; also needs that env's
+        ``bin/`` ahead of system R on ``PATH`` so tensorqtl's own ``which R``
+        check finds it, not e.g. an LSF-wrapped ``R``). There is no
+        fallback if this stack is unavailable; it raises immediately
+        rather than silently substituting a different statistical method
+        (Benjamini-Hochberg FDR assumes pi0=1, so it's more conservative
+        than Storey's method whenever many tests are truly non-null; this
+        project's own cis-mode runs silently used exactly that substitute
+        for weeks before it was caught, hence no fallback exists anymore).
     window : int, default=1000000
         Genomic window (in base pairs) around phenotype for filtering cis effects.
     pval_threshold : float, default=1e-5

@@ -13,6 +13,8 @@ from anndata.experimental import read_dispatched
 from anndata.io import read_elem
 from tqdm.auto import tqdm
 
+from cellink._core.data_fields import VAnn
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -89,6 +91,40 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
             return func(elem)
 
     return read_dispatched(f, callback=callback)
+
+
+def _read_pvar(pvar_file: Path) -> pd.DataFrame:
+    """Read a PLINK2 .pvar file, correctly using its ``#CHROM POS ID REF ALT
+    ...`` header line for column names (mapped to cellink's canonical
+    ``chrom``/``pos``/``snp_id``/``a0``/``a1`` variant-annotation field
+    names, see :class:`cellink._core.data_fields.VAnn`) and skipping only
+    the preceding ``##`` metadata lines.
+    """
+    n_meta = 0
+    header_cols = None
+    with open(pvar_file) as f:
+        for line in f:
+            if line.startswith("##"):
+                n_meta += 1
+                continue
+            if line.startswith("#CHROM"):
+                header_cols = line.lstrip("#").rstrip("\n").split("\t")
+                n_meta += 1
+            break
+
+    if header_cols is None:
+        pv = pd.read_csv(pvar_file, sep="\t", comment="#", header=None)
+        pv.columns = pv.columns.astype(str)
+        return pv
+
+    pv = pd.read_csv(pvar_file, sep="\t", skiprows=n_meta, header=None, names=header_cols, dtype={"CHROM": str})
+    rename_map = {"CHROM": VAnn.chrom, "POS": VAnn.pos, "ID": VAnn.index, "REF": VAnn.a0, "ALT": VAnn.a1}
+    pv = pv.rename(columns={k: v for k, v in rename_map.items() if k in pv.columns})
+    if VAnn.index in pv.columns:
+        pv[VAnn.index] = pv[VAnn.index].astype(str)
+    if VAnn.chrom in pv.columns:
+        pv[VAnn.chrom] = pv[VAnn.chrom].astype(str)
+    return pv
 
 
 def stream_pgen_to_zarr(
@@ -214,13 +250,15 @@ def stream_pgen_to_zarr(
     pvar_frames = []
     for nv, (_, _, base) in zip(n_variants_per_file, readers, strict=False):
         pvar_file = Path(base + ".pvar")
-        pv = pd.read_csv(pvar_file, sep="\t", comment="#", header=None)
+        pv = _read_pvar(pvar_file)
         pv = pv.iloc[:nv].copy()
-        pv.columns = pv.columns.astype(str)
-        pv.index = pv.index.astype(str)
         pvar_frames.append(pv)
     pvar = pd.concat(pvar_frames, ignore_index=True)
-    pvar.index = pvar.index.astype(str)
+    if VAnn.index in pvar.columns:
+        pvar.index = pvar[VAnn.index].astype(str)
+        pvar.index.name = None
+    else:
+        pvar.index = pvar.index.astype(str)
 
     output_path = Path(output_path)
     blosc = BloscCodec(
@@ -233,7 +271,10 @@ def stream_pgen_to_zarr(
         if sparse_format not in ("csr", "csc"):
             raise ValueError(f"sparse_format must be 'csr' or 'csc', got {sparse_format!r}")
 
-        csr_chunks: list[sp.csr_matrix] = []
+        row_chunks: list[np.ndarray] = []
+        col_chunks: list[np.ndarray] = []
+        data_chunks: list[np.ndarray] = []
+        col_base = 0
 
         for (reader, n_raw, base), nv in zip(readers, n_variants_per_file, strict=False):
             pgen_file = Path(base + ".pgen")
@@ -251,15 +292,29 @@ def stream_pgen_to_zarr(
                     buf = np.zeros((n_raw, width), dtype=np.int8)
                     reader.read_range(start, end, geno_int_out=buf, sample_maj=1)
                     buf[buf < 0] = 0
-                    csr_chunks.append(sp.csr_matrix(buf[:n_samples, :].astype(np.int8)))
+                    buf = buf[:n_samples, :]
+                    r, c = np.nonzero(buf)
+                    if len(r):
+                        row_chunks.append(r.astype(np.int32, copy=False))
+                        col_chunks.append((c + col_base).astype(np.int32, copy=False))
+                        data_chunks.append(buf[r, c])
                     del buf
+                    col_base += width
                     pbar.update(width)
                     if i % 5 == 0:
                         gc.collect()
 
-        logger.info(f"Stacking {len(csr_chunks)} CSR chunks ...")
-        X = sp.hstack(csr_chunks, format=sparse_format)
-        del csr_chunks
+        logger.info(f"Concatenating {len(row_chunks)} COO chunks ...")
+        row = np.concatenate(row_chunks) if row_chunks else np.empty(0, dtype=np.int32)
+        col = np.concatenate(col_chunks) if col_chunks else np.empty(0, dtype=np.int32)
+        data = np.concatenate(data_chunks) if data_chunks else np.empty(0, dtype=np.int8)
+        del row_chunks, col_chunks, data_chunks
+        gc.collect()
+
+        coo = sp.coo_matrix((data, (row, col)), shape=(n_samples, n_variants_total))
+        del row, col, data
+        X = coo.tocsr() if sparse_format == "csr" else coo.tocsc()
+        del coo
         logger.info(f"Sparse X: {X.shape}, nnz={X.nnz:,}, " f"density={X.nnz / (X.shape[0] * X.shape[1]) * 100:.4f}%")
         adata = ad.AnnData(X=X, obs=psam, var=pvar)
         logger.info(f"Writing sparse AnnData → {output_path} ...")

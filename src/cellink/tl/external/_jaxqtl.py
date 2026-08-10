@@ -18,22 +18,38 @@ logger = logging.getLogger(__name__)
 
 def read_jaxqtl_results(prefix: str) -> pd.DataFrame:
     """
-    Read jaxQTL output TSV file.
+    Read jaxQTL output file(s).
+
+    The installed jaxqtl CLI writes one per-chromosome file per run; the
+    exact name/format has changed across jaxqtl versions (older releases:
+    ``{prefix}.<chr>.tsv.gz``; current releases as of this writing:
+    ``{prefix}.cis_qtl_pairs.<chr>.<test_method>.parquet``, e.g. produced by
+    ``mode="nominal", test_method="score"``). Both are supported here, tried
+    in the order they were introduced, concatenating across all matched
+    per-chromosome files.
 
     Parameters
     ----------
     prefix : str
-        Prefix of the jaxQTL result file (.tsv.gz).
+        Prefix of the jaxQTL result file(s).
 
     Returns
     -------
     pd.DataFrame
-        The parsed jaxQTL results.
+        The parsed jaxQTL results, concatenated across chromosomes if the
+        run produced more than one output file.
     """
-    results_path = glob.glob(f"{prefix}.*.tsv.gz")[0]
-    results = pd.read_csv(results_path, delimiter="\t")
+    parquet_paths = sorted(glob.glob(f"{prefix}.cis_qtl_pairs.*.parquet"))
+    if parquet_paths:
+        return pd.concat([pd.read_parquet(p) for p in parquet_paths], ignore_index=True)
 
-    return results
+    tsv_paths = sorted(glob.glob(f"{prefix}.*.tsv.gz"))
+    if tsv_paths:
+        return pd.concat([pd.read_csv(p, delimiter="\t") for p in tsv_paths], ignore_index=True)
+
+    raise FileNotFoundError(
+        f"No jaxqtl output files found matching '{prefix}.cis_qtl_pairs.*.parquet' or '{prefix}.*.tsv.gz'"
+    )
 
 
 def run_jaxqtl(

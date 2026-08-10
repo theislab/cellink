@@ -50,7 +50,7 @@ jobs:
           python -m pip install --upgrade pip wheel
       - name: Install dependencies
         run: |
-          pip install ${{ matrix.pip-flags }} ".[dev,test]"
+          pip install ${{ matrix.pip-flags }} ".[at,dev,test]"
       - name: Test
         env:
           MPLBACKEND: agg

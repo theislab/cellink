@@ -31,7 +31,7 @@ dependencies = [
   "anndata",
   "bed-reader",
   "dask",
-  "limix-core",
+  "mudata",
   "muon",
   "numexpr",
   "pandas",
@@ -42,17 +42,21 @@ dependencies = [
   "requests",
   "rich",
   "scanpy",
-  # for debug logging (referenced from the issue template)
+  "scikit-learn",
   "session-info",
   "xarray",
   "zarr>=3",
 ]
 
+optional-dependencies.at = [
+  "formulaic",
+  "limix-core",
+]
 optional-dependencies.datasets = [
   "bio2zarr[all]",
   "liftover",
   "setuptools<82",
-  "sgkit[plink]",  # TODO cbgen is a pain to install on mac. I think cmake issues.
+  "sgkit[plink]",  
 ]
 
 optional-dependencies.dev = [
@@ -75,14 +79,30 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.embpy = [
+  "embpy",
+]
 optional-dependencies.ensembl-vep = [
   # not available via pip, has to be installed via conda install bioconda::ensembl-vep
   #  "ensembl-vep",
 ]
 
+optional-dependencies.jaxqtl = [
+  # not available via pip; cellink.tl.external.run_jaxqtl shells out to the
+  # jaxqtl CLI binary. Install it following
+  # https://github.com/mancusolab/jaxqtl and ensure it's on $PATH.
+]
 optional-dependencies.ldsc = [
   #TODO ARNOLDT
   "gsmap",
+]
+optional-dependencies.livi = [
+  # not available via pip; cellink.tl.external.{run_livi_association_testing,
+  # train_livi,infer_livi} shell out to a separate LIVI installation (see
+  # `configure_livi_runner`'s `livi_root`). Install LIVI itself following its
+  # own repository's instructions; the annbatch-backed LIVI helpers
+  # (train_livi_annbatch, etc.) additionally need `torch`, `pytorch_lightning`,
+  # and `annbatch` (see cellink.tl.external's own ImportError message).
 ]
 optional-dependencies.mixmil = [
   "mixmil",
@@ -101,9 +121,26 @@ optional-dependencies.rvat = [
   "limix-core",
   "pybiomart",
 ]
+optional-dependencies.saigeqtl = [
+  # not available via pip; cellink.tl.external.run_saigeqtl shells out to
+  # SAIGE-QTL's own R scripts via Rscript (see SAIGEQTLRunner). Install
+  # SAIGE-QTL itself following https://github.com/weizhou0/qtl.
+]
 optional-dependencies.scdrs = [
   "numpy<2",
   "scdrs",
+]
+optional-dependencies.scooby = [
+  "torch",
+  "accelerate",
+  "enformer-pytorch>=0.8.10",
+  "borzoi-pytorch>=0.4.0",
+  "scooby @ git+https://github.com/gagneurlab/scooby.git",
+]
+optional-dependencies.scpoli = [
+  "scarches",
+  "scvi-tools",
+  "pyarrow",
 ]
 optional-dependencies.scprs = [
   "ncls",
@@ -135,6 +172,9 @@ scripts.cellink-pgen = "cellink.cli.pgen:main"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/cellink" ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.envs.default]
 installer = "uv"

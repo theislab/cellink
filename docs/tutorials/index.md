@@ -5,6 +5,7 @@
 :maxdepth: 1
 
 donordata_basics
+formula_resolver
 pseudobulk_eqtl
 pseudobulk_eqtl_jaxqtl_tensorqtl
 explore_annotations
@@ -21,4 +22,5 @@ ldsc_duncan_merge_anndatas
 magma_analysis_tutorial
 sclinker
 livi
+scooby
 ```

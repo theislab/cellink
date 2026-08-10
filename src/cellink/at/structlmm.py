@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
+import anndata
 import numpy as np
+import pandas as pd
 import scipy.linalg as la
 from tqdm import tqdm
 
+from cellink._core import DonorData
+from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
 if TYPE_CHECKING:
@@ -20,19 +24,45 @@ logger = logging.getLogger(__name__)
 class StructLMM:
     """Faster version of StructLMM."""
 
-    def __init__(self, y: np.ndarray, E: np.ndarray, F: np.ndarray, verbose: bool = False) -> None:
+    def __init__(
+        self,
+        y: np.ndarray | str,
+        E: np.ndarray,
+        F: np.ndarray | str | None = None,
+        verbose: bool = False,
+        *,
+        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
+        target_level: Literal["donor", "cell"] | None = None,
+    ) -> None:
         """Initialize the OurStructLMM class.
 
         Parameters
         ----------
-        y : np.ndarray
-            Phenotype data.
+        y : np.ndarray, or str
+            Phenotype data. Either a numpy array directly, or, when `data` is
+            provided, a formula string resolved against `data`.
         E : np.ndarray
-            Covariance matrix of the variants.
-        F : np.ndarray
-            Covariates data. If not specified, an intercept is assumed.
+            Covariance matrix of the variants. Always a raw numpy array
+            (not resolvable from `data`, since it isn't a plain obs/var column).
+        F : np.ndarray, or str, optional
+            Covariates data. If not specified, an intercept is assumed. Either
+            a numpy array directly, or, when `data` is provided, a formula
+            string resolved against `data` (with an intercept column kept).
         verbose: bool, optional
+        data : DonorData, AnnData, or pandas.DataFrame, optional
+            Data container `y`/`F` are resolved against when either is given
+            as a string.
+        target_level : {"donor", "cell"}, optional
+            Required when `data` is a `DonorData` and `y`/`F` are formula
+            strings.
         """
+        if isinstance(y, str):
+            y = to_numpy(fetch_raw_slot(data, y, "y", target_level=target_level, add_intercept=False))
+        if F is None:
+            F = np.ones((np.asarray(y).shape[0], 1))
+        elif isinstance(F, str):
+            F = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
+
         # type casting
         y = ensure_float64_array(y)
         E = ensure_float64_array(E)
