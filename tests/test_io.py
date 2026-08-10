@@ -11,6 +11,7 @@ DATA = Path("tests/data")
 
 @pytest.mark.slow
 def test_read_plink():
+    pytest.importorskip("sgkit")
     gdata = read_plink(DATA / "simulated_genotype_calls")
     assert gdata.shape == (100, 1000)
 
@@ -24,11 +25,13 @@ def test_read_bgen():
 
 @pytest.mark.slow
 def test_read_sgkit_zarr():
+    pytest.importorskip("sgkit")
     read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
 
 
 @pytest.mark.slow
 def test_from_plink_sgkit_dataset():
+    pytest.importorskip("sgkit")
     from sgkit.io.plink import read_plink as sg_read_plink
 
     sgkit_dataset = sg_read_plink(path=DATA / "simulated_genotype_calls")
@@ -47,6 +50,7 @@ def test_from_bgen_sgkit_dataset():
 
 @pytest.mark.slow
 def test_export(tmp_path):
+    pytest.importorskip("sgkit")
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata = gdata[:, :1996]
     gdata.obs["donor_id"] = gdata.obs.index

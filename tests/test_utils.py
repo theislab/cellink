@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from cellink.io import read_sgkit_zarr
 from cellink.utils import (
@@ -15,6 +16,7 @@ CONFIG = Path("configs")
 
 
 def test_one_hot_encode_genotypes():
+    pytest.importorskip("sgkit")
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata.X = gdata.X.compute()
     one_hot_encode_gdata = one_hot_encode_genotypes(gdata[:100, :100])
@@ -23,6 +25,7 @@ def test_one_hot_encode_genotypes():
 
 
 def test_dosage_per_strand():
+    pytest.importorskip("sgkit")
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
     gdata.X = gdata.X.compute()
     dosage_per_strand_gdata = dosage_per_strand(gdata[:100, :100])

@@ -234,6 +234,15 @@ def __getattr__(name: str) -> Any:
                 "Cannot import `run_mixmil`: this feature requires `torch` and `mixmil`. "
                 "Install with:\n\n    pip install cellink[mixmil]"
             ) from e
+    if name in _SEISMIC_TORCH_NAMES:
+        try:
+            module = importlib.import_module(f"{__name__}._seismic_torch")
+            return getattr(module, name)
+        except ImportError as e:
+            raise ImportError(
+                f"Cannot import `{name}`: this feature requires `torch`. "
+                "Install with:\n\n    pip install cellink[seismic_torch]"
+            ) from e
     if name in _LIVI_ANNBATCH_NAMES:
         try:
             module = importlib.import_module(f"{__name__}._livi_annbatch")

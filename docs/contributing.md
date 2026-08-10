@@ -146,8 +146,8 @@ in the root of the repository.
 ### Continuous integration
 
 The [`Test`](https://github.com/theislab/cellink/actions/workflows/test.yaml) workflow
-runs the test suite against the minimum and maximum supported Python version (3.10 and
-3.12) on every push/PR to `main`, and again on a schedule twice a month so dependency
+runs the test suite against every supported Python version (3.11, 3.12, and 3.13) on
+every push/PR to `main`, and again on a schedule twice a month so dependency
 drift gets caught even without a PR. It only installs the base `[dev,test]` extras, so
 anything gated behind an optional extra (see above) is skipped there unless its
 lazy-import guard reports it cleanly. The

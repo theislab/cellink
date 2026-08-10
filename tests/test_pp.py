@@ -12,6 +12,7 @@ DATA = Path("tests/data")
 
 
 def test_variant_qc():
+    pytest.importorskip("sgkit")
     gdata = read_sgkit_zarr(DATA / "simulated_genotype_calls.vcz")
 
     gdata_filt = variant_qc(gdata, maf_threshold=0.47, inplace=False)
