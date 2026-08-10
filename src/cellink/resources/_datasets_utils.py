@@ -1,14 +1,28 @@
+import logging
+import os
 import subprocess
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+logger = logging.getLogger(__name__)
+
 try:
     from liftover import get_lifter
-
-    converter = get_lifter("hg19", "hg38", one_based=True)
-except ImportError:
+    cache = os.environ.get("CELLINK_LIFTOVER_CACHE")
+    if cache is None:
+        cache = os.path.expanduser("~/.liftover")
+        logger.warning(
+            "CELLINK_LIFTOVER_CACHE is not set; using default liftover cache at %s.",
+            cache,
+        )
+    converter = get_lifter("hg19", "hg38", one_based=True, cache=cache)
+except Exception as e:  # noqa: BLE001
+    logger.warning(
+        "liftover unavailable (%s); hg19<->hg38 coordinate translation will be disabled.",
+        e,
+    )
     converter = None
 
 

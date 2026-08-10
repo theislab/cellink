@@ -1,0 +1,1106 @@
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+KNOWN_SCOOBY_CHECKPOINTS: dict[str, dict[str, Any]] = {
+    "johahi/neurips-scooby": {"cell_emb_dim": 14, "n_tracks": 3, "modality": "multiome", "use_transform_borzoi_emb": True},
+    "lauradmartens/onek1k-scooby": {"cell_emb_dim": 10, "n_tracks": 2, "modality": "rna", "use_transform_borzoi_emb": True},
+    "lauradmartens/epicardioids-scooby": {
+        "cell_emb_dim": 50, "n_tracks": 3, "modality": "multiome", "use_transform_borzoi_emb": True,
+    },
+}
+
+UCSC_TO_ENSEMBL_CHR_MAP: dict[str, str] = {f"chr{c}": str(c) for c in [*range(1, 23), "X"]}
+
+
+class ScoobyRunner:
+    """Manages device resolution and LoRA configuration for Scooby.
+
+    Parameters
+    ----------
+    device : str
+        Compute device: ``"auto"`` (detect GPU), ``"cuda"``, or ``"cpu"``.
+    lora_config : "peft.LoraConfig", optional
+        Forwarded to ``scooby.utils.utils.get_lora``. ``None`` (default)
+        uses scooby's own default LoRA target-module pattern (the Borzoi
+        trunk's conv layers + attention query/value projections).
+    """
+
+    def __init__(self, device: str = "auto", lora_config: Any | None = None):
+        self.device = device
+        self.lora_config = lora_config
+
+    def resolve_device(self) -> str:
+        """Return the resolved device string (``"cuda"`` or ``"cpu"``)."""
+        if self.device != "auto":
+            return self.device
+        try:
+            import torch
+
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except ImportError:
+            return "cpu"
+
+    def get_scooby_class(self):
+        """Import and return the :class:`scooby.modeling.Scooby` class."""
+        try:
+            from scooby.modeling import Scooby
+        except ImportError as e:
+            raise ImportError(
+                "scooby is required for this function. Install with:\n\n"
+                "    pip install cellink[scooby]"
+            ) from e
+        return Scooby
+
+    def get_lora_fn(self):
+        """Import and return ``scooby.utils.utils.get_lora``."""
+        try:
+            from scooby.utils.utils import get_lora
+        except ImportError as e:
+            raise ImportError(
+                "scooby is required for this function. Install with:\n\n"
+                "    pip install cellink[scooby]"
+            ) from e
+        return get_lora
+
+
+_scooby_runner: ScoobyRunner | None = None
+
+
+def configure_scooby_runner(device: str = "auto", lora_config: Any | None = None) -> ScoobyRunner:
+    """Configure the global Scooby runner.
+
+    Must be called once before using any other Scooby function in thismodule.
+
+    Parameters
+    ----------
+    device : str
+        Compute device: ``"auto"`` (auto-detect GPU), ``"cuda"``, or
+        ``"cpu"``.
+    lora_config : "peft.LoraConfig", optional
+        Forwarded to every ``get_lora`` call made through this runner.
+
+    Returns
+    -------
+    ScoobyRunner
+
+    Examples
+    --------
+    >>> import cellink as cl
+    >>> cl.tl.external.configure_scooby_runner(device="cuda")
+    """
+    global _scooby_runner
+    _scooby_runner = ScoobyRunner(device=device, lora_config=lora_config)
+    return _scooby_runner
+
+
+def get_scooby_runner() -> ScoobyRunner:
+    """Return the global :class:`ScoobyRunner`, raising if not configured."""
+    if _scooby_runner is None:
+        raise RuntimeError("Scooby runner not configured. Call `cellink.tl.external.configure_scooby_runner()` first.")
+    return _scooby_runner
+
+
+def build_scooby_embedding(
+    adata,
+    n_comps: int = 16,
+    *,
+    use_hvg: bool = True,
+    n_top_genes: int = 2000,
+    normalize: bool = True,
+) -> pd.DataFrame:
+    """Build a per-cell PCA embedding in the shape Scooby's on-the-fly datasets expect.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Cell x gene count matrix (raw counts expected if ``normalize=True``).
+    n_comps : int
+        Embedding dimensionality (``cell_emb_dim`` in Scooby's model config).
+    use_hvg : bool
+        Restrict PCA to highly-variable genes first.
+    n_top_genes : int
+        Number of HVGs to select when ``use_hvg=True``.
+    normalize : bool
+        Run ``sc.pp.normalize_total`` + ``sc.pp.log1p`` before PCA. Set
+        ``False`` if ``adata`` is already normalized.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Columns: ``embedding`` (one array per row, same row count and order
+        as ``adata``
+    """
+    import scanpy as sc
+
+    total_counts = np.ravel(np.asarray(adata.X.sum(axis=1)))
+    nonzero_mask = total_counts > 0
+    if not nonzero_mask.all():
+        logger.warning(
+            "build_scooby_embedding: %d/%d cells have zero total counts; assigning them a zero embedding "
+            "vector instead of dropping them, to keep row count/order aligned with `adata`.",
+            (~nonzero_mask).sum(),
+            adata.n_obs,
+        )
+
+    a = adata[nonzero_mask].copy() if not nonzero_mask.all() else adata.copy()
+    if normalize:
+        sc.pp.normalize_total(a, target_sum=1e4)
+        sc.pp.log1p(a)
+    if use_hvg:
+        sc.pp.highly_variable_genes(a, n_top_genes=n_top_genes)
+        a = a[:, a.var["highly_variable"]].copy()
+    sc.tl.pca(a, n_comps=n_comps)
+    nonzero_emb = a.obsm["X_pca"].astype(np.float32)
+
+    emb = np.zeros((adata.n_obs, n_comps), dtype=np.float32)
+    emb[nonzero_mask] = nonzero_emb
+    return pd.DataFrame({"embedding": list(emb)}, index=adata.obs_names)
+
+
+def build_scooby_embedding_scpoli(
+    adata,
+    condition_key: str,
+    cell_type_key: str,
+    *,
+    latent_dim: int = 16,
+    recon_loss: str = "nb",
+    n_epochs: int = 50,
+    pretraining_epochs: int = 40,
+    early_stopping: bool = True,
+    use_hvg: bool = True,
+    n_top_genes: int = 3000,
+    checkpoint_dir: str | None = None,
+) -> pd.DataFrame:
+    """Build a per-cell embedding via **scPoli** (``scarches.models.scpoli``),
+    matching the real recipe the released OneK1K Scooby checkpoint's embedding
+    was trained with. Requires raw (unnormalized) counts in ``adata.X``.
+
+    Parameters
+    ----------
+    adata : anndata.AnnData
+        Cell x gene raw-count matrix.
+    condition_key : str
+        ``adata.obs`` column identifying the batch/sample to condition on
+        (``condition_keys`` in scPoli's own API e.g. donor or sample ID;
+        the reference recipe uses ``'sample'``).
+    cell_type_key : str
+        ``adata.obs`` column with cell-type labels (``cell_type_keys`` in
+        scPoli's own API; the reference recipe uses ``'cell_label'``).
+    latent_dim : int
+        Embedding dimensionality (``cell_emb_dim`` in Scooby's model config).
+    recon_loss : str
+        scPoli reconstruction loss; ``'nb'`` (negative binomial) matches the
+        reference recipe.
+    n_epochs, pretraining_epochs : int
+        scPoli training schedule; defaults match the reference recipe
+        (``n_epochs=50``, ``pretraining_epochs=40``).
+    early_stopping : bool
+        Use the reference recipe's early-stopping config
+        (``val_prototype_loss``, patience 20, LR-reduce patience 13).
+    use_hvg : bool
+        Restrict to highly-variable genes first, matching the reference
+        recipe (``sc.pp.highly_variable_genes(..., flavor='seurat_v3',
+        batch_key=condition_key)``.
+    n_top_genes : int
+        Number of HVGs to select when ``use_hvg=True``; the reference
+        recipe uses 3000.
+    checkpoint_dir : str, optional
+        If given: skip training and load a previously-trained model from
+        this directory if it already exists (via ``scPoli.load``, real
+        scPoli training on a full atlas-scale cohort can run for hours, and
+        without this, any failure after training..
+
+    Returns
+    -------
+    pandas.DataFrame
+        Same contract as :func:`build_scooby_embedding`: a single
+        ``'embedding'`` column, one array per row, row-aligned to
+        ``adata.obs_names``.
+    """
+    import scanpy as sc
+    import anndata as _ad
+
+    if not hasattr(_ad, "_cellink_read_shim_applied"):
+        _ad.read = _ad.read_h5ad  # scarches 0.6.x calls the removed anndata.read()
+        _ad._cellink_read_shim_applied = True
+    from scarches.models.scpoli import scPoli
+
+    a = adata
+    if use_hvg:
+        sc.pp.highly_variable_genes(a, flavor="seurat_v3", n_top_genes=n_top_genes, batch_key=condition_key)
+        a = a[:, a.var["highly_variable"]].copy()
+
+    if checkpoint_dir is not None and Path(checkpoint_dir).exists():
+        import torch
+
+        map_location = None if torch.cuda.is_available() else torch.device("cpu")
+        logger.info(
+            "loading previously-trained scPoli model from %s (skipping training, map_location=%s)",
+            checkpoint_dir, map_location,
+        )
+        model = scPoli.load(checkpoint_dir, adata=a, map_location=map_location)
+    else:
+        model = scPoli(
+            adata=a,
+            condition_keys=condition_key,
+            cell_type_keys=cell_type_key,
+            recon_loss=recon_loss,
+            latent_dim=latent_dim,
+        )
+        early_stopping_kwargs = (
+            {
+                "early_stopping_metric": "val_prototype_loss",
+                "mode": "min",
+                "threshold": 0,
+                "patience": 20,
+                "reduce_lr": True,
+                "lr_patience": 13,
+                "lr_factor": 0.1,
+            }
+            if early_stopping
+            else None
+        )
+        train_kwargs: dict[str, Any] = {"n_epochs": n_epochs, "pretraining_epochs": pretraining_epochs}
+        if early_stopping_kwargs is not None:
+            train_kwargs["early_stopping_kwargs"] = early_stopping_kwargs
+        model.train(**train_kwargs)
+
+        if checkpoint_dir is not None:
+            logger.info("Training done. saving model to %s.", checkpoint_dir)
+            model.save(checkpoint_dir, overwrite=True)
+
+    import scipy.sparse
+
+    if scipy.sparse.issparse(a.X):
+        a.X = np.asarray(a.X.todense())
+
+    emb = model.get_latent(a, mean=True).astype(np.float32)
+    return pd.DataFrame({"embedding": list(emb)}, index=adata.obs_names)
+
+
+def build_scooby_dataset(
+    rna_plus,
+    rna_minus,
+    embedding: pd.DataFrame,
+    genome_intervals,
+    *,
+    neighbors=None,
+    cell_sample_size: int = 64,
+    cell_weights=None,
+    clip_soft: float = 5,
+    get_targets: bool = True,
+    random_cells: bool = True,
+    cells_to_run=None,
+    custom_read_length: int = 90,
+):
+    """Build an RNA-only on-the-fly training/eval dataset.
+
+    Thin wrapper around ``scooby.data.onTheFlyDataset``. ``rna_plus``/
+    ``rna_minus`` should be backed handles from ``scooby.utils.utils.read_backed``
+    (e.g. ``read_backed(h5py.File(path), "fragment_single")``) so the
+    dataset streams cells rather than loading the full matrix.
+    """
+    try:
+        from scooby.data import onTheFlyDataset
+    except ImportError as e:
+        raise ImportError(
+            "scooby is required for this function. Install with:\n\n"
+            "    pip install cellink[scooby]"
+        ) from e
+    return onTheFlyDataset(
+        rna_plus,
+        rna_minus,
+        neighbors=neighbors,
+        embedding=embedding,
+        ds=genome_intervals,
+        cell_sample_size=cell_sample_size,
+        cell_weights=cell_weights,
+        clip_soft=clip_soft,
+        get_targets=get_targets,
+        random_cells=random_cells,
+        cells_to_run=cells_to_run,
+        custom_read_length=custom_read_length,
+    )
+
+
+def build_scooby_multiome_dataset(
+    adatas: dict[str, Any],
+    embedding: pd.DataFrame,
+    genome_intervals,
+    *,
+    neighbors=None,
+    cell_sample_size: int = 64,
+    cell_weights=None,
+    clip_soft: float = 5,
+    normalize_atac: bool = False,
+    get_targets: bool = True,
+    random_cells: bool = True,
+    cells_to_run=None,
+    custom_read_length: int = 90,
+):
+    """Build an RNA+ATAC multiome on-the-fly training/eval dataset.
+
+    Thin wrapper around ``scooby.data.onTheFlyMultiomeDataset``.
+
+    Parameters
+    ----------
+    adatas : dict
+        Backed handles keyed by modality name containing ``"rna"``/``"atac"``
+        (scooby dispatches on this substring internally), e.g.
+        ``{"rna_plus": ..., "rna_minus": ..., "atac": ...}``, each from
+        ``scooby.utils.utils.read_backed`` (RNA: ``obsm["fragment_single"]``;
+        ATAC: ``obsm["insertion"]``).
+    normalize_atac : bool
+        Scale ATAC coverage (x0.05) for training stability, matching
+        scooby's own reference multiome training script.
+    """
+    try:
+        from scooby.data import onTheFlyMultiomeDataset
+    except ImportError as e:
+        raise ImportError(
+            "scooby is required for this function. Install with:\n\n"
+            "    pip install cellink[scooby]"
+        ) from e
+    return onTheFlyMultiomeDataset(
+        adatas,
+        embedding=embedding,
+        ds=genome_intervals,
+        neighbors=neighbors,
+        cell_sample_size=cell_sample_size,
+        cell_weights=cell_weights,
+        clip_soft=clip_soft,
+        normalize_atac=normalize_atac,
+        get_targets=get_targets,
+        random_cells=random_cells,
+        cells_to_run=cells_to_run,
+        custom_read_length=custom_read_length,
+    )
+
+
+def _make_genome_interval_datasets(
+    sequences_path, genome_path, *, test_fold, val_fold, context_length, shift_augs, rc_aug, chr_bed_to_fasta_map=None
+):
+    """Shared train/val ``GenomeIntervalDataset`` builder for both training
+    entrypoints below."""
+    import polars as pl
+    from enformer_pytorch.data import GenomeIntervalDataset
+
+    chr_bed_to_fasta_map = chr_bed_to_fasta_map or {}
+
+    def filter_train(df):
+        return df.filter((pl.col("column_4") != f"fold{test_fold}") & (pl.col("column_4") != f"fold{val_fold}"))
+
+    def filter_val(df):
+        return df.filter(pl.col("column_4") == f"fold{val_fold}")
+
+    train_ds = GenomeIntervalDataset(
+        bed_file=sequences_path,
+        fasta_file=genome_path,
+        filter_df_fn=filter_train,
+        return_seq_indices=False,
+        shift_augs=shift_augs,
+        rc_aug=rc_aug,
+        return_augs=True,
+        context_length=context_length,
+        chr_bed_to_fasta_map=chr_bed_to_fasta_map,
+    )
+    val_ds = GenomeIntervalDataset(
+        bed_file=sequences_path,
+        fasta_file=genome_path,
+        filter_df_fn=filter_val,
+        return_seq_indices=False,
+        shift_augs=(0, 0),
+        rc_aug=False,
+        return_augs=True,
+        context_length=context_length,
+        chr_bed_to_fasta_map=chr_bed_to_fasta_map,
+    )
+    return train_ds, val_ds
+
+
+def _run_scooby_training_loop(
+    *,
+    scooby_model,
+    training_loader,
+    val_loader,
+    num_epochs: int,
+    lr: float,
+    wd: float,
+    warmup_steps: int,
+    clip_global_norm: float,
+    eval_every_n: int,
+    total_weight: float,
+    output_dir: str,
+    run_name: str,
+    fix_rev_comp_fn,
+    mode: str,
+    save_every_n_steps: int = 1000,
+    log_with: str | None = None,
+):
+    """Shared Accelerate-based training loop for both RNA-only and multiome scooby fine-tuning.
+    """
+    import torch
+    import torch.nn as nn
+    import tqdm
+    from accelerate import Accelerator, DistributedDataParallelKwargs
+    from torch.optim.lr_scheduler import LinearLR, SequentialLR
+
+    from scooby.utils.utils import add_weight_decay, evaluate, poisson_multinomial_torch
+
+    ddp_kwargs = DistributedDataParallelKwargs(static_graph=True)
+    accelerator = Accelerator(log_with=log_with, kwargs_handlers=[ddp_kwargs], step_scheduler_with_optimizer=False)
+    device = accelerator.device
+
+    num_steps = (45_000 * num_epochs) // training_loader.batch_size
+    parameters = add_weight_decay(scooby_model, lr=lr, weight_decay=wd)
+    optimizer = torch.optim.AdamW(parameters)
+
+    warmup_scheduler = LinearLR(optimizer, start_factor=1e-7, total_iters=warmup_steps)
+    train_scheduler = LinearLR(optimizer, start_factor=1.0, end_factor=0.0, total_iters=max(num_steps - warmup_steps, 1))
+    scheduler = SequentialLR(optimizer, [warmup_scheduler, train_scheduler], [warmup_steps])
+
+    scooby_model = nn.SyncBatchNorm.convert_sync_batchnorm(scooby_model)
+    scooby_model, optimizer, scheduler, training_loader, val_loader = accelerator.prepare(
+        scooby_model, optimizer, scheduler, training_loader, val_loader
+    )
+    if log_with:
+        accelerator.init_trackers("scooby", init_kwargs={"wandb": {"name": run_name}})
+    loss_fn = poisson_multinomial_torch
+
+    for epoch in range(num_epochs):
+        for i, (inputs, rc_augs, targets, cell_emb_idx) in enumerate(tqdm.tqdm(training_loader)):
+            inputs = inputs.permute(0, 2, 1).to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
+            for rc_aug_idx in rc_augs.nonzero():
+                rc_aug_idx = rc_aug_idx[0]
+                flipped = torch.flip(targets[rc_aug_idx].unsqueeze(0), (1, -3))
+                targets[rc_aug_idx] = fix_rev_comp_fn(flipped)[0]
+            optimizer.zero_grad()
+            with torch.autocast(accelerator.device.type):
+                outputs = scooby_model(inputs, cell_emb_idx)
+                loss = loss_fn(outputs, targets, total_weight=total_weight)
+                if log_with:
+                    accelerator.log({"loss": loss})
+            accelerator.backward(loss)
+            accelerator.clip_grad_norm_(scooby_model.parameters(), clip_global_norm)
+            if log_with:
+                accelerator.log({"learning_rate": scheduler.get_last_lr()[0]})
+            optimizer.step()
+            scheduler.step()
+            if i % eval_every_n == 0:
+                evaluate(accelerator, scooby_model, val_loader, mode=mode, stop_idx=0)
+                scooby_model.train()
+            if (i % save_every_n_steps == 0 and epoch != 0) or (i % (2 * save_every_n_steps) == 0 and epoch == 0 and i != 0):
+                accelerator.save_state(output_dir=f"{output_dir}/scooby_epoch_{epoch}_{i}_{run_name}")
+        logger.info("Scooby training: completed epoch %d/%d", epoch + 1, num_epochs)
+
+    final_dir = f"{output_dir}/scooby_final_{run_name}"
+    accelerator.save_state(output_dir=final_dir)
+    if log_with:
+        accelerator.end_training()
+    logger.info("Scooby training complete. Final state: %s", final_dir)
+    return final_dir
+
+
+def train_scooby(
+    rna_plus_path: str,
+    rna_minus_path: str,
+    embedding_path: str,
+    *,
+    output_dir: str,
+    run_name: str,
+    sequences_path: str,
+    genome_path: str,
+    neighbors_path: str | None = None,
+    pretrained_model: str = "johahi/borzoi-replicate-0",
+    cell_emb_dim: int = 16,
+    num_tracks: int = 2,
+    context_length: int = 524_288,
+    batch_size: int = 1,
+    lr: float = 1e-4,
+    wd: float = 1e-6,
+    clip_global_norm: float = 1.0,
+    warmup_steps: int = 1000,
+    num_epochs: int = 2,
+    eval_every_n: int = 2000,
+    total_weight: float = 0.2,
+    test_fold: int = 7,
+    val_fold: int = 4,
+    shift_augs: tuple[int, int] = (-3, 3),
+    rc_aug: bool = True,
+    chr_bed_to_fasta_map: dict[str, str] | None = None,
+    cell_sample_size: int = 64,
+    val_cell_sample_size: int = 32,
+    clip_soft: float = 5,
+    num_workers: int = 8,
+    log_with: str | None = None,
+    runner: ScoobyRunner | None = None,
+) -> str:
+    """RNA-only Scooby fine-tuning: cell embedding + DNA sequence -> per-cell
+    RNA coverage. No genotype required (see module docstring).
+
+    Parameters
+    ----------
+    rna_plus_path, rna_minus_path : str
+        Paths to strand-split RNA h5ads with ``obsm["fragment_single"]``.
+    embedding_path : str
+        Path to a per-cell embedding parquet (see ``build_scooby_embedding``).
+    neighbors_path : str, optional
+        Path to a (possibly empty/no-op) neighbors ``.npz``. Required by
+        scooby's dataset API even when unused.
+    pretrained_model : str
+        HuggingFace Hub model id or local path passed to
+        ``Scooby.from_pretrained``.
+    cell_emb_dim, num_tracks : int
+        Must match ``embedding_path``'s dimensionality and the modality
+        (RNA-only = 2 tracks: plus/minus strand).
+
+    Returns
+    -------
+    str
+        Path to the final saved Accelerate state directory.
+    """
+    import h5py
+    import scipy.sparse
+
+    from scooby.utils.utils import fix_rev_comp_rna, read_backed
+
+    from torch.utils.data import DataLoader
+
+    runner = runner or get_scooby_runner()
+    Scooby = runner.get_scooby_class()
+    get_lora = runner.get_lora_fn()
+
+    adatas = {
+        "rna_plus": read_backed(h5py.File(rna_plus_path), "fragment_single"),
+        "rna_minus": read_backed(h5py.File(rna_minus_path), "fragment_single"),
+    }
+    embedding = pd.read_parquet(embedding_path)
+    neighbors = scipy.sparse.load_npz(neighbors_path) if neighbors_path else None
+
+    scooby_model = Scooby.from_pretrained(
+        pretrained_model,
+        cell_emb_dim=cell_emb_dim,
+        embedding_dim=1920,
+        n_tracks=num_tracks,
+        return_center_bins_only=True,
+        disable_cache=True,
+        use_transform_borzoi_emb=True,
+    )
+    scooby_model = get_lora(scooby_model, train=True, lora_config=runner.lora_config)
+
+    train_ds, val_ds = _make_genome_interval_datasets(
+        sequences_path, genome_path, test_fold=test_fold, val_fold=val_fold,
+        context_length=context_length, shift_augs=shift_augs, rc_aug=rc_aug,
+        chr_bed_to_fasta_map=chr_bed_to_fasta_map,
+    )
+    otf_dataset = build_scooby_dataset(
+        adatas["rna_plus"], adatas["rna_minus"], embedding, train_ds,
+        neighbors=neighbors, cell_sample_size=cell_sample_size, clip_soft=clip_soft,
+    )
+    val_dataset = build_scooby_dataset(
+        adatas["rna_plus"], adatas["rna_minus"], embedding, val_ds,
+        neighbors=neighbors, cell_sample_size=val_cell_sample_size, clip_soft=clip_soft,
+    )
+    training_loader = DataLoader(otf_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
+
+    return _run_scooby_training_loop(
+        scooby_model=scooby_model, training_loader=training_loader, val_loader=val_loader,
+        num_epochs=num_epochs, lr=lr, wd=wd, warmup_steps=warmup_steps, clip_global_norm=clip_global_norm,
+        eval_every_n=eval_every_n, total_weight=total_weight, output_dir=output_dir, run_name=run_name,
+        fix_rev_comp_fn=fix_rev_comp_rna, mode="rna", log_with=log_with,
+    )
+
+
+def train_scooby_multiome(
+    rna_plus_path: str,
+    rna_minus_path: str,
+    atac_path: str,
+    embedding_path: str,
+    *,
+    output_dir: str,
+    run_name: str,
+    sequences_path: str,
+    genome_path: str,
+    neighbors_path: str | None = None,
+    pretrained_model: str = "johahi/borzoi-replicate-0",
+    cell_emb_dim: int = 16,
+    num_tracks: int = 3,
+    normalize_atac: bool = True,
+    context_length: int = 524_288,
+    batch_size: int = 1,
+    lr: float = 1e-4,
+    wd: float = 1e-6,
+    clip_global_norm: float = 1.0,
+    warmup_steps: int = 1000,
+    num_epochs: int = 2,
+    eval_every_n: int = 2000,
+    total_weight: float = 0.2,
+    test_fold: int = 7,
+    val_fold: int = 4,
+    shift_augs: tuple[int, int] = (-3, 3),
+    rc_aug: bool = True,
+    chr_bed_to_fasta_map: dict[str, str] | None = None,
+    cell_sample_size: int = 64,
+    val_cell_sample_size: int = 32,
+    clip_soft: float = 5,
+    num_workers: int = 8,
+    log_with: str | None = None,
+    runner: ScoobyRunner | None = None,
+) -> str:
+    """RNA+ATAC multiome Scooby fine-tuning: cell embedding + DNA sequence ->
+    per-cell RNA coverage AND ATAC accessibility, jointly. 
+
+    Parameters
+    ----------
+    atac_path : str
+        Path to an ATAC h5ad with ``obsm["insertion"]``.
+    normalize_atac : bool
+        Scale ATAC coverage (x0.05) for training stability, 
+        reference default for multiome training.
+    Other parameters : see :func:`train_scooby`.
+
+    Returns
+    -------
+    str
+        Path to the final saved Accelerate state directory.
+    """
+    import h5py
+    import scipy.sparse
+
+    from scooby.utils.utils import fix_rev_comp_multiome, read_backed
+
+    from torch.utils.data import DataLoader
+
+    runner = runner or get_scooby_runner()
+    Scooby = runner.get_scooby_class()
+    get_lora = runner.get_lora_fn()
+
+    adatas = {
+        "rna_plus": read_backed(h5py.File(rna_plus_path), "fragment_single"),
+        "rna_minus": read_backed(h5py.File(rna_minus_path), "fragment_single"),
+        "atac": read_backed(h5py.File(atac_path), "insertion"),
+    }
+    embedding = pd.read_parquet(embedding_path)
+    neighbors = scipy.sparse.load_npz(neighbors_path) if neighbors_path else None
+
+    scooby_model = Scooby.from_pretrained(
+        pretrained_model,
+        cell_emb_dim=cell_emb_dim,
+        embedding_dim=1920,
+        n_tracks=num_tracks,
+        return_center_bins_only=True,
+        disable_cache=True,
+        use_transform_borzoi_emb=True,
+    )
+    scooby_model = get_lora(scooby_model, train=True, lora_config=runner.lora_config)
+
+    train_ds, val_ds = _make_genome_interval_datasets(
+        sequences_path, genome_path, test_fold=test_fold, val_fold=val_fold,
+        context_length=context_length, shift_augs=shift_augs, rc_aug=rc_aug,
+        chr_bed_to_fasta_map=chr_bed_to_fasta_map,
+    )
+    otf_dataset = build_scooby_multiome_dataset(
+        adatas, embedding, train_ds, neighbors=neighbors,
+        cell_sample_size=cell_sample_size, clip_soft=clip_soft, normalize_atac=normalize_atac,
+    )
+    val_dataset = build_scooby_multiome_dataset(
+        adatas, embedding, val_ds, neighbors=neighbors,
+        cell_sample_size=val_cell_sample_size, clip_soft=clip_soft, normalize_atac=normalize_atac,
+    )
+    training_loader = DataLoader(otf_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1, pin_memory=True)
+
+    return _run_scooby_training_loop(
+        scooby_model=scooby_model, training_loader=training_loader, val_loader=val_loader,
+        num_epochs=num_epochs, lr=lr, wd=wd, warmup_steps=warmup_steps, clip_global_norm=clip_global_norm,
+        eval_every_n=eval_every_n, total_weight=total_weight, output_dir=output_dir, run_name=run_name,
+        fix_rev_comp_fn=fix_rev_comp_multiome, mode="multiome", log_with=log_with,
+    )
+
+
+def load_scooby_checkpoint(
+    model_path_or_name: str,
+    *,
+    cell_emb_dim: int | None = None,
+    n_tracks: int | None = None,
+    embedding_dim: int = 1920,
+    use_transform_borzoi_emb: bool | None = None,
+    runner: ScoobyRunner | None = None,
+):
+    """Load a trained Scooby checkpoint via ``Scooby.from_pretrained``.
+
+    If ``model_path_or_name`` matches a known released checkpoint (see
+    ``KNOWN_SCOOBY_CHECKPOINTS``), ``cell_emb_dim``/``n_tracks``/
+    ``use_transform_borzoi_emb`` default from that registry; otherwise they
+    must be supplied explicitly.
+
+    Returns
+    -------
+    scooby.modeling.Scooby
+        On the runner's resolved device, in eval mode.
+    """
+    runner = runner or get_scooby_runner()
+    Scooby = runner.get_scooby_class()
+
+    known = KNOWN_SCOOBY_CHECKPOINTS.get(model_path_or_name)
+    if cell_emb_dim is None:
+        if known is None:
+            raise ValueError(
+                f"'{model_path_or_name}' is not a known released checkpoint "
+                f"({sorted(KNOWN_SCOOBY_CHECKPOINTS)}), pass cell_emb_dim explicitly."
+            )
+        cell_emb_dim = known["cell_emb_dim"]
+    if n_tracks is None:
+        if known is None:
+            raise ValueError(
+                f"'{model_path_or_name}' is not a known released checkpoint "
+                f"({sorted(KNOWN_SCOOBY_CHECKPOINTS)}), pass n_tracks explicitly."
+            )
+        n_tracks = known["n_tracks"]
+    if use_transform_borzoi_emb is None:
+        if known is None:
+            raise ValueError(
+                f"'{model_path_or_name}' is not a known released checkpoint "
+                f"({sorted(KNOWN_SCOOBY_CHECKPOINTS)}), pass use_transform_borzoi_emb explicitly."
+            )
+        use_transform_borzoi_emb = known["use_transform_borzoi_emb"]
+
+    model = Scooby.from_pretrained(
+        model_path_or_name,
+        cell_emb_dim=cell_emb_dim,
+        embedding_dim=embedding_dim,
+        n_tracks=n_tracks,
+        return_center_bins_only=True,
+        use_transform_borzoi_emb=use_transform_borzoi_emb,
+    )
+    model = model.to(runner.resolve_device()).eval()
+    return model
+
+
+def convert_scooby_lora_checkpoint(
+    checkpoint_dir: str,
+    output_dir: str,
+    *,
+    pretrained_model: str = "johahi/borzoi-replicate-0",
+    cell_emb_dim: int,
+    n_tracks: int,
+    embedding_dim: int = 1920,
+    use_transform_borzoi_emb: bool = True,
+    overwrite: bool = False,
+    runner: ScoobyRunner | None = None,
+) -> str:
+    """Convert an ``accelerate.save_state()``-saved LoRA fine-tune checkpoint
+    (as ``train_scooby``/``train_scooby_multiome`` write via
+    ``accelerator.save_state(...)`` into a clean, directly
+    ``from_pretrained``-loadable checkpoint directory (with a real
+    ``config.json``).
+
+    Parameters
+    ----------
+    checkpoint_dir : str
+        An ``accelerate``-saved checkpoint directory (contains
+        ``model.safetensors``; optimizer/scheduler/RNG state files are
+        ignored).
+    output_dir : str
+        Where to write the clean, from_pretrained-loadable checkpoint.
+    pretrained_model : str
+        Must match what training actually started from (the ``pretrained_model``
+        value in the training config).
+    cell_emb_dim, n_tracks, use_transform_borzoi_emb
+        Must match the training config.
+
+    Returns
+    -------
+    str
+        ``output_dir``, for chaining into ``load_scooby_checkpoint``.
+    """
+    out_dir = Path(output_dir)
+    if out_dir.exists() and not overwrite:
+        logger.info("%s exists; pass overwrite=True to redo. Skipping.", out_dir)
+        return str(out_dir)
+
+    try:
+        import safetensors.torch
+    except ImportError as e:
+        raise ImportError("safetensors is required for this function. Install with: pip install safetensors") from e
+
+    runner = runner or get_scooby_runner()
+    Scooby = runner.get_scooby_class()
+    get_lora = runner.get_lora_fn()
+
+    ckpt_path = Path(checkpoint_dir) / "model.safetensors"
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"{ckpt_path} not found")
+
+    logger.info("building base model from %s (cell_emb_dim=%d, n_tracks=%d)", pretrained_model, cell_emb_dim, n_tracks)
+    model = Scooby.from_pretrained(
+        pretrained_model,
+        cell_emb_dim=cell_emb_dim,
+        embedding_dim=embedding_dim,
+        n_tracks=n_tracks,
+        return_center_bins_only=True,
+        disable_cache=True,
+        use_transform_borzoi_emb=use_transform_borzoi_emb,
+    )
+    model = get_lora(model, train=False, lora_config=runner.lora_config)
+
+    logger.info("loading fine-tuned weights from %s", ckpt_path)
+    safetensors.torch.load_model(model, str(ckpt_path))
+
+    logger.info("merging LoRA deltas into the base weights (merge_and_unload)")
+    model = model.merge_and_unload()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model.save_pretrained(str(out_dir))
+    logger.info("DONE -> %s (now directly loadable via Scooby.from_pretrained / ScoobyWrapper)", out_dir)
+    return str(out_dir)
+
+
+def predict_scooby_profile(
+    model,
+    sequence: np.ndarray,
+    cell_embeddings: np.ndarray,
+    *,
+    aggregate: Literal["pseudobulk", "none"] = "pseudobulk",
+    undo_squashed_scale: bool = True,
+    track_indices=None,
+):
+    """Predict Scooby coverage for a (one-hot-encoded) sequence, given a set
+    of per-cell embeddings, the ref/alt-agnostic single-forward-pass
+    primitive that variant-effect scoring diffs against two sequences.
+
+    Parameters
+    ----------
+    model : scooby.modeling.Scooby
+        A loaded checkpoint (see ``load_scooby_checkpoint``).
+    sequence : np.ndarray
+        One-hot-encoded sequence, shape ``(seq_len, 4)`` or ``(bs, seq_len, 4)``.
+    cell_embeddings : np.ndarray
+        Shape ``(n_cells, cell_emb_dim)``.
+    aggregate : {"pseudobulk", "none"}
+        ``"pseudobulk"`` sums per-cell linear-scale predictions across
+        cells (matching ``scooby.utils.utils.get_pseudobulk_profile_pred``);
+        ``"none"`` returns the full per-cell profile.
+    undo_squashed_scale : bool
+        Invert Borzoi's soft-clip+power-law training-target transform back
+        to linear scale (recommended for any downstream diffing/comparison).
+
+    Returns
+    -------
+    numpy.ndarray
+        Predicted profile, shape ``(seq_len_bins, n_tracks)`` if
+        ``aggregate="pseudobulk"`` else ``(n_cells, seq_len_bins, n_tracks)``.
+    """
+    import torch
+
+    device = next(model.parameters()).device
+    seq_t = torch.as_tensor(sequence, dtype=torch.float32, device=device)
+    if seq_t.ndim == 2:
+        seq_t = seq_t.unsqueeze(0)
+
+    seq_t = seq_t.permute(0, 2, 1)
+    cell_emb_t = torch.as_tensor(cell_embeddings, dtype=torch.float32, device=device).unsqueeze(0)
+
+    with torch.no_grad():
+        conv_weights, conv_biases = model.forward_cell_embs_only(cell_emb_t)
+        out = model.forward_sequence_w_convs(seq_t, conv_weights, conv_biases)
+        if undo_squashed_scale:
+            from scooby.utils.utils import undo_squashed_scale as _undo
+
+            out = _undo(out)
+
+    out_np = out.detach().cpu().numpy()
+
+    n_cells = cell_embeddings.shape[0] if np.asarray(cell_embeddings).ndim == 2 else 1
+    n_tracks = out_np.shape[-1] // n_cells
+    out_np = out_np[0].reshape(out_np.shape[1], n_cells, n_tracks)  # (seq_len_bins, n_cells, n_tracks)
+    if track_indices is not None:
+        out_np = out_np[..., track_indices]
+    if aggregate == "pseudobulk":
+        out_np = out_np.sum(axis=1)  # (seq_len_bins, n_tracks)
+    else:
+        out_np = out_np.transpose(1, 0, 2)  # (n_cells, seq_len_bins, n_tracks)
+    return out_np
+
+
+def score_variant_effects_scooby(
+    snp,
+    chromosome_sequence: str,
+    model_path_or_name: str,
+    cell_embeddings: np.ndarray,
+    *,
+    bin_indices=None,
+    pseudocount: float = 1.0,
+    aggregate: Literal["pseudobulk", "none"] = "pseudobulk",
+    runner: ScoobyRunner | None = None,
+    **checkpoint_kwargs,
+):
+    """Score a single variant's effect on predicted Scooby coverage via
+    ref/alt sequence diffing.
+
+
+    Parameters
+    ----------
+    snp : embpy.tl.genomics.SNPContext
+        The variant to score (chromosome, position, ref/alt alleles).
+    chromosome_sequence : str
+        Full chromosome sequence the variant sits in (or a large enough
+        window around it).
+    model_path_or_name : str
+        Passed to ``load_scooby_checkpoint``.
+    cell_embeddings : np.ndarray
+        Per-cell embeddings to pseudobulk over (or per-cell if
+        ``aggregate="none"``).
+    bin_indices : array-like, optional
+        Restrict the scoring statistic to these model-output bins (e.g. a
+        gene's exon bins from ``embpy.tl.genomics.genomic_to_bin_indices``).
+        ``None`` scores over all bins.
+    pseudocount : float
+        Added before the log2-fold-change computation.
+
+    Returns
+    -------
+    embpy.tl.genomics.snp_utils.VariantEffectResult
+    """
+    try:
+        from embpy.models.scooby_models import ScoobyWrapper
+        from embpy.tl.genomics import SNPEmbedder
+    except ImportError as e:
+        raise ImportError(
+            "embpy is required for `score_variant_effects_scooby`. Variant-effect scoring is not part of "
+            "scooby itself, it's implemented in the separate embpy package. Install with:\n\n"
+            "    pip install cellink[embpy]"
+        ) from e
+
+    runner = runner or get_scooby_runner()
+    wrapper = ScoobyWrapper(model_path_or_name, device=runner.resolve_device(), **checkpoint_kwargs)
+    wrapper.load(runner.resolve_device())
+
+    embedder = SNPEmbedder(wrapper)
+    return embedder.predict_variant_effect(
+        snp,
+        chromosome_sequence,
+        bin_indices=bin_indices,
+        pseudocount=pseudocount,
+        aggregate=aggregate,
+        cell_embeddings=cell_embeddings,
+    )
+
+
+def resolve_snp_and_exon_bins(
+    *,
+    chrom: str,
+    pos: int,
+    a0: str,
+    a1: str,
+    window: str,
+    snp_offset: int,
+    window_start: int,
+    exon_intervals,
+    bin_size: int,
+    profile_offset_bp: int,
+    num_bins: int,
+    context_window: int,
+    strand: str = "+",
+    variant_id: str | None = None,
+):
+    """Orient a variant's alleles against the real reference sequence and compute its
+    exon-overlapping, profile-clipped bin indices, or report why it must be skipped.
+
+    This applies three correctness fixes:
+
+    1. **ref/alt allele-order mismatch.** ``a0``/``a1`` (e.g. from a pgen/PLINK file) are
+       not guaranteed to be in forward-strand reference/alternate order. Silently trusting
+       the stored order can score a no-op "effect" (ref vs ref). This checks the real
+       reference base in ``window`` at the variant's position and swaps if it matches
+       ``a1`` instead of ``a0``.
+    2. **Unclipped bin indices.** The embpy ``genomic_to_bin_indices`` helper does not
+       clip its upper bound to the model's actual (cropped) profile length on its own;
+       passing ``num_bins`` (the model's real bin count) here avoids a downstream
+       out-of-bounds crash for variants whose exons sit far from the scored window.
+    3. **Silent no-op scoring.** If a variant's gene has no exon bins inside the predicted
+       (cropped) profile region at all, there is nothing to score; this reports that
+       explicitly as a skip rather than scoring an empty statistic.
+
+    Parameters
+    ----------
+    chrom, pos : str, int
+        The variant's chromosome and 1-based genomic position.
+    a0, a1 : str
+        The variant's two alleles, in whatever order the caller's genotype source
+        stores them (order not assumed to be reference-first).
+    window : str
+        The reference sequence window already fetched around this variant (e.g. via
+        an embpy ``SequenceProvider``).
+    snp_offset : int
+        The variant's 1-based offset of ``pos`` within ``window`` (the same convention
+        returned by ``SequenceProvider.get_window``).
+    window_start : int
+        The genomic start coordinate of ``window`` (``pos - snp_offset``).
+    exon_intervals
+        The scored gene's exon intervals, as expected by embpy's
+        ``genomic_to_bin_indices``.
+    bin_size, profile_offset_bp, num_bins, context_window : int
+        Passed through to embpy (``wrapper.BIN_SIZE``, ``wrapper.profile_offset_bp``,
+        ``wrapper.model.crop.target_length``, ``wrapper.SEQUENCE_LENGTH`` at the
+        original call sites).
+    variant_id : str, optional
+        Used only in the skip message when returning ``None``.
+
+    Returns
+    -------
+    tuple[SNPContext, numpy.ndarray] | None
+        The correctly-oriented ``SNPContext`` and clipped exon bin indices, or ``None``
+        if this variant cannot be scored (the reason is logged).
+    """
+    try:
+        from embpy.tl.genomics import SNPContext, genomic_to_bin_indices
+    except ImportError as e:
+        raise ImportError(
+            "embpy is required for `resolve_snp_and_exon_bins`. Install with:\n\n    pip install cellink[embpy]"
+        ) from e
+
+    label = variant_id or f"{chrom}:{pos}"
+    actual_ref = window[snp_offset - 1 : snp_offset].upper()
+    a0, a1 = a0.upper(), a1.upper()
+    if actual_ref == a0:
+        ref_allele, alt_allele = a0, a1
+    elif actual_ref == a1:
+        ref_allele, alt_allele = a1, a0
+    else:
+        logger.warning(f"{label}: neither a0={a0} nor a1={a1} matches the true reference base ({actual_ref}), skipping.")
+        return None
+
+    snp = SNPContext(
+        chrom=chrom,
+        position=snp_offset,
+        ref_allele=ref_allele,
+        alt_alleles=[alt_allele],
+        context_window=context_window,
+        strand=strand,
+        variant_id=variant_id,
+    )
+
+    bin_indices = genomic_to_bin_indices(
+        exon_intervals,
+        window_start=window_start,
+        bin_size=bin_size,
+        profile_offset_bp=profile_offset_bp,
+        num_bins=num_bins,
+    )
+    if len(bin_indices) == 0:
+        logger.warning(f"{label}: no exon bins fall inside the predicted (cropped) profile region, skipping")
+        return None
+
+    return snp, bin_indices

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
+</p>
+
 [![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)
 [![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache2.0)
 [![Read the Docs](https://img.shields.io/readthedocs/cellink/latest.svg?label=Read%20the%20Docs)](https://cellink-docs.readthedocs.io/)
@@ -6,7 +10,7 @@
 
 # Single-cell Genetics Package (Cellink)
 
-Welcome to the official documentation for **cellink**—the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
+Welcome to the official documentation for **cellink**: the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
 
 ## Motivation
 
@@ -44,12 +48,14 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
     - [Gene-set enrichment with MAGMA](https://cellink-docs.readthedocs.io/en/latest/tutorials/magma_analysis_tutorial.html).
     - [Gene program scoring with sc-linker](https://cellink-docs.readthedocs.io/en/latest/tutorials/sclinker.html).
     - [LIVI: donor-level representation learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html).
+    - [Scooby: single-cell-resolution sequence-to-coverage modeling & variant scoring](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html).
+    - [Resolving association-test inputs directly from `DonorData` via formula strings](https://cellink-docs.readthedocs.io/en/latest/tutorials/formula_resolver.html).
 - **Interoperability:** **cellink** enhances standard workflows through data exports compatible with common genetic analysis
   tools, e.g., for [eQTL analysis with jaxqtl or tensorqtl](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html), [eQTL analysis with SAIGEQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html) and includes built-in [dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html).
 
 ## 🚀 Getting Started
 
-- New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html)** — no analysis, just how to build a `DonorData` from your own genotype/expression data, slice it, and save it.
+- New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html)**: no analysis, just how to build a `DonorData` from your own genotype/expression data, slice it, and save it.
 - Check out the **[Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html)** section for step-by-step guides on analysis workflows.
 - Explore the **[API Reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html)** for detailed documentation.
 

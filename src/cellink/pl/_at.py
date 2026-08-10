@@ -352,6 +352,7 @@ def locus(
     label_column: str = None,
     significance_threshold: float = None,
     highlight_color: str = "#D62728",
+    highlight_positions: list | dict = None,
     point_size: int = 20,
     figsize: tuple = (10, 5),
     labelsize: int = 10,
@@ -384,6 +385,14 @@ def locus(
         Threshold below which SNPs are highlighted and optionally labeled.
     highlight_color : str, default "#D62728"
         Color used to highlight significant SNPs.
+    highlight_positions : list or dict, optional
+        Mark one or more *specific* variants distinctly from the general
+        significance-threshold highlighting above, e.g. "this is the
+        variant the rest of the figure is about," as opposed to "this SNP
+        happens to clear the significance bar." Pass a list of positions
+        (uses `highlight_color` at a larger size with a black diamond
+        marker) or a dict of `{position: color}` for per-variant colors.
+        Silently ignores positions not present in `locus_df[position_col]`.
     point_size : int, default 20
         Size of scatter plot points.
     figsize : tuple, default (10, 5)
@@ -454,6 +463,17 @@ def locus(
                 )
 
         ax.axhline(-np.log10(significance_threshold), color="grey", linestyle="--", lw=1)
+
+    if highlight_positions:
+        pos_color = highlight_positions if isinstance(highlight_positions, dict) else dict.fromkeys(highlight_positions, highlight_color)
+        for pos, color in pos_color.items():
+            row = locus_df[locus_df[position_col] == pos]
+            if row.empty:
+                continue
+            ax.scatter(
+                row[position_col], row["-log10(P)"], color=color, s=point_size * 3.5,
+                edgecolor="black", linewidth=1.1, marker="D", zorder=5,
+            )
 
     gene_track_y = -1
     gene_height = 0.3

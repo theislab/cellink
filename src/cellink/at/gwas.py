@@ -1,7 +1,15 @@
+from __future__ import annotations
+
+from typing import Literal
+
+import anndata
 import numpy as np
+import pandas as pd
 import scipy.linalg as la
 import scipy.stats as st
 
+from cellink._core import DonorData
+from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import ensure_float64_array
 
 __all__ = ["GWAS"]
@@ -10,16 +18,35 @@ __all__ = ["GWAS"]
 class GWAS:
     """Linear model for univariate association testing between `1` phenotypes and `S` inputs (`1`x`S` tests)"""
 
-    def __init__(self, Y: np.ndarray, F: np.ndarray = None) -> None:
+    def __init__(
+        self,
+        Y: np.ndarray | str,
+        F: np.ndarray | str | None = None,
+        *,
+        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
+        target_level: Literal["donor", "cell"] | None = None,
+    ) -> None:
         """
         Initialize the GWAS class.
 
         Parameters
         ----------
-            Y : (`N`, `1`) ndarray
-                outputs
-            F : (`N`, `K`) ndarray
-                covariates. If not specified, an intercept is assumed.
+            Y : (`N`, `1`) ndarray, or str
+                outputs. Either a numpy array directly, or, when `data` is
+                provided, a formula string (e.g. ``"phenotype"``) resolved
+                against `data`.
+            F : (`N`, `K`) ndarray, or str
+                covariates. If not specified, an intercept is assumed. Either
+                a numpy array directly, or, when `data` is provided, a formula
+                string (e.g. ``"age + sex"``) resolved against `data`; an
+                intercept column is kept for a string formula (unlike `Y`).
+            data : DonorData, AnnData, or pandas.DataFrame, optional
+                Data container `Y`/`F` are resolved against when either is
+                given as a string. Ignored (and not required) when `Y`/`F`
+                are already numpy arrays.
+            target_level : {"donor", "cell"}, optional
+                Required when `data` is a `DonorData` and `Y`/`F` are formula
+                strings, since a `DonorData` has values at both levels.
 
         Notes
         -----
@@ -31,14 +58,20 @@ class GWAS:
                 * F has two dimensions (either a column vector to model intercept or a matrix with covariates)
                 * F has the same number of rows as Y
         """
+        if isinstance(Y, str) or isinstance(F, str):
+            if isinstance(Y, str):
+                Y = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
+            if isinstance(F, str):
+                F = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
+
         # sanity checks
-        assert isinstance(Y, np.ndarray), "Y must be a numpy array"
+        assert isinstance(Y, np.ndarray), "Y must be a numpy array (or a formula string together with `data=`)"
         assert Y.ndim == 2, "Y must be a 2D numpy array"
 
         if F is None:
             F = np.ones((Y.shape[0], 1))
 
-        assert isinstance(F, np.ndarray), "F must be a numpy array"
+        assert isinstance(F, np.ndarray), "F must be a numpy array (or a formula string together with `data=`)"
         assert F.ndim == 2, "F must be a 2D numpy array"
         assert Y.shape[0] == F.shape[0], "Y and F must have the same number of rows"
 

@@ -73,7 +73,7 @@ def to_plink(
         output_prefix += ".bed"
 
     xarr = xr.DataArray(
-        gdata.X.astype("float32"),
+        gdata.X.astype("float32", copy=False),
         dims=("sample", "variant"),
         coords={
             "sample": gdata.obs.index.to_numpy(),

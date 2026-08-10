@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 import anndata
 import numpy as np
@@ -8,10 +9,10 @@ import scipy
 import scipy.stats as st
 
 from cellink._core import DonorData
+from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import (
     ArrayLike,
     DataContainer,
-    DotPath,
     davies_pvalue,
     ensure_float64_array,
     xgower_factor_,
@@ -145,41 +146,37 @@ class Skat:
     def run_test(
         self,
         data: DataContainer = None,
-        Y: ArrayLike | DotPath | None = None,
-        X: ArrayLike | DotPath | None = None,
+        Y: ArrayLike | str | None = None,
+        X: ArrayLike | str | None = None,
+        target_level: Literal["donor", "cell"] | None = None,
     ) -> float:
-        """Run SKAT test for association between Y and X."""
+        """Run SKAT test for association between Y and X.
+
+        Uses the same `data=`/formula-string resolver as `GWAS` and `StructLMM`
+        (see `cellink.at.get_model_matrix`): `Y`/`X` can be a formula string or
+        bare column name resolved against a `DonorData`, `AnnData`, or
+        `DataFrame` (e.g. `X="snp0 + snp1 + snp2"` for multiple variants).
+        """
         # when data is None, Y and X must be provided as numpy arrays
         if data is None:
             assert isinstance(Y, np.ndarray), "If data is None, Y must be provided and be a numpy array"
             assert isinstance(X, np.ndarray), "If data is None, X must be provided and be a numpy array"
             return self._run_test(Y=Y, X=X)
-        # when data is provided, Y and X must be provided as strings or lists of strings
-        # and must be columns in the data
-        else:
-            assert isinstance(
-                data, pd.DataFrame | anndata.AnnData | DonorData
-            ), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
-            assert isinstance(Y, str), "Y must be a string or a list of strings"
-            assert isinstance(X, str | list[str]), "X must be a string or a list of strings"
-            if isinstance(X, str):
-                X = [X]
-            if isinstance(data, pd.DataFrame):
-                assert Y in data.columns, "Y must be a column in the DataFrame."
-                assert X in data.columns, "X must be a column in the DataFrame."
-                Y = data[Y].values
-                X = data[X].values
-            elif isinstance(data, anndata.AnnData):
-                assert Y in data.obs.columns, "Y must be a column in AnnData obs DataFrame."
-                assert X in data.obs.columns, "X must be a column in AnnData obs DataFrame."
-                Y = data.obs.loc[:, Y].values
-                X = data.obs.loc[:, X].values
-            elif isinstance(data, DonorData):
-                assert Y in data.donor_data.obs.columns, "Y must be a column in the DonorData object."
-                assert X in data.donor_data.obs.columns, "X must be a column in the DonorData object."
-                Y = data.donor_data[Y].values
-                X = data.donor_data[X].values
-            return self._run_test(Y, X)
+
+        assert isinstance(
+            data, pd.DataFrame | anndata.AnnData | DonorData
+        ), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
+        assert isinstance(Y, str), "Y must be a string"
+        assert isinstance(X, str), "X must be a string"
+
+        # Skat's variants are always donor-level; default to that for a DonorData
+        # rather than requiring every caller to pass target_level explicitly.
+        if isinstance(data, DonorData) and target_level is None:
+            target_level = "donor"
+
+        Y_arr = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
+        X_arr = to_numpy(fetch_raw_slot(data, X, "X", target_level=target_level, add_intercept=False))
+        return self._run_test(Y_arr, X_arr)
 
     def _run_test(
         self,
