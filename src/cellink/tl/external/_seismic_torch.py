@@ -64,7 +64,10 @@ class SparseScore(nn.Module):
 
     def forward_sparse(self, masks: torch.Tensor, return_all: bool = False):
         """
-        2-D forward that accepts a sparse COO mask [M, C].
+        2-D forward that accepts a sparse mask [M, C] in any sparse layout.
+
+        Non-COO layouts (CSR/CSC/BSR/BSC) are converted to COO first, since the
+        index-scatter below needs explicit row/column indices.
 
         Memory savings vs forward():
           - w_in is built by index-scatter (no .to_dense() on the input mask)
@@ -74,7 +77,11 @@ class SparseScore(nn.Module):
           - It_csr @ w_in reuses the already-built w_in dense matrix.
         """
         eps = 1e-8
+        if masks.layout is not torch.sparse_coo:
+            masks = masks.to_sparse_coo()
         masks = masks.coalesce()
+        if masks.dim() != 2:
+            raise ValueError(f"sparse masks must be 2D, got {tuple(masks.shape)}")
         M, C = masks.shape
         device = masks.device
 
@@ -124,7 +131,7 @@ class SparseScore(nn.Module):
         return s
 
     def forward(self, masks: torch.Tensor, return_all: bool = False):
-        if masks.is_sparse or masks.is_sparse_csr:
+        if masks.layout is not torch.strided:
             return self.forward_sparse(masks, return_all=return_all)
 
         eps = 1e-8
