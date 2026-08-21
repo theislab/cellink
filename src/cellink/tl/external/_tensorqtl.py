@@ -75,6 +75,138 @@ def read_tensorqtl_results(
     return results
 
 
+def _map_susie_with_prior_weights(
+    genotype_df: pd.DataFrame,
+    variant_df: pd.DataFrame,
+    phenotype_df: pd.DataFrame,
+    phenotype_pos_df: pd.DataFrame,
+    covariates_df: pd.DataFrame,
+    prior_weights: dict[str, pd.Series],
+    L: int = 10,
+    window: int = 1000000,
+    max_iter: int = 500,
+    maf_threshold: float = 0,
+    scaled_prior_variance: float = 0.2,
+    coverage: float = 0.95,
+    min_abs_corr: float = 0.5,
+    estimate_residual_variance: bool = True,
+    estimate_prior_variance: bool = True,
+    tol: float = 1e-3,
+) -> tuple[pd.DataFrame, dict]:
+    """SuSiE fine-mapping with a per-variant prior weight instead of SuSiE's
+    default uniform prior over variants in the cis-window. Uses the same
+    per-phenotype data preparation as ``tensorqtl.susie.map()`` (monomorphic
+    + MAF filtering, covariate residualization); the one real difference
+    is that ``susie.susie()`` is called with ``prior_weights`` supplied
+    (``tensorqtl.susie.map()`` itself never exposes this, see the call site
+    in ``run_tensorqtl``'s ``cis_susie`` branch for why).
+
+    Parameters
+    ----------
+    prior_weights : dict[str, pd.Series]
+        Keyed by phenotype_id; each value is a Series of raw (unnormalized)
+        per-variant weights indexed by variant_id, covering (at least) that
+        phenotype's own cis-window. Variants in the window missing from the
+        Series are given the Series' own median as a neutral (not zero)
+        weight. A hard zero would make them structurally unselectable
+        regardless of signal, a stronger claim than a missing score
+        justifies. Weights are renormalized to sum to 1 automatically.
+
+    Returns
+    -------
+    Same shape as ``tensorqtl.susie.map(..., summary_only=False)``:
+    ``(susie_summary_df, {phenotype_id: {pip, sets, converged, elbo, niter, lbf_variable}})``.
+    """
+    import torch
+    from tensorqtl import genotypeio
+    from tensorqtl.core import Residualizer, calculate_maf, impute_mean
+    from tensorqtl.susie import susie as susie_fit
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    residualizer = Residualizer(torch.tensor(covariates_df.values, dtype=torch.float32).to(device))
+    genotype_ix = np.array([genotype_df.columns.tolist().index(i) for i in phenotype_df.columns])
+    genotype_ix_t = torch.from_numpy(genotype_ix).to(device)
+
+    igc = genotypeio.InputGeneratorCis(genotype_df, variant_df, phenotype_df, phenotype_pos_df, window=window)
+    if igc.n_phenotypes == 0:
+        raise ValueError("No valid phenotypes found.")
+
+    susie_summary = []
+    susie_res = {}
+    for phenotype, genotypes, genotype_range, phenotype_id in igc.generate_data(verbose=True):
+        genotypes_t = torch.tensor(genotypes, dtype=torch.float).to(device)
+        genotypes_t = genotypes_t[:, genotype_ix_t]
+        impute_mean(genotypes_t)
+        variant_ids = variant_df.index[genotype_range[0]:genotype_range[-1] + 1].rename("variant_id")
+
+        mask_t = ~(genotypes_t == genotypes_t[:, [0]]).all(1)
+        if maf_threshold > 0:
+            maf_t = calculate_maf(genotypes_t)
+            mask_t &= maf_t >= maf_threshold
+        if mask_t.any():
+            genotypes_t = genotypes_t[mask_t]
+            mask = mask_t.cpu().numpy().astype(bool)
+            variant_ids = variant_ids[mask]
+            genotype_range = genotype_range[mask]
+        if genotypes_t.shape[0] == 0:
+            logger.warning(f"skipping {phenotype_id} (no valid variants)")
+            continue
+
+        if phenotype_id not in prior_weights:
+            raise KeyError(
+                f"prior_weights has no entry for phenotype_id={phenotype_id!r}; "
+                f"provide a Series for every phenotype passed through cis_output, or omit it from cis_output."
+            )
+        pw = prior_weights[phenotype_id]
+        aligned = pw.reindex(variant_ids)
+        n_scored = aligned.notna().sum()
+        fallback = pw.median()
+        aligned = aligned.fillna(fallback)
+        logger.info(
+            f"{phenotype_id}: {genotypes_t.shape[0]} variants survive monomorphic+MAF filter "
+            f"({genotypes_t.shape[1]} samples); {n_scored} of those have a real prior weight, "
+            f"remaining {len(variant_ids) - n_scored} given the pool median ({fallback:.4g}) as a neutral prior"
+        )
+        prior_weights_t = torch.tensor(aligned.values / aligned.values.sum(), dtype=torch.float32).to(device)
+
+        phenotype_t = torch.tensor(phenotype, dtype=torch.float).to(device)
+        genotypes_res_t = residualizer.transform(genotypes_t)
+        phenotype_res_t = residualizer.transform(phenotype_t.reshape(1, -1))
+
+        res = susie_fit(
+            genotypes_res_t.T, phenotype_res_t.T, L=L, scaled_prior_variance=scaled_prior_variance,
+            prior_weights=prior_weights_t, coverage=coverage, min_abs_corr=min_abs_corr,
+            estimate_residual_variance=estimate_residual_variance, estimate_prior_variance=estimate_prior_variance,
+            tol=tol, max_iter=max_iter,
+        )
+
+        af_t = genotypes_t.sum(1) / (2 * genotypes_t.shape[1])
+        res["pip"] = pd.DataFrame({"pip": res["pip"], "af": af_t.cpu().numpy()}, index=variant_ids)
+        logger.info(f"{phenotype_id}: converged={res['converged']}, niter={res['niter']}, "
+                    f"elbo={res['elbo'][-1] if len(res['elbo']) else None}, "
+                    f"max_pip={res['pip']['pip'].max():.6f}, sets['cs'] is None={res['sets']['cs'] is None}")
+        if res["sets"]["cs"] is not None:
+            if res["converged"]:
+                for c in sorted(res["sets"]["cs"], key=lambda x: int(x.replace("L", ""))):
+                    cs = res["sets"]["cs"][c]
+                    p = res["pip"].iloc[cs].copy().reset_index()
+                    p["cs_id"] = c.replace("L", "")
+                    p.insert(0, "phenotype_id", phenotype_id)
+                    susie_summary.append(p)
+                res["lbf_variable"] = res["lbf_variable"][res["sets"]["cs_index"]]
+        copy_keys = ["pip", "sets", "converged", "elbo", "niter", "lbf_variable"]
+        susie_res[phenotype_id] = {k: res[k] for k in copy_keys}
+
+    susie_summary_df = (
+        pd.concat(susie_summary, axis=0).rename(columns={"snp": "variant_id"}).reset_index(drop=True)
+        if susie_summary else pd.DataFrame()
+    )
+    drop_ids = [k for k in susie_res if susie_res[k]["sets"]["cs"] is None]
+    for k in drop_ids:
+        del susie_res[k]
+    return susie_summary_df, susie_res
+
+
 def _run_tensorqtl_python_api(
     mode: str,
     phenotype_df: pd.DataFrame,
@@ -99,6 +231,7 @@ def _run_tensorqtl_python_api(
     fdr: float,
     qvalue_lambda: float,
     seed: int,
+    prior_weights: dict[str, pd.Series] | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame]:
     """Run TensorQTL via the Python API directly (no subprocess/file export)."""
     try:
@@ -235,18 +368,25 @@ def _run_tensorqtl_python_api(
         pheno_df_sub = phenotype_df.loc[phenotype_ids]
         pheno_pos_df_sub = phenotype_pos_df.loc[phenotype_ids]
 
-        susie_summary, susie_dict = susie.map(
-            genotype_df,
-            variant_df,
-            pheno_df_sub,
-            pheno_pos_df_sub,
-            covariates_df,
-            L=max_effects,
-            window=window,
-            summary_only=False,
-            max_iter=500,
-            maf_threshold=maf_threshold,
-        )
+        if prior_weights is None:
+            susie_summary, susie_dict = susie.map(
+                genotype_df,
+                variant_df,
+                pheno_df_sub,
+                pheno_pos_df_sub,
+                covariates_df,
+                L=max_effects,
+                window=window,
+                summary_only=False,
+                max_iter=500,
+                maf_threshold=maf_threshold,
+            )
+        else:
+            susie_summary, susie_dict = _map_susie_with_prior_weights(
+                genotype_df, variant_df, pheno_df_sub, pheno_pos_df_sub, covariates_df,
+                prior_weights=prior_weights, L=max_effects, window=window, max_iter=500,
+                maf_threshold=maf_threshold,
+            )
         results = (susie_dict, susie_summary)
 
     elif mode == "trans_susie":
@@ -320,6 +460,7 @@ def run_tensorqtl(
     overwrite_covariates_export: bool = True,
     overwrite_phenotype_export: bool = True,
     overwrite_plink_export: bool = True,
+    prior_weights: dict[str, pd.Series] | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame] | str:
     """
     Run cis- or trans-QTL mapping using TensorQTL on donor-level aggregated expression and genotype data.
@@ -425,6 +566,16 @@ def run_tensorqtl(
         If True, overwrites the phenotype export.
     overwrite_plink_export : bool, default=True
         If True, overwrites the plink export.
+    prior_weights : dict[str, pd.Series], optional
+        ``mode="cis_susie"`` only, requires ``use_python_api=True``. Keyed
+        by phenotype_id; each value is a Series of raw (unnormalized)
+        per-variant prior weights indexed by variant_id, used in place of
+        SuSiE's default flat/uniform prior over variants in the cis-window, 
+        e.g. a sequence-model-predicted regulatory effect size, letting
+        an orthogonal source of information sharpen fine-mapping
+        resolution on credible sets the flat prior alone leaves ambiguous.
+        Variants in a phenotype's window missing from its Series are given
+        that Series' own median as a neutral (not zero) prior. 
 
     Returns
     -------
@@ -444,6 +595,15 @@ def run_tensorqtl(
     """
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
+
+    if prior_weights is not None:
+        if mode != "cis_susie":
+            raise ValueError(f"prior_weights is only supported for mode='cis_susie', got mode={mode!r}.")
+        if not use_python_api:
+            raise ValueError(
+                "prior_weights requires use_python_api=True; it is not expressible through tensorqtl's "
+                "own CLI/subprocess interface, only via cellink's Python-API re-implementation of cis_susie."
+            )
 
     if "X_pca" not in dd.C.obsm:
         logger.info("Calculating PCA.")
@@ -530,6 +690,7 @@ def run_tensorqtl(
             fdr=fdr,
             qvalue_lambda=qvalue_lambda,
             seed=seed,
+            prior_weights=prior_weights,
         )
 
     if run:

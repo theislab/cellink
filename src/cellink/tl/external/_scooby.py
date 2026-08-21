@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -234,12 +236,35 @@ def build_scooby_embedding_scpoli(
         _ad._cellink_read_shim_applied = True
     from scarches.models.scpoli import scPoli
 
+    import gc
+
+    import scipy.sparse
+
     a = adata
     if use_hvg:
+        assert scipy.sparse.issparse(a.X), (
+            f"expected a.X to stay sparse into the HVG step, got {type(a.X)}, "
+            "a dense copy here at full-cohort scale (7M+ cells) would itself "
+            "exhaust available memory long before any real peak."
+        )
+        sc.pp.filter_genes(a, min_cells=10)
+        gc.collect()
         sc.pp.highly_variable_genes(a, flavor="seurat_v3", n_top_genes=n_top_genes, batch_key=condition_key)
+        gc.collect()
+        a.X = a.X.tocsc()
         a = a[:, a.var["highly_variable"]].copy()
+        gc.collect()
+        adata.X = scipy.sparse.csr_matrix((adata.n_obs, adata.n_vars), dtype=adata.X.dtype)
+        gc.collect()
 
-    if checkpoint_dir is not None and Path(checkpoint_dir).exists():
+    if scipy.sparse.issparse(a.X):
+        a.X = np.asarray(a.X.todense(), dtype=np.float32)
+        gc.collect()
+
+    partial_marker = Path(checkpoint_dir, "_partial_epoch") if checkpoint_dir is not None else None
+    is_partial_checkpoint = partial_marker is not None and partial_marker.exists()
+
+    if checkpoint_dir is not None and Path(checkpoint_dir).exists() and not is_partial_checkpoint:
         import torch
 
         map_location = None if torch.cuda.is_available() else torch.device("cpu")
@@ -249,13 +274,31 @@ def build_scooby_embedding_scpoli(
         )
         model = scPoli.load(checkpoint_dir, adata=a, map_location=map_location)
     else:
-        model = scPoli(
-            adata=a,
-            condition_keys=condition_key,
-            cell_type_keys=cell_type_key,
-            recon_loss=recon_loss,
-            latent_dim=latent_dim,
-        )
+        completed_epochs = 0
+        if is_partial_checkpoint:
+            import torch
+
+            completed_epochs = int(partial_marker.read_text())
+            map_location = None if torch.cuda.is_available() else torch.device("cpu")
+            logger.info(
+                "Scooby scPoli embedding: resuming from a PARTIAL checkpoint at %s (%d/%d epochs "
+                "already done), warm-starting from these weights with a fresh optimizer for the "
+                "remaining epochs (not an exact optimizer/scheduler resume like the RNA training "
+                "loop's, since scPoliTrainer has no state_dict for that, but far better than losing "
+                "the whole run)", checkpoint_dir, completed_epochs, n_epochs,
+            )
+            model = scPoli.load(checkpoint_dir, adata=a, map_location=map_location)
+        else:
+            model = scPoli(
+                adata=a,
+                condition_keys=condition_key,
+                cell_type_keys=cell_type_key,
+                recon_loss=recon_loss,
+                latent_dim=latent_dim,
+            )
+
+        remaining_epochs = max(1, n_epochs - completed_epochs)
+        remaining_pretraining_epochs = max(0, pretraining_epochs - completed_epochs)
         early_stopping_kwargs = (
             {
                 "early_stopping_metric": "val_prototype_loss",
@@ -269,16 +312,55 @@ def build_scooby_embedding_scpoli(
             if early_stopping
             else None
         )
-        train_kwargs: dict[str, Any] = {"n_epochs": n_epochs, "pretraining_epochs": pretraining_epochs}
+        train_kwargs: dict[str, Any] = {"n_epochs": remaining_epochs, "pretraining_epochs": remaining_pretraining_epochs}
         if early_stopping_kwargs is not None:
             train_kwargs["early_stopping_kwargs"] = early_stopping_kwargs
-        model.train(**train_kwargs)
+
+        if checkpoint_dir is not None:
+            from scarches.trainers.scpoli.trainer import scPoliTrainer
+
+            _original_on_epoch_end = scPoliTrainer.on_epoch_end
+            _original_on_iteration = scPoliTrainer.on_iteration
+            _checkpoint_every_n_epochs = 5
+            _checkpoint_every_n_iters = 2000
+
+            def _on_epoch_end_with_checkpoint(trainer_self):
+                _original_on_epoch_end(trainer_self)
+                if (trainer_self.epoch + 1) % _checkpoint_every_n_epochs == 0:
+                    real_epoch = completed_epochs + trainer_self.epoch + 1
+                    logger.info(
+                        "Scooby scPoli embedding: periodic checkpoint at epoch %d/%d -> %s",
+                        real_epoch, n_epochs, checkpoint_dir,
+                    )
+                    model.save(checkpoint_dir, overwrite=True)
+                    Path(checkpoint_dir, "_partial_epoch").write_text(str(real_epoch))
+
+            def _on_iteration_with_checkpoint(trainer_self, batch_data):
+                _original_on_iteration(trainer_self, batch_data)
+                if trainer_self.iter > 0 and trainer_self.iter % _checkpoint_every_n_iters == 0:
+                    logger.info(
+                        "Scooby scPoli embedding: mid-epoch checkpoint at epoch %d (iter %d/%d) -> %s "
+                        "(warm-start snapshot, not a completed-epoch boundary)",
+                        completed_epochs + trainer_self.epoch, trainer_self.iter, trainer_self.iters_per_epoch, checkpoint_dir,
+                    )
+                    model.save(checkpoint_dir, overwrite=True)
+                    Path(checkpoint_dir, "_partial_epoch").write_text(str(completed_epochs + trainer_self.epoch))
+
+            scPoliTrainer.on_epoch_end = _on_epoch_end_with_checkpoint
+            scPoliTrainer.on_iteration = _on_iteration_with_checkpoint
+            try:
+                model.train(**train_kwargs)
+            finally:
+                scPoliTrainer.on_epoch_end = _original_on_epoch_end
+                scPoliTrainer.on_iteration = _original_on_iteration
+        else:
+            model.train(**train_kwargs)
 
         if checkpoint_dir is not None:
             logger.info("Training done. saving model to %s.", checkpoint_dir)
             model.save(checkpoint_dir, overwrite=True)
-
-    import scipy.sparse
+            if Path(checkpoint_dir, "_partial_epoch").exists():
+                Path(checkpoint_dir, "_partial_epoch").unlink()
 
     if scipy.sparse.issparse(a.X):
         a.X = np.asarray(a.X.todense())
@@ -427,6 +509,38 @@ def _make_genome_interval_datasets(
     return train_ds, val_ds
 
 
+_PROGRESS_FILENAME = "_cellink_progress.json"
+
+
+def _write_training_progress(checkpoint_dir: str, *, completed_epochs: int, num_epochs: int) -> None:
+    """Persist the true number of fully-completed epochs alongside a checkpoint.
+
+    This is the single source of truth for resume, not the epoch number
+    embedded in the checkpoint directory's own name (``scooby_epoch_{epoch}_
+    {step}_...``): that name-based scheme can drift from the real count
+    across a long chain of resumes, so every checkpoint carries its own
+    verified count directly, immune to directory-name drift, a mid-chain
+    kill/resubmit, or any future bug in the naming scheme.
+    """
+    with open(Path(checkpoint_dir) / _PROGRESS_FILENAME, "w") as f:
+        json.dump({"completed_epochs": completed_epochs, "num_epochs": num_epochs}, f)
+
+
+def _read_training_progress(checkpoint_dir: str) -> int | None:
+    """Read back the true completed-epoch count written by ``_write_training_progress``.
+
+    Returns ``None`` (not 0) when absent, so callers can distinguish an
+    old-style checkpoint that predates this tracking, which should fall back
+    to a best-effort directory-name parse, from a run that has genuinely
+    completed zero epochs.
+    """
+    path = Path(checkpoint_dir) / _PROGRESS_FILENAME
+    if not path.is_file():
+        return None
+    with open(path) as f:
+        return int(json.load(f)["completed_epochs"])
+
+
 def _run_scooby_training_loop(
     *,
     scooby_model,
@@ -445,8 +559,21 @@ def _run_scooby_training_loop(
     mode: str,
     save_every_n_steps: int = 1000,
     log_with: str | None = None,
+    mixed_precision: str | None = "bf16",
+    gradient_accumulation_steps: int = 1,
+    resume_from_checkpoint: str | None = None,
 ):
     """Shared Accelerate-based training loop for both RNA-only and multiome scooby fine-tuning.
+
+    ``resume_from_checkpoint``: path to a directory previously written by
+    ``accelerator.save_state`` (e.g. one of this same function's own
+    ``{output_dir}/scooby_epoch_{epoch}_{i}_{run_name}`` checkpoints). Loaded
+    via ``accelerator.load_state`` after ``accelerator.prepare``, the correct
+    order since model/optimizer/scheduler must already be wrapped before
+    their states can be restored into the wrapped objects. Model weights,
+    optimizer state, scheduler state, and dataloader sampler position are all
+    restored, a genuine continuation rather than a fresh run seeded with old
+    weights.
     """
     import torch
     import torch.nn as nn
@@ -457,10 +584,18 @@ def _run_scooby_training_loop(
     from scooby.utils.utils import add_weight_decay, evaluate, poisson_multinomial_torch
 
     ddp_kwargs = DistributedDataParallelKwargs(static_graph=True)
-    accelerator = Accelerator(log_with=log_with, kwargs_handlers=[ddp_kwargs], step_scheduler_with_optimizer=False)
+    accelerator = Accelerator(
+        log_with=log_with, kwargs_handlers=[ddp_kwargs], step_scheduler_with_optimizer=False,
+        mixed_precision=mixed_precision, gradient_accumulation_steps=gradient_accumulation_steps,
+    )
     device = accelerator.device
 
-    num_steps = (45_000 * num_epochs) // training_loader.batch_size
+    # In real optimizer-update terms (matching warmup_steps' own units, and
+    # the reference's "warmed up over the first 1,000 steps" of real steps,
+    # not raw dataloader batches), divided by gradient_accumulation_steps so
+    # the LR schedule decays over the intended number of real updates rather
+    # than scaling down with the micro-batch count.
+    num_steps = (45_000 * num_epochs) // (training_loader.batch_size * gradient_accumulation_steps)
     parameters = add_weight_decay(scooby_model, lr=lr, weight_decay=wd)
     optimizer = torch.optim.AdamW(parameters)
 
@@ -472,42 +607,85 @@ def _run_scooby_training_loop(
     scooby_model, optimizer, scheduler, training_loader, val_loader = accelerator.prepare(
         scooby_model, optimizer, scheduler, training_loader, val_loader
     )
+
+    starting_epoch = 0
+    if resume_from_checkpoint:
+        accelerator.load_state(resume_from_checkpoint)
+        logger.info("Scooby training: resumed from %s", resume_from_checkpoint)
+        progress = _read_training_progress(resume_from_checkpoint)
+        if progress is not None:
+            starting_epoch = progress
+            logger.info(
+                "Scooby training: resuming at true epoch %d/%d (read from this checkpoint's own "
+                "%s, verified, not inferred)", starting_epoch, num_epochs, _PROGRESS_FILENAME,
+            )
+        else:
+            m = re.search(r"scooby_epoch_(\d+)_\d+_", Path(resume_from_checkpoint).name)
+            if m:
+                starting_epoch = int(m.group(1))
+                logger.warning(
+                    "Scooby training: %s not found in %r (an old-style checkpoint predating real "
+                    "progress-tracking), falling back to parsing epoch %d from the directory name. "
+                    "This inferred value is only as trustworthy as the name itself, which can drift "
+                    "from the true epoch count across chained resumes. Every checkpoint saved from "
+                    "this run onward carries its own verified count and will not need this fallback.",
+                    _PROGRESS_FILENAME, Path(resume_from_checkpoint).name, starting_epoch,
+                )
+            else:
+                logger.warning(
+                    "Scooby training: could not parse an epoch number from checkpoint name %r either, "
+                    "restarting the epoch loop at 0 (real optimizer/scheduler state is still correctly "
+                    "restored regardless; only the redundant-raw-pass bound above is lost for this resume)",
+                    Path(resume_from_checkpoint).name,
+                )
     if log_with:
         accelerator.init_trackers("scooby", init_kwargs={"wandb": {"name": run_name}})
     loss_fn = poisson_multinomial_torch
 
-    for epoch in range(num_epochs):
+    completed_epochs = starting_epoch
+    while completed_epochs < num_epochs:
+        epoch = completed_epochs
         for i, (inputs, rc_augs, targets, cell_emb_idx) in enumerate(tqdm.tqdm(training_loader)):
-            inputs = inputs.permute(0, 2, 1).to(device, non_blocking=True)
-            targets = targets.to(device, non_blocking=True)
-            for rc_aug_idx in rc_augs.nonzero():
-                rc_aug_idx = rc_aug_idx[0]
-                flipped = torch.flip(targets[rc_aug_idx].unsqueeze(0), (1, -3))
-                targets[rc_aug_idx] = fix_rev_comp_fn(flipped)[0]
-            optimizer.zero_grad()
-            with torch.autocast(accelerator.device.type):
-                outputs = scooby_model(inputs, cell_emb_idx)
-                loss = loss_fn(outputs, targets, total_weight=total_weight)
-                if log_with:
-                    accelerator.log({"loss": loss})
-            accelerator.backward(loss)
-            accelerator.clip_grad_norm_(scooby_model.parameters(), clip_global_norm)
-            if log_with:
-                accelerator.log({"learning_rate": scheduler.get_last_lr()[0]})
-            optimizer.step()
-            scheduler.step()
+            with accelerator.accumulate(scooby_model):
+                inputs = inputs.permute(0, 2, 1).to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
+                for rc_aug_idx in rc_augs.nonzero():
+                    rc_aug_idx = rc_aug_idx[0]
+                    flipped = torch.flip(targets[rc_aug_idx].unsqueeze(0), (1, -3))
+                    targets[rc_aug_idx] = fix_rev_comp_fn(flipped)[0]
+
+                with accelerator.autocast():
+                    outputs = scooby_model(inputs, cell_emb_idx)
+                    loss = loss_fn(outputs, targets, total_weight=total_weight)
+                    if log_with:
+                        accelerator.log({"loss": loss})
+                accelerator.backward(loss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(scooby_model.parameters(), clip_global_norm)
+
+                optimizer.step()
+                if accelerator.sync_gradients:
+                    scheduler.step()
+                    if log_with:
+                        accelerator.log({"learning_rate": scheduler.get_last_lr()[0]})
+                optimizer.zero_grad()
             if i % eval_every_n == 0:
                 evaluate(accelerator, scooby_model, val_loader, mode=mode, stop_idx=0)
                 scooby_model.train()
             if (i % save_every_n_steps == 0 and epoch != 0) or (i % (2 * save_every_n_steps) == 0 and epoch == 0 and i != 0):
-                accelerator.save_state(output_dir=f"{output_dir}/scooby_epoch_{epoch}_{i}_{run_name}")
-        logger.info("Scooby training: completed epoch %d/%d", epoch + 1, num_epochs)
+                ckpt_dir = f"{output_dir}/scooby_epoch_{epoch}_{i}_{run_name}"
+                accelerator.save_state(output_dir=ckpt_dir)
+
+                _write_training_progress(ckpt_dir, completed_epochs=completed_epochs, num_epochs=num_epochs)
+        completed_epochs += 1
+        logger.info("Scooby training: completed epoch %d/%d (true, persisted count)", completed_epochs, num_epochs)
 
     final_dir = f"{output_dir}/scooby_final_{run_name}"
     accelerator.save_state(output_dir=final_dir)
+    _write_training_progress(final_dir, completed_epochs=completed_epochs, num_epochs=num_epochs)
     if log_with:
         accelerator.end_training()
-    logger.info("Scooby training complete. Final state: %s", final_dir)
+    logger.info("Scooby training complete. Final state: %s (true epoch count: %d/%d)", final_dir, completed_epochs, num_epochs)
     return final_dir
 
 
@@ -544,9 +722,18 @@ def train_scooby(
     num_workers: int = 8,
     log_with: str | None = None,
     runner: ScoobyRunner | None = None,
+    use_transform_borzoi_emb: bool = False,
+    mixed_precision: str | None = "bf16",
+    gradient_accumulation_steps: int = 1,
+    resume_from_checkpoint: str | None = None,
 ) -> str:
     """RNA-only Scooby fine-tuning: cell embedding + DNA sequence -> per-cell
     RNA coverage. No genotype required (see module docstring).
+
+    ``use_transform_borzoi_emb`` defaults to False: this flag is only correct
+    as True when resuming a training run whose backbone has already
+    converged without it (the reference's own `scooby_reproducibility`
+    resume script uses True for exactly that reason). 
 
     Parameters
     ----------
@@ -594,7 +781,7 @@ def train_scooby(
         n_tracks=num_tracks,
         return_center_bins_only=True,
         disable_cache=True,
-        use_transform_borzoi_emb=True,
+        use_transform_borzoi_emb=use_transform_borzoi_emb,
     )
     scooby_model = get_lora(scooby_model, train=True, lora_config=runner.lora_config)
 
@@ -619,6 +806,8 @@ def train_scooby(
         num_epochs=num_epochs, lr=lr, wd=wd, warmup_steps=warmup_steps, clip_global_norm=clip_global_norm,
         eval_every_n=eval_every_n, total_weight=total_weight, output_dir=output_dir, run_name=run_name,
         fix_rev_comp_fn=fix_rev_comp_rna, mode="rna", log_with=log_with,
+        mixed_precision=mixed_precision, gradient_accumulation_steps=gradient_accumulation_steps,
+        resume_from_checkpoint=resume_from_checkpoint,
     )
 
 
@@ -657,18 +846,23 @@ def train_scooby_multiome(
     num_workers: int = 8,
     log_with: str | None = None,
     runner: ScoobyRunner | None = None,
+    use_transform_borzoi_emb: bool = False,
+    mixed_precision: str | None = "bf16",
+    gradient_accumulation_steps: int = 1,
+    resume_from_checkpoint: str | None = None,
 ) -> str:
     """RNA+ATAC multiome Scooby fine-tuning: cell embedding + DNA sequence ->
-    per-cell RNA coverage AND ATAC accessibility, jointly. 
+    per-cell RNA coverage AND ATAC accessibility, jointly.
 
     Parameters
     ----------
     atac_path : str
         Path to an ATAC h5ad with ``obsm["insertion"]``.
     normalize_atac : bool
-        Scale ATAC coverage (x0.05) for training stability, 
+        Scale ATAC coverage (x0.05) for training stability,
         reference default for multiome training.
-    Other parameters : see :func:`train_scooby`.
+    Other parameters : see :func:`train_scooby` (``use_transform_borzoi_emb``
+        defaults to False here for the same cold-start reason).
 
     Returns
     -------
@@ -701,7 +895,7 @@ def train_scooby_multiome(
         n_tracks=num_tracks,
         return_center_bins_only=True,
         disable_cache=True,
-        use_transform_borzoi_emb=True,
+        use_transform_borzoi_emb=use_transform_borzoi_emb,
     )
     scooby_model = get_lora(scooby_model, train=True, lora_config=runner.lora_config)
 
@@ -726,6 +920,8 @@ def train_scooby_multiome(
         num_epochs=num_epochs, lr=lr, wd=wd, warmup_steps=warmup_steps, clip_global_norm=clip_global_norm,
         eval_every_n=eval_every_n, total_weight=total_weight, output_dir=output_dir, run_name=run_name,
         fix_rev_comp_fn=fix_rev_comp_multiome, mode="multiome", log_with=log_with,
+        mixed_precision=mixed_precision, gradient_accumulation_steps=gradient_accumulation_steps,
+        resume_from_checkpoint=resume_from_checkpoint,
     )
 
 

@@ -23,7 +23,7 @@ cellink-pgen rare.pgen -o rare.zarr --sparse
 cellink-pgen rare.pgen common.pgen -o combined.zarr
 ```
 
-When multiple files are provided, variants are concatenated column-wise. All files must contain the **same samples in the same order** — obs is taken from the first file's `.psam`.
+When multiple files are provided, variants are concatenated column-wise. All files must contain the **same samples in the same order**: obs is taken from the first file's `.psam`.
 
 ## Loading the Output
 
@@ -41,7 +41,7 @@ X = adata.X.compute()
 
 The choice affects both write strategy and how `X` is stored on disk.
 
-**Dense** (default): Genotype blocks are streamed directly into a pre-allocated Zarr dataset. `X` is stored as a chunked `int8` array and returned as a Dask-backed array — reads remain lazy.
+**Dense** (default): Genotype blocks are streamed directly into a pre-allocated Zarr dataset. `X` is stored as a chunked `int8` array and returned as a Dask-backed array, so reads remain lazy.
 
 ```bash
 cellink-pgen common.pgen -o common.zarr

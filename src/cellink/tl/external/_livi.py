@@ -23,7 +23,7 @@ class LIVIRunner:
         ``configs/`` directories).
     execution_mode : {"python_api", "subprocess"}
         ``"python_api"`` (default) imports LIVI directly into the current
-        process — no Hydra overhead, returns Python objects.
+        process, avoiding Hydra overhead and returning Python objects directly.
         ``"subprocess"`` runs LIVI's ``src/train.py`` as a child process via
         the Hydra CLI, which is better suited for isolated HPC job submission.
     python_executable : str
@@ -651,7 +651,7 @@ def train_livi(
         ``pytorch_lightning.Trainer``.
     enable_checkpointing : bool
         If *False*, skip the ``ModelCheckpoint`` callback entirely (and the
-        return value becomes *None*) -- useful for short benchmark/smoke runs
+        return value becomes *None*), useful for short benchmark/smoke runs
         where you don't want checkpoint I/O.
     enable_logger : bool
         Passed through to ``pytorch_lightning.Trainer`` as ``logger=``; set
@@ -859,19 +859,19 @@ def infer_livi(
         corresponding model component was not trained):
 
         ``"cell_state_latent"``
-            (n_cells × z_dim) — cell-state latent factors per cell.
+            (n_cells × z_dim): cell-state latent factors per cell.
         ``"cell_state_decoder"``
-            (n_genes × z_dim) — gene loadings of the cell-state decoder.
+            (n_genes × z_dim): gene loadings of the cell-state decoder.
         ``"D_embedding"``
-            (n_donors × n_DxC) — donor × cell-state interaction embeddings.
+            (n_donors × n_DxC): donor × cell-state interaction embeddings.
         ``"DxC_decoder"``
-            (n_genes × n_DxC) — gene loadings of the DxC decoder.
+            (n_genes × n_DxC): gene loadings of the DxC decoder.
         ``"V_embedding"``
-            (n_donors × n_persistent) — persistent donor factor embeddings.
+            (n_donors × n_persistent): persistent donor factor embeddings.
         ``"V_decoder"``
-            (n_genes × n_persistent) — gene loadings of the V decoder.
+            (n_genes × n_persistent): gene loadings of the V decoder.
         ``"assignment_matrix"``
-            (z_dim × n_DxC) — assignment matrix *A* mapping cell-state
+            (z_dim × n_DxC): assignment matrix *A* mapping cell-state
             factors to DxC factors.
 
     Examples
@@ -901,7 +901,7 @@ def infer_livi(
     )
     model.eval()
 
-    # Factorize donors — order must match training factorisation
+    # Factorize donors (order must match training factorisation)
     _, y_index = pd.factorize(adata.obs[individual_col], sort=False, use_na_sentinel=False)
 
     dataset = LIVIDataset(
@@ -944,11 +944,11 @@ def infer_livi(
 
     results: dict[str, pd.DataFrame] = {"cell_state_latent": cell_state_latent}
 
-    # Cell-state decoder weights — shape (n_genes, z_dim)
+    # Cell-state decoder weights, shape (n_genes, z_dim)
     cs_dec_np = model.decoder.mean[0].weight.detach().cpu().numpy()
     results["cell_state_decoder"] = pd.DataFrame(cs_dec_np, index=adata.var.index, columns=z_factor_cols)
 
-    # Donor embeddings — access weight tensors directly (avoids n_cells overhead)
+    # Donor embeddings: access weight tensors directly (avoids n_cells overhead)
     n_unique_donors = len(y_index)
 
     if model.n_DxC_factors != 0:
@@ -1063,7 +1063,7 @@ def run_livi_association_testing(
 
     Examples
     --------
-    Pass DonorData — genotype matrix, kinship, and gPCs are auto-extracted:
+    Passing DonorData auto-extracts the genotype matrix, kinship, and gPCs:
 
     >>> assoc = cl.tl.external.run_livi_association_testing(
     ...     results,
@@ -1129,7 +1129,7 @@ def run_livi_association_testing(
         genotype_pcs = pd.read_csv(genotype_pcs, index_col=0, sep=sep)
         genotype_pcs.index = genotype_pcs.index.astype(str)
 
-    # livi_testing always does covariates["intercept"] = 1.0 — it must be a DataFrame.
+    # livi_testing always does covariates["intercept"] = 1.0, so it must be a DataFrame.
     # Initialise with the donor index from D_context (or V_persistent) if not supplied.
     if covariates is None:
         ref = D_context if D_context is not None else V_persistent

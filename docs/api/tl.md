@@ -19,4 +19,6 @@
     tl.beta_weighting
     tl.subset_genomic_region
     tl.subset_gene
+    tl.coloc_abf
+    tl.coloc_susie
 ```

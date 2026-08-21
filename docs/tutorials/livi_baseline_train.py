@@ -2,7 +2,7 @@
 # # LIVI baseline (default in-memory dataloader) on real OneK1K
 #
 # Baseline to compare against `livi_annbatch_model_train.py`. This uses the
-# **default** LIVI data path — the high-level `cl.tl.external.train_livi()`
+# **default** LIVI data path, the high-level `cl.tl.external.train_livi()`
 # wrapper, which builds the stock in-memory `LIVIDataModule` (loads the whole
 # AnnData into RAM, computes size factors up front, then iterates with a
 # torch `DataLoader`).
@@ -64,7 +64,7 @@ print(f"device: {runner.resolve_device()}")
 #
 # `get_onek1k` returns a `DonorData`; `dd.C` is the cell-level AnnData with raw
 # counts in `dd.C.X` and `donor_id` in `dd.C.obs`, and `dd.donor_id` names the
-# individual column — exactly what `train_livi` consumes.
+# individual column, exactly what `train_livi` consumes.
 
 # %%
 t_load = time.perf_counter()

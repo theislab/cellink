@@ -263,7 +263,7 @@ def from_sgkit_dataset(
             for h in range(ploidy):
                 adata.layers[f"PHASE_{h}"] = phased_data[:, :, h].T
         else:
-            # 2D (variants, samples) — single phased flag per call
+            # 2D (variants, samples): single phased flag per call
             adata.layers["PHASE_0"] = phased_data.T
     else:
         adata.uns["has_phased_flag"] = False

@@ -1,5 +1,5 @@
 # %% [markdown]
-# # LIVI annbatch — JOINT C+G (cis-eQTL) mode, PAPER config
+# # LIVI annbatch: JOINT C+G (cis-eQTL) mode, PAPER config
 #
 # Companion to `livi_baseline_cis_train.py`. Both run LIVI's onek1k cis-eQTL
 # "cell-state" config from the paper (configs/model/LIVIcis_onek1k_10K-HVG-HEX),
@@ -15,7 +15,7 @@
 # Covariates (pool_number, sex) are streamed with the expression. So the
 # comparison isolates the expression+obs dataloader.
 #
-# This script is a thin wrapper around `train_livi_annbatch` -- the
+# This script is a thin wrapper around `train_livi_annbatch`; the
 # `DatasetCollection`/`CisGenotype`/batch-adapter machinery it used to define
 # inline now lives in `cellink.tl.external` (`_livi_annbatch.py`), reusable
 # outside this script too.
@@ -34,7 +34,7 @@ from cellink.tl.external import configure_livi_runner, read_g_from_dd_store, tra
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 # zarrs' Rust threadpool defaults (threading.max_workers=None) to the node's full
-# CPU count, NOT the SLURM/cgroup allocation -- on a shared node this oversubscribes.
+# CPU count, NOT the SLURM/cgroup allocation; on a shared node this oversubscribes.
 # Pin it to what we actually got. See annbatch's zarr-configuration.md.
 zarr.config.set({"threading.max_workers": len(os.sched_getaffinity(0))})
 

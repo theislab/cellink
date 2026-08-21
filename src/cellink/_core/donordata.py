@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 
 import h5py
 import pandas as pd
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
 
-@dataclass
 class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
@@ -161,8 +159,8 @@ class DonorData:
             path += ext
         return path
 
-    def write_dd(self, path: str, dd: DonorData, fmt: str = None) -> None:
-        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+    def write_dd(self, path: str, fmt: str = None) -> None:
+        """Write the DonorData object to the specified file path, format detected from the extension.
 
         Parameters
         ----------
@@ -183,10 +181,10 @@ class DonorData:
 
         if fmt == "h5":
             path = self._ensure_extension(path, ".dd.h5")
-            self.write_h5_dd(path, dd)
+            self.write_h5_dd(path)
         elif fmt == "zarr":
             path = self._ensure_extension(path, ".dd.zarr")
-            self.write_zarr_dd(path, dd)
+            self.write_zarr_dd(path)
         else:
             raise ValueError("Unknown format: use 'h5' or 'zarr'.")
 
@@ -430,8 +428,10 @@ class DonorData:
 
     def __repr__(self) -> str:
         table = self.prep_repr()
-        Console().print(table)
-        return ""
+        console = Console()
+        with console.capture() as capture:
+            console.print(table)
+        return capture.get()
 
     def __str__(self) -> str:
         n_donors, n_donor_vars, n_cells, n_cell_vars = self.shape

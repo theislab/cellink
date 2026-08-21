@@ -2,7 +2,7 @@
 
 Wrappers around external genetics tools. Most of these shell out to a command-line
 tool that has to be installed separately (e.g. PLINK, MAGMA, LDSC, TensorQTL,
-SAIGE-QTL) — see each tool's own documentation for installation instructions.
+SAIGE-QTL). See each tool's own documentation for installation instructions.
 
 ### eQTL mapping (jaxQTL / TensorQTL)
 

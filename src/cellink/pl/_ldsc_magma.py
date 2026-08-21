@@ -36,7 +36,7 @@ def enrichment_scatter(
     thresholds.  Significant cell types are listed in a legend outside the plot.
 
     Works identically for LDSC cell-type results (``Coefficient_P_value`` converted
-    to -log10) and MAGMA GSA / GPA results (``P`` column converted to -log10) —
+    to -log10) and MAGMA GSA / GPA results (``P`` column converted to -log10);
     the caller is responsible for building the DataFrame.
 
     Parameters
@@ -195,7 +195,7 @@ def method_comparison(
     """
     Compare -log10(p) values between two methods across shared cell types.
 
-    Produces a grid of scatter plots — one panel per shared cell type.  Within
+    Produces a grid of scatter plots, one panel per shared cell type.  Within
     each panel, each point represents a phenotype; its x-coordinate is the
     -log10(p) from ``df_a`` and its y-coordinate from ``df_b``.  A Spearman
     correlation coefficient and p-value are shown in each panel title.

@@ -288,9 +288,9 @@ def compute_nmf_programs(
     device : str, default ``"cuda"``
         Device for torchnmf backend: ``"cuda"`` or ``"cpu"``.
 
-        - ``"cuda"`` — uses GPU if available, raises a clear warning if CUDA is
+        - ``"cuda"``: uses GPU if available, raises a clear warning if CUDA is
           not found and falls back to CPU.
-        - ``"cpu"``  — forces CPU even if a GPU is present.
+        - ``"cpu"``: forces CPU even if a GPU is present.
 
         If ``torchnmf`` is not installed at all, cellink logs an install hint
         and falls back to sklearn NMF (which is slower but always available).
@@ -342,7 +342,7 @@ def compute_nmf_programs(
         from torchnmf.nmf import NMF as TorchNMF
     except ImportError:
         logger.warning(
-            "torchnmf is not installed — falling back to sklearn NMF, which is "
+            "torchnmf is not installed, falling back to sklearn NMF, which is "
             "significantly slower on large matrices (>50k cells).\n"
             "Install the faster backend with:\n"
             "  pip install torchnmf"
@@ -380,8 +380,8 @@ def compute_nmf_programs(
         )
         model = NMF(
             n_components=n_components,
-            init="nndsvda",  # truncated-SVD warm start — ~5-10x faster than "random"
-            solver="cd",  # coordinate descent — faster than multiplicative update
+            init="nndsvda",  # truncated-SVD warm start, ~5-10x faster than "random"
+            solver="cd",  # coordinate descent, faster than multiplicative update
             max_iter=500,
             tol=1e-4,
             random_state=random_state,

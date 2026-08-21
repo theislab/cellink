@@ -1,10 +1,10 @@
 # %% [markdown]
-# # LIVI annbatch — JOINT C+G (cis-eQTL) mode, REALISTIC paper-scale run
+# # LIVI annbatch: JOINT C+G (cis-eQTL) mode, REALISTIC paper-scale run
 #
 # Full-scale counterpart to `livi_annbatch_cis_train.py` (fast smoke test: 4000
 # genes, ~5000 SNPs, synthetic random cis assignment, 50 batches/epoch, single
 # annbatch shard). Reads the same prebuilt realistic cache as
-# `livi_baseline_cis_train_realistic.py` -- see that script's docstring and
+# `livi_baseline_cis_train_realistic.py`; see that script's docstring and
 # `build_onek1k_dd_cache_realistic.py` for what's realistic vs. approximated
 # here (real genomic-distance cis windows instead of the paper's curated,
 # unavailable association list; paper's exact warmup/epoch schedule).
@@ -14,7 +14,7 @@
 # where the filtered data fit in one), which is the actual point of comparing
 # this against the baseline in-memory loader.
 #
-# Thin wrapper around `cellink.tl.external.train_livi_annbatch` -- the
+# Thin wrapper around `cellink.tl.external.train_livi_annbatch`; the
 # `DatasetCollection`/`CisGenotype`/batch-adapter machinery lives there, not here.
 
 # %%
@@ -37,7 +37,7 @@ from cellink.tl.external import (
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 # zarrs' Rust threadpool defaults (threading.max_workers=None) to the node's full
-# CPU count, NOT the SLURM/cgroup allocation -- on a shared GPU node (other users'
+# CPU count, NOT the SLURM/cgroup allocation; on a shared GPU node (other users'
 # jobs on the same physical machine) this oversubscribes badly. Pin it to what we
 # actually got. See annbatch's zarr-configuration.md ("zarrs Performance").
 zarr.config.set({"threading.max_workers": len(os.sched_getaffinity(0))})
@@ -65,7 +65,7 @@ else:
 # Hyperparameters tuned by systematic sweep (livi_annbatch_hparam_sweep.py, job 38490780):
 # batch_size=256 gives 2.5× higher cells/s than 1024 on H100 (super-linear memory
 # scaling of the DxC backward pass). chunk_size and preload_nchunks make <5%
-# difference — kept at annbatch defaults. preload_to_gpu=True always wins (~25%).
+# difference, kept at annbatch defaults. preload_to_gpu=True always wins (~25%).
 BATCH_SIZE = 256
 CHUNK_SIZE = 512
 PRELOAD_NCHUNKS = 32
@@ -95,7 +95,7 @@ runner = configure_livi_runner(livi_root=LIVI_ROOT, execution_mode="python_api",
 DEVICE = runner.resolve_device()
 print(f"device: {DEVICE}")
 if DEVICE != "cuda":
-    warnings.warn("No GPU detected -- this paper-scale config will be extremely slow on CPU.", stacklevel=2)
+    warnings.warn("No GPU detected; this paper-scale config will be extremely slow on CPU.", stacklevel=2)
 
 PRELOAD_TO_GPU = DEVICE != "cpu"  # needs cupy-cuda12x; no GPU here means no cupy
 
@@ -107,9 +107,9 @@ for path in (DD_CACHE_PATH_ZARR_REALISTIC, KNOWN_CIS_EQTLS_PATH):
         )
 
 # Real cis genotype + real known_cis mask: both come straight from the
-# prebuilt realistic cache -- the "G" group of onek1k_realistic.dd.zarr already
+# prebuilt realistic cache: the "G" group of onek1k_realistic.dd.zarr already
 # IS the real cis-SNP set, and known_cis_eqtls.parquet is the real gene-SNP
-# pairing from that same build step (build_onek1k_dd_cache_realistic.py) -- no
+# pairing from that same build step (build_onek1k_dd_cache_realistic.py); no
 # synthetic rng.choice assignment here.
 gdata = read_g_from_dd_store(DD_CACHE_PATH_ZARR_REALISTIC)
 known_cis_eqtls = pd.read_parquet(KNOWN_CIS_EQTLS_PATH)
@@ -117,7 +117,7 @@ _dd_zarr = zarr.open(DD_CACHE_PATH_ZARR_REALISTIC, mode="r")
 
 # Pre-build the annbatch collection with SSD-optimised chunk layout.
 # n_obs_per_chunk and shard_size are written into the zarr store at build time
-# and cannot be changed later without a full rebuild -- so we set them here
+# and cannot be changed later without a full rebuild, so we set them here
 # rather than letting train_livi_annbatch use its (untuned) defaults.
 # is_empty guard inside build_annbatch_collection means this is a no-op if
 # C_COLLECTION was already built in a previous run.
