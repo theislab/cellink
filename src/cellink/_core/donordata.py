@@ -121,6 +121,11 @@ class DonorData:
             uns = {}
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
+        if isinstance(G, MuData) and G.obs.index.name is None:
+            for mod in G.mod.values():
+                if mod.obs.index.name == donor_id:
+                    G.obs.index.name = donor_id
+                    break
         if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
             raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
         if donor_id != G.obs.index.name:
