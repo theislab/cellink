@@ -75,6 +75,54 @@ def read_tensorqtl_results(
     return results
 
 
+def build_known_cis_eqtls_from_tensorqtl(
+    tensorqtl_parquet_path: str,
+    gene_names: list[str],
+    max_snps_per_gene: int = 1,
+    pval_threshold: float | None = None,
+) -> pd.DataFrame:
+    """
+    Build a ``known_cis_eqtls`` annotation (variants x genes, binary) from a
+    completed TensorQTL nominal cis-scan, for use as a fine-mapping prior.
+
+    Parameters
+    ----------
+    tensorqtl_parquet_path : str
+        Path to a TensorQTL nominal cis-scan parquet file with ``gene``,
+        ``variant_id``, and ``pval`` columns.
+    gene_names : list[str]
+        Genes to build the annotation for.
+    max_snps_per_gene : int, default=1
+        Number of lowest-p-value variant(s) to select per gene.
+    pval_threshold : float, optional
+        If given, only variants with ``pval <= pval_threshold`` are eligible.
+
+    Returns
+    -------
+    pd.DataFrame
+        Binary variant x gene matrix, 1 where that variant is the selected
+        cis-eQTL for that gene.
+    """
+    df = pd.read_parquet(tensorqtl_parquet_path, columns=["gene", "variant_id", "pval"])
+    df = df[df["gene"].isin(set(gene_names))]
+    if pval_threshold is not None:
+        df = df[df["pval"] <= pval_threshold]
+    df = df.sort_values("pval").groupby("gene", sort=False).head(max_snps_per_gene)
+    if df.empty:
+        raise ValueError(
+            f"No cis-eQTL pairs survived filtering from {tensorqtl_parquet_path} "
+            f"(pval_threshold={pval_threshold}) -- cannot build known_cis_eqtls."
+        )
+    snps = df["variant_id"].unique()
+    genes_with_hits = df["gene"].unique()
+    known = pd.DataFrame(0, index=snps, columns=genes_with_hits, dtype=int)
+    known.values[
+        pd.Index(snps).get_indexer(df["variant_id"]),
+        pd.Index(genes_with_hits).get_indexer(df["gene"]),
+    ] = 1
+    return known
+
+
 def _map_susie_with_prior_weights(
     genotype_df: pd.DataFrame,
     variant_df: pd.DataFrame,
