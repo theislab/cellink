@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_matrix_elem(elem_name: str) -> bool:
-    """True for ``X`` or any ``layers`` entry -- the elements that can be a
+    """True for ``X`` or any ``layers`` entry, the elements that can be a
     dense, genome/transcriptome-scale array and so need lazy Dask loading.
     """
     return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")

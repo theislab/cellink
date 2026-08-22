@@ -111,7 +111,7 @@ def build_known_cis_eqtls_from_tensorqtl(
     if df.empty:
         raise ValueError(
             f"No cis-eQTL pairs survived filtering from {tensorqtl_parquet_path} "
-            f"(pval_threshold={pval_threshold}) -- cannot build known_cis_eqtls."
+            f"(pval_threshold={pval_threshold}); cannot build known_cis_eqtls."
         )
     snps = df["variant_id"].unique()
     genes_with_hits = df["gene"].unique()

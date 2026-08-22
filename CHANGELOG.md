@@ -42,8 +42,8 @@ and this project adheres to [Semantic Versioning][].
   now written separately with sane chunking (a Dask array's own chunks, or capped at
   4096 per axis for a plain array), overridable via `write_zarr_dd`'s new `x_chunks`
   argument; the same fix now also applies to any dense `layers` entry (previously only
-  `X` was chunked sanely, so a dense layer the same shape as `X` -- e.g. raw counts kept
-  alongside a normalized `X` -- still got the pathological chunking)
+  `X` was chunked sanely, so a dense layer the same shape as `X` (e.g. raw counts kept
+  alongside a normalized `X`) still got the pathological chunking)
 - `io.read_zarr_dd`'s lazy read only kept `X` Dask-backed, not a dense `layers` entry,
   so a dense layer was still eagerly materialized in full on load (and could exhaust
   memory for a genome-scale one); `layers` is now read lazily the same way `X` is
@@ -81,7 +81,7 @@ and this project adheres to [Semantic Versioning][].
   confirmed via two independent hand-built-matrix tests that plain
   `anndata.io.read_elem` alone (no cellink code involved) takes ~19s for a
   5M-nnz array that writes in ~0.2s, and `DonorData.write_zarr_dd`/`read_zarr_dd`
-  add only ~9% on top of that baseline -- so this is inherent to AnnData's
+  add only ~9% on top of that baseline, so this is inherent to AnnData's
   sparse Zarr v3 read path in this environment, not a `DonorData`-specific
   issue. Not yet root-caused further, and not currently fixed, since no real
   data in this codebase's own pipelines uses a sparse Zarr layer today (dense

@@ -51,8 +51,8 @@ def _write_anndata_zarr_dense_x_chunked(
     disregards a dask array's own `.chunks` entirely), which for a
     genome-scale `X` (or a same-shaped dense layer, e.g. raw counts kept
     alongside a normalized `X`) can pick a shape badly misaligned with how
-    the data is actually laid out on disk, making the write -- and every
-    later read -- far slower than necessary. Writes everything except `X`
+    the data is actually laid out on disk, making both the write and every
+    later read far slower than necessary. Writes everything except `X`
     and any dense layers first (via a cheap, correctly-shaped zero-nnz
     sparse placeholder for `X`, and by omitting dense layers entirely from
     this first pass), then writes each dense array separately with an
