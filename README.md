@@ -1,6 +1,10 @@
+<!-- logo-image-start -->
+
 <p align="center">
   <img src="docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
 </p>
+
+<!-- logo-image-end -->
 
 [![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)
 [![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache2.0)

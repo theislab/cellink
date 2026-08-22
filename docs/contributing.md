@@ -52,7 +52,7 @@ When you're touching one of these wrappers, install just the extra(s) you need, 
 `pip install -e ".[pgen,test]"`.
 
 A few (MAGMA, LDSC, PLINK/PLINK2, TensorQTL's CLI mode, SAIGE-QTL) additionally shell
-out to an external binary that isn't distributed on PyPI/conda at all — tests exercising
+out to an external binary that isn't distributed on PyPI/conda at all. Tests exercising
 those either skip via `pytest.importorskip`/an explicit binary check, or aren't run in
 CI and are only expected to pass in an environment where the tool is installed
 separately. Don't assume the base test env in CI covers every `tl.external` module.
@@ -96,7 +96,7 @@ Consider enabling this option for [ruff][ruff-editors] and [prettier][prettier-e
 ## Writing tests
 
 This package uses [pytest][] for automated testing. Please add a test for every
-function you add or change — see scanpy's {doc}`scanpy:dev/testing` guide for general
+function you add or change. See scanpy's {doc}`scanpy:dev/testing` guide for general
 pytest conventions. Small synthetic-data tests (`tests/conftest.py` has `adata`/`gdata`
 fixtures built from `cellink._core.dummy_data`) are preferred over ones that depend on
 `tests/data/*` fixtures or network access; add a real assertion, not just a call that
@@ -197,18 +197,18 @@ Public functions/classes are exported from each submodule's `__init__.py` (and l
 its `__all__`), and separately listed again in the matching `docs/api/*.md` page
 (`donordata.md`, `pp.md`, `io.md`, `tl.md`, `tl_external.md`, `pl.md`, `ml.md`, `at.md`,
 `utils.md`, `resources.md`, `cli.md`). These are two separate, manually-kept-in-sync
-lists — nothing enforces that they match. When you add, rename, or remove a public
+lists. Nothing enforces that they match. When you add, rename, or remove a public
 function:
 
 1. Add it to the submodule's `__init__.py` import and `__all__` (or remove it from both).
 2. Add/update the corresponding `docs/api/*.md` entry.
-3. If it's a new tutorial notebook, add it to `docs/tutorials/index.md`'s toctree — a
+3. If it's a new tutorial notebook, add it to `docs/tutorials/index.md`'s toctree. A
    notebook that exists under `docs/tutorials/` but isn't listed there won't show up in
    the rendered docs navigation.
 
 `ruff`'s `RUF100`/`F822` checks catch a stale `__all__` (a name listed that no longer
 exists), but nothing currently catches the reverse (a public name that exists but was
-never added to `__all__`/the API docs) or a tutorial notebook missing from the toctree —
+never added to `__all__`/the API docs) or a tutorial notebook missing from the toctree,
 worth double-checking by eye.
 
 [sphinx]: https://www.sphinx-doc.org/en/master/
@@ -222,7 +222,7 @@ worth double-checking by eye.
 
 The documentation is set-up to render jupyter notebooks stored in the `docs/tutorials` directory using [myst-nb][].
 Currently, only notebooks in `.ipynb` format are supported that will be included with both their input and output cells.
-It is your responsibility to update and re-run the notebook whenever necessary — notebooks aren't executed as
+It is your responsibility to update and re-run the notebook whenever necessary. Notebooks aren't executed as
 part of CI, so a stale output cell showing an old error/result won't be caught automatically.
 
 If you are interested in automatically running notebooks as part of the continuous integration,

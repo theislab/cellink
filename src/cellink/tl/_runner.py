@@ -176,7 +176,7 @@ class BaseToolRunner(ABC):
           so the patched ``parse.py`` is always active.
         - **sandbox / rebuild**: ``singularity_image`` is updated in the runner
           config to point at the sandbox directory or rebuilt SIF, so
-          ``_build_container_command`` picks it up automatically — no special
+          ``_build_container_command`` picks it up automatically; no special
           handling needed here.
 
         Parameters

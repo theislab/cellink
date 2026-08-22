@@ -79,7 +79,7 @@ from ._scprs import (
 )
 from ._seismic import run_seismic
 from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, get_magma_gene_loc, preprocess_for_sldsc
-from ._tensorqtl import read_tensorqtl_results, run_tensorqtl
+from ._tensorqtl import build_known_cis_eqtls_from_tensorqtl, read_tensorqtl_results, run_tensorqtl
 
 __all__ = [
     "read_jaxqtl_results",
@@ -88,6 +88,7 @@ __all__ = [
     "calculate_pcs",
     "read_tensorqtl_results",
     "run_tensorqtl",
+    "build_known_cis_eqtls_from_tensorqtl",
     "run_mixmil",
     "run_scdrs",
     "run_seismic",

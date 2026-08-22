@@ -1,4 +1,15 @@
 ```{include} ../README.md
+:end-before: '<!-- logo-image-start -->'
+```
+
+```{image} _static/img/cellink-logo.svg
+:align: center
+:width: 360px
+:alt: cellink
+```
+
+```{include} ../README.md
+:start-after: '<!-- logo-image-end -->'
 :end-before: '<!-- schematic-image-start -->'
 ```
 

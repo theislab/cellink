@@ -313,7 +313,7 @@ def prepare_magma_inputs(
         - 'dd_genotypes'   : export genotypes from a DonorData object (requires `dd`)
         - 'reference_panel': download a 1000G panel (requires `reference_panel`)
         - 'external'       : use pre-built PLINK files you already have (requires `external_ld_prefix`)
-        - None             : skip LD reference — you must supply it yourself to run_magma_gene_analysis
+        - None             : skip LD reference, you must supply it yourself to run_magma_gene_analysis
     dd : DonorData, optional
         Required only when ld_source='dd_genotypes'.
     reference_panel : str, optional
@@ -597,11 +597,11 @@ def run_magma_pipeline(
     n_samples : int
         GWAS sample size.
     ld_source : str or None
-        LD reference strategy — see prepare_magma_inputs for full docs.
+        LD reference strategy; see prepare_magma_inputs for full docs.
         - 'dd_genotypes'   : use genotypes from DonorData (pass `dd`)
         - 'reference_panel': download a 1000G panel (pass `reference_panel`)
         - 'external'       : use existing PLINK files (pass `external_ld_prefix`)
-        - None             : raises an error — LD reference is required for gene analysis
+        - None             : raises an error, LD reference is required for gene analysis
     dd : DonorData, optional
         Required when ld_source='dd_genotypes'.
     reference_panel : str, optional

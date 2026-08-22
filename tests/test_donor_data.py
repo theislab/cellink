@@ -6,7 +6,10 @@ import pytest
 from cellink._core.data_fields import CAnn, DAnn
 from cellink._core.donordata import DonorData
 
-md.set_options(pull_on_update=False)
+if hasattr(md, "set_options"):
+    md.set_options(pull_on_update=False)  # mudata <0.4
+else:
+    md.settings.pull_on_update = False  # mudata >=0.4 (Python >=3.12): set_options -> settings
 
 DATA = Path("tests/data")
 

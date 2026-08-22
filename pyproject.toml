@@ -35,7 +35,7 @@ dependencies = [
   "muon",
   "numexpr",
   "pandas",
-  "pandas-plink",
+  "pandas-plink>=2.3.0",
   "pandera",
   "polars",
   "regex",

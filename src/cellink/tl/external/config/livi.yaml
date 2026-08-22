@@ -4,8 +4,8 @@
 #   cl.tl.external.configure_livi_runner(livi_root=..., config_path="path/to/livi.yaml")
 #
 # execution_mode options:
-#   python_api  — import LIVI directly (recommended; returns Python objects)
-#   subprocess  — run LIVI's Hydra CLI as a child process (HPC job submission)
+#   python_api  : import LIVI directly (recommended; returns Python objects)
+#   subprocess  : run LIVI's Hydra CLI as a child process (HPC job submission)
 
 execution_mode: python_api
 

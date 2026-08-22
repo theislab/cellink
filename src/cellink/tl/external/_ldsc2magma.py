@@ -309,9 +309,9 @@ def scores_to_gmt(
     gene_map
         Optional mapping from gene symbols to ENSG IDs.  Accepts:
 
-        * ``str`` or ``Path`` — path to a two-column TSV with headers
+        * ``str`` or ``Path``: path to a two-column TSV with headers
           ``gene_name`` and ``ensg_id``.
-        * ``pd.Series`` — index = gene symbol, values = ENSG ID.
+        * ``pd.Series``: index = gene symbol, values = ENSG ID.
 
         If provided, non-ENSG index entries are translated and rows that still
         do not look like ENSG IDs after mapping are dropped.
@@ -410,7 +410,7 @@ def scores_to_covar(
     out_file
         Output ``.covar`` file path.
     gene_map
-        Optional mapping from gene symbols to ENSG IDs — same formats as in
+        Optional mapping from gene symbols to ENSG IDs, using the same formats as in
         :func:`scores_to_gmt`.  Non-ENSG rows are dropped after mapping.
     negate
         If ``True``, multiply all scores by ``-1`` before writing.  Use this
@@ -477,7 +477,7 @@ def run_magma_annotate(
     **kwargs,
 ) -> "dict[str, Any]":
     """
-    Run MAGMA Step I — annotate SNPs to genes.
+    Run MAGMA Step I: annotate SNPs to genes.
 
     Maps each SNP to the gene(s) whose transcribed region (± ``window_kb`` kb)
     overlaps its position.  Creates a ``.genes.annot`` file consumed by
@@ -507,9 +507,9 @@ def run_magma_annotate(
     Returns
     -------
     dict
-        ``annot_file`` — path to ``.genes.annot``.
-        ``files_created`` — list of output paths (if ``run=True``).
-        ``command`` — command list (if ``run=False``).
+        ``annot_file``: path to ``.genes.annot``.
+        ``files_created``: list of output paths (if ``run=True``).
+        ``command``: command list (if ``run=False``).
 
     Examples
     --------
@@ -522,7 +522,7 @@ def run_magma_annotate(
 
     See Also
     --------
-    run_magma_gene_analysis : Step II — compute gene-level p-values.
+    run_magma_gene_analysis : Step II: compute gene-level p-values.
     """
     cmd = [magma_bin, "--annotate"]
     if window_kb:
@@ -552,7 +552,7 @@ def run_magma_gene_analysis(
     **kwargs,
 ) -> "dict[str, Any]":
     """
-    Run MAGMA Step II — gene-level association analysis.
+    Run MAGMA Step II: gene-level association analysis.
 
     Computes gene-level p-values and z-scores from GWAS SNP-level summary
     statistics, taking LD structure into account using a reference genotype
@@ -575,12 +575,12 @@ def run_magma_gene_analysis(
     n_samples
         Total GWAS sample size, used when every SNP shares the same N.
         Passed as ``N=<value>`` in the ``--pval`` argument. Mutually
-        exclusive with ``ncol`` — MAGMA requires exactly one of the two.
+        exclusive with ``ncol``, since MAGMA requires exactly one of the two.
     ncol
         Name of a column in ``pval_file`` holding a per-SNP sample size
         (e.g. for a meta-analysis where N varies across SNPs). Passed as
         ``ncol=<name>`` in the ``--pval`` argument. A column merely being
-        named ``"N"`` is **not** enough on its own — MAGMA always requires
+        named ``"N"`` is **not** enough on its own, because MAGMA always requires
         an explicit ``N=`` or ``ncol=`` modifier.
     magma_bin
         Path to the MAGMA binary.
@@ -592,9 +592,9 @@ def run_magma_gene_analysis(
     Returns
     -------
     dict
-        ``gene_results`` — path to ``.genes.raw``.
-        ``files_created`` — list of output paths (if ``run=True``).
-        ``command`` — command list (if ``run=False``).
+        ``gene_results``: path to ``.genes.raw``.
+        ``files_created``: list of output paths (if ``run=True``).
+        ``command``: command list (if ``run=False``).
 
     Examples
     --------
@@ -608,9 +608,9 @@ def run_magma_gene_analysis(
 
     See Also
     --------
-    run_magma_annotate : Step I — SNP-to-gene annotation.
-    run_magma_gsa : Step III — gene-set analysis.
-    run_magma_gpa : Step III — gene property analysis.
+    run_magma_annotate : Step I: SNP-to-gene annotation.
+    run_magma_gsa : Step III: gene-set analysis.
+    run_magma_gpa : Step III: gene property analysis.
     """
     cmd = [
         magma_bin,
@@ -655,7 +655,7 @@ def run_magma_gsa(
     **kwargs,
 ) -> "dict[str, Any]":
     """
-    Run MAGMA Step III — gene-set analysis (GSA).
+    Run MAGMA Step III: gene-set analysis (GSA).
 
     Tests whether genes in each set have higher GWAS association signals than
     background genes, using the gene-level results from
@@ -695,9 +695,9 @@ def run_magma_gsa(
     Returns
     -------
     dict
-        ``results_file`` — path to ``.gsa.out``.
-        ``files_created`` — list (if ``run=True``).
-        ``command`` — command list (if ``run=False``).
+        ``results_file``: path to ``.gsa.out``.
+        ``files_created``: list (if ``run=True``).
+        ``command``: command list (if ``run=False``).
 
     Examples
     --------
@@ -736,7 +736,7 @@ def run_magma_gpa(
     **kwargs,
 ) -> "dict[str, Any]":
     """
-    Run MAGMA Step III — gene property analysis (GPA).
+    Run MAGMA Step III: gene property analysis (GPA).
 
     Tests the linear association between continuous per-gene scores and GWAS
     gene-level z-scores.  Unlike GSA (which uses a top-N threshold), GPA uses
@@ -745,7 +745,7 @@ def run_magma_gpa(
     When ``univariate=False`` (default), all cell types are tested jointly in a
     single MAGMA call (``--gene-covar``).  This is efficient but MAGMA may drop
     highly collinear covariates.  Set ``univariate=True`` to test each cell
-    type independently — this is slower but always produces a result for every
+    type independently, which is slower but always produces a result for every
     cell type (matches ``run_magma_gpa_univariate.py`` in the pipeline).
 
     **LDSC → MAGMA GPA workflow**
@@ -777,9 +777,9 @@ def run_magma_gpa(
     Returns
     -------
     dict
-        ``results_file`` — path to ``.gsa.out``.
-        ``files_created`` — list (if ``run=True``).
-        ``command`` — command list (if ``run=False``, joint mode only).
+        ``results_file``: path to ``.gsa.out``.
+        ``files_created``: list (if ``run=True``).
+        ``command``: command list (if ``run=False``, joint mode only).
 
     Examples
     --------
@@ -820,7 +820,7 @@ def run_magma_gpa(
         results_file = f"{out_prefix}.gsa.out"
         return {"results_file": results_file, "files_created": [results_file, f"{out_prefix}.log"]}
 
-    # -- Univariate mode: one MAGMA call per cell-type covariate column -------
+    # Univariate mode: one MAGMA call per cell-type covariate column.
     covar = pd.read_csv(gene_covar, sep="\t", index_col=0)
     cell_types = covar.columns.tolist()
     logger.info("GPA univariate: %d cell types", len(cell_types))

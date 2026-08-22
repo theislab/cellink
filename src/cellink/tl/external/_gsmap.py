@@ -122,7 +122,7 @@ def format_gsmap_sumstats(
         # Writing the full DataFrame risks exposing multiple beta-like columns that gsMap
         # auto-detects, causing "Found 2 different BETA columns" errors. A common example:
         # GWAS Catalog harmonised files contain both 'hm_beta' and a plain 'beta' column
-        # with identical values — gsMap sees both as BETA and raises ValueError.
+        # with identical values, and gsMap sees both as BETA and raises ValueError.
         col_map = {
             snp: snp,
             a1: a1,
@@ -140,7 +140,7 @@ def format_gsmap_sumstats(
         cols_to_keep = [v for v in col_map.values() if v is not None and v in sumstats.columns]
         sumstats = sumstats[cols_to_keep].copy()
 
-        # Coerce beta-like columns to numeric — gsMap computes Z = sign(BETA) * sqrt(chi2.isf(P,1))
+        # Coerce beta-like columns to numeric, since gsMap computes Z = sign(BETA) * sqrt(chi2.isf(P,1))
         # and fails with a TypeError if BETA contains string values.
         for col in sumstats.columns:
             if col.lower() in {"beta", "hm_beta", "effect_size", "or", "odds_ratio"}:
@@ -261,7 +261,7 @@ def load_gsmap_results(
         "report_path": None,
     }
 
-    # Spatial LDSC — gsMap writes comma-separated .csv.gz
+    # Spatial LDSC: gsMap writes comma-separated .csv.gz
     ldsc_dir = sample_dir / "spatial_ldsc"
     if ldsc_dir.exists():
         ldsc_files = list(ldsc_dir.glob(f"*{trait_name}*.gz")) or list(ldsc_dir.glob("*.gz"))

@@ -27,16 +27,15 @@ _NON_DATA_FILENAME = re.compile(r"(?i)readme|license|changelog|^md5sum")
 def _find_candidate_files(html: str) -> list[str]:
     """Find likely summary-stats filenames in an FTP directory listing.
 
-    Matches anything ending in .tsv, .txt, .zip, or .gz -- some
+    Matches anything ending in .tsv, .txt, .zip, or .gz, since some
     pre-harmonisation-era deposits ship a plain/zipped .txt instead of
-    .tsv.gz, or a bare ".gz" with no .tsv/.txt in the name at all (confirmed
-    directly: a sleep-duration GWAS whose only file is
-    "..._sumstats.txt.zip", and a major-depression GWAS whose only file is
-    literally "MDD2018_ex23andMe.gz"). Since .tsv.gz/.txt.gz already end in
-    ".gz", matching bare ".gz" covers all of those cases in one pattern.
-    Widening this far risks also matching README/LICENSE/CHANGELOG files
-    that live in the same directory (which the original .tsv.gz-only regex
-    never collided with) -- hence the explicit exclusion below.
+    .tsv.gz, or a bare ".gz" with no .tsv/.txt in the name at all (e.g. a
+    sleep-duration GWAS whose only file is "..._sumstats.txt.zip", or a
+    major-depression GWAS whose only file is literally
+    "MDD2018_ex23andMe.gz"). Since .tsv.gz/.txt.gz already end in ".gz",
+    matching bare ".gz" covers all of those cases in one pattern. Widening
+    this far also risks matching README/LICENSE/CHANGELOG files that live
+    in the same directory, hence the explicit exclusion below.
     """
     files = re.findall(r'href="([^"]*\.(?:tsv|txt|zip|gz))"', html)
     return [f for f in files if not _NON_DATA_FILENAME.search(f)]
@@ -171,7 +170,7 @@ def get_gwas_catalog_study_summary_stats(
         DataFrame containing the summary statistics, or Path to the downloaded file if return_path=True.
     """
     if translate_to_build and return_path:
-        raise ValueError("translate_to_build requires return_path=False — liftover operates on an in-memory DataFrame.")
+        raise ValueError("translate_to_build requires return_path=False, since liftover operates on an in-memory DataFrame.")
     study_meta = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
 
     if "full_summary_stats" not in study_meta:

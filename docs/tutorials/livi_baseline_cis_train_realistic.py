@@ -1,5 +1,5 @@
 # %% [markdown]
-# # LIVI baseline — JOINT C+G (cis-eQTL) mode, REALISTIC paper-scale run
+# # LIVI baseline: JOINT C+G (cis-eQTL) mode, REALISTIC paper-scale run
 #
 # Full-scale counterpart to `livi_baseline_cis_train.py` (which is a fast smoke
 # test: 4000 genes, ~5000 SNPs, synthetic random cis assignment, 50
@@ -9,20 +9,20 @@
 #
 #   * x_dim = 14212 HVGs (paper's exact value) and the real genomic-distance
 #     cis SNP set, both precomputed by `build_onek1k_dd_cache_realistic.py`
-#     (not the paper's literal gene list / curated cis association TSV --
+#     (not the paper's literal gene list / curated cis association TSV;
 #     neither is available here, so the gene/SNP sets will differ from the
 #     paper's, even though the *counts* and *method* match its config/intent).
 #   * warmup_epochs_vae=60, max_epochs=600, min_epochs=160, no
-#     `limit_train_batches` cap -- matches the paper's trainer/model config.
-#   * data_split=[1.0] -- the paper itself trains on the full set with no
+#     `limit_train_batches` cap, matching the paper's trainer/model config.
+#   * data_split=[1.0]: the paper itself trains on the full set with no
 #     held-out split (see the datamodule config), so this is not a realism gap.
 #
-# Thin wrapper around `cellink.tl.external.train_livi` -- same as
+# Thin wrapper around `cellink.tl.external.train_livi`; same as
 # `livi_baseline_cis_train.py`, just with checkpointing/logging left at their
 # `train_livi` defaults (both `True`) since this is a real training run, not a
 # benchmark.
 #
-# Needs a GPU node and `onek1k_realistic.dd.h5` --
+# Needs a GPU node and `onek1k_realistic.dd.h5`;
 # build it with `build_onek1k_dd_cache_full.py` + `build_onek1k_dd_cache_realistic.py`.
 
 # %%
@@ -72,7 +72,7 @@ SEED = 42
 NUM_WORKERS = 4  # was 15 in the smoke-test script; at full paper scale (14212 genes,
 # 1.25M cells, a 13588x14212 known_cis_eqtls one-hot) each forked
 # DataLoader worker ends up touching/copying large Python objects
-# (refcount writes break copy-on-write), multiplying memory -- this
+# (refcount writes break copy-on-write), multiplying memory; this
 # OOM-killed the job at NUM_WORKERS=15 even with 128GB requested.
 MAX_EPOCHS = 600
 MIN_EPOCHS = 160
@@ -81,7 +81,7 @@ runner = configure_livi_runner(livi_root=LIVI_ROOT, execution_mode="python_api",
 DEVICE = runner.resolve_device()
 print(f"device: {DEVICE}")
 if DEVICE != "cuda":
-    warnings.warn("No GPU detected -- this paper-scale config will be extremely slow on CPU.", stacklevel=2)
+    warnings.warn("No GPU detected; this paper-scale config will be extremely slow on CPU.", stacklevel=2)
 
 # %% [markdown]
 # ## Load the prebuilt realistic cache (genes/SNPs already filtered, see
@@ -101,7 +101,7 @@ known_cis_eqtls = pd.read_parquet(KNOWN_CIS_EQTLS_PATH)
 load_secs = time.perf_counter() - t_load
 N_CIS_SNPS = dd.G.n_vars
 eqtl_genotypes = pd.DataFrame(asarray(dd.G.X), index=dd.G.obs_names, columns=dd.G.var_names)
-# Real genotype calls have missing entries (NaN) -- e.g. ~1.2% here. LIVI's V/DxC
+# Real genotype calls have missing entries (NaN), e.g. ~1.2% here. LIVI's V/DxC
 # path (activated after warmup_epochs_vae) feeds these dosages straight into the
 # decoder; left as NaN they propagate into a NaN decoder output and crash
 # training right when V/DxC turns on. Mean-impute per SNP (standard eQTL

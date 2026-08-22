@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
 
+import dask.array as da
 import h5py
+import numpy as np
 import pandas as pd
 import scanpy as sc
+import scipy.sparse as sp
 import zarr
 from anndata import AnnData
 from anndata.io import write_elem
@@ -25,7 +27,70 @@ logger = logging.getLogger(__name__)
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
 
-@dataclass
+def _write_dense_array_zarr_chunked(f: zarr.Group, path: str, X, chunks: tuple[int, int] | None) -> None:
+    """Write one dense array (`X` or a dense layer) to `f[path]` with sane chunks."""
+    if isinstance(X, da.Array):
+        X = X.rechunk(chunks) if chunks is not None else X
+        da.to_zarr(X, path, overwrite=True)
+    else:
+        array_chunks = chunks if chunks is not None else tuple(min(dim, 4096) for dim in X.shape)
+        z = zarr.open_array(path, mode="w", shape=X.shape, chunks=array_chunks, dtype=X.dtype)
+        z[:] = np.asarray(X)
+    arr = zarr.open(path, mode="r+")
+    arr.attrs["encoding-type"] = "array"
+    arr.attrs["encoding-version"] = "0.2.0"
+
+
+def _write_anndata_zarr_dense_x_chunked(
+    f: zarr.Group, key: str, adata: AnnData, zarr_path: str, chunks: tuple[int, int] | None = None
+) -> None:
+    """Write one AnnData to a Zarr group with `X` and any dense `layers` chunked sanely.
+
+    `anndata.io.write_elem` picks its own chunk shape for a dense array
+    without regard to any chunking the input already has (confirmed: it
+    disregards a dask array's own `.chunks` entirely), which for a
+    genome-scale `X` (or a same-shaped dense layer, e.g. raw counts kept
+    alongside a normalized `X`) can pick a shape badly misaligned with how
+    the data is actually laid out on disk, making both the write and every
+    later read far slower than necessary. Writes everything except `X`
+    and any dense layers first (via a cheap, correctly-shaped zero-nnz
+    sparse placeholder for `X`, and by omitting dense layers entirely from
+    this first pass), then writes each dense array separately with an
+    explicit, sane `chunks`.
+
+    Parameters
+    ----------
+    chunks
+        Chunk shape applied to `X` and every dense layer. If `None`: a dask
+        array's own chunks (which `dask.array.to_zarr` preserves
+        automatically), or, for a plain array, capped at 4096 per axis.
+    """
+    X = adata.X
+    dense_layers = {k: v for k, v in adata.layers.items() if hasattr(v, "ndim") and not sp.issparse(v)}
+    sparse_layers = {k: v for k, v in adata.layers.items() if k not in dense_layers}
+
+    placeholder = sp.csr_matrix((adata.n_obs, adata.n_vars), dtype=X.dtype)
+    shell = AnnData(
+        X=placeholder,
+        obs=adata.obs,
+        var=adata.var,
+        obsm=dict(adata.obsm),
+        varm=dict(adata.varm),
+        obsp=dict(adata.obsp),
+        varp=dict(adata.varp),
+        layers=dict(sparse_layers),
+        uns=dict(adata.uns),
+    )
+    write_elem(f, key, shell)
+    del f[key]["X"]
+    _write_dense_array_zarr_chunked(f, f"{zarr_path}/{key}/X", X, chunks)
+
+    if dense_layers and "layers" not in f[key]:
+        f[key].create_group("layers")
+    for name, layer in dense_layers.items():
+        _write_dense_array_zarr_chunked(f, f"{zarr_path}/{key}/layers/{name}", layer, chunks)
+
+
 class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
@@ -56,6 +121,11 @@ class DonorData:
             uns = {}
         if donor_id not in C.obs.columns:
             raise ValueError(f"'{donor_id}' not found in C.obs")
+        if isinstance(G, MuData) and G.obs.index.name is None:
+            for mod in G.mod.values():
+                if mod.obs.index.name == donor_id:
+                    G.obs.index.name = donor_id
+                    break
         if donor_id not in G.obs.columns and donor_id != G.obs.index.name:
             raise ValueError(f"'{donor_id}' must be in gdata.obs or set as index")
         if donor_id != G.obs.index.name:
@@ -103,17 +173,17 @@ class DonorData:
             self._C = self._C.copy()
         return self
 
-    def _write_dd(self, f: h5py.File):
-        if isinstance(self.G, MuData):
-            g_group = f.create_group("G")
-            _write_h5mu(g_group, self.G)
-        else:
-            write_elem(f, "G", self.G)
-        if isinstance(self.C, MuData):
-            c_group = f.create_group("C")
-            _write_h5mu(c_group, self.C)
-        else:
-            write_elem(f, "C", self.C)
+    def _write_dd(self, f: h5py.File, zarr_path: str | None = None, x_chunks=None):
+        is_zarr = isinstance(f, zarr.Group)
+        for key, modality in (("G", self.G), ("C", self.C)):
+            if isinstance(modality, MuData):
+                group = f.create_group(key)
+                _write_h5mu(group, modality)
+            elif is_zarr and hasattr(modality.X, "ndim") and not sp.issparse(modality.X):
+                key_chunks = x_chunks.get(key) if isinstance(x_chunks, dict) else x_chunks
+                _write_anndata_zarr_dense_x_chunked(f, key, modality, zarr_path, chunks=key_chunks)
+            else:
+                write_elem(f, key, modality)
         f.attrs["encoding-type"] = "donordata"
 
         f.attrs["donor_id"] = self.donor_id
@@ -137,13 +207,22 @@ class DonorData:
         with h5py.File(path, "w") as f:
             self._write_dd(f)
 
-    def write_zarr_dd(self, path: str) -> None:
+    def write_zarr_dd(
+        self, path: str, x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None
+    ) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
         ----------
         path : str | Path
             Path where the donor-data object should be saved.
+        x_chunks : tuple[int, int] | dict[str, tuple[int, int]], optional
+            Chunk shape for a dense `G.X`/`C.X`, e.g. `(4096, 4096)`. Pass a
+            dict (`{"G": ..., "C": ...}`) to set them independently. If not
+            given: a dask-backed `X` keeps its own existing chunks (via
+            `dask.array.to_zarr`); a plain array gets chunks capped at 4096
+            per axis. Only applies to a dense `X`; sparse/`MuData` are
+            unaffected.
 
         Example
         -------
@@ -153,7 +232,7 @@ class DonorData:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")
         f = zarr.open(path, mode="w")
-        self._write_dd(f)
+        self._write_dd(f, zarr_path=str(path), x_chunks=x_chunks)
 
     def _ensure_extension(self, path: str, ext: str) -> str:
         """Ensure the given path ends with the desired extension."""
@@ -161,8 +240,8 @@ class DonorData:
             path += ext
         return path
 
-    def write_dd(self, path: str, dd: DonorData, fmt: str = None) -> None:
-        """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
+    def write_dd(self, path: str, fmt: str = None) -> None:
+        """Write the DonorData object to the specified file path, format detected from the extension.
 
         Parameters
         ----------
@@ -183,10 +262,10 @@ class DonorData:
 
         if fmt == "h5":
             path = self._ensure_extension(path, ".dd.h5")
-            self.write_h5_dd(path, dd)
+            self.write_h5_dd(path)
         elif fmt == "zarr":
             path = self._ensure_extension(path, ".dd.zarr")
-            self.write_zarr_dd(path, dd)
+            self.write_zarr_dd(path)
         else:
             raise ValueError("Unknown format: use 'h5' or 'zarr'.")
 
@@ -430,8 +509,10 @@ class DonorData:
 
     def __repr__(self) -> str:
         table = self.prep_repr()
-        Console().print(table)
-        return ""
+        console = Console()
+        with console.capture() as capture:
+            console.print(table)
+        return capture.get()
 
     def __str__(self) -> str:
         n_donors, n_donor_vars, n_cells, n_cell_vars = self.shape

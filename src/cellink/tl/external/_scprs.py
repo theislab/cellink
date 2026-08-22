@@ -116,7 +116,7 @@ def _normalise_gwas_df(gwas_df: pd.DataFrame) -> pd.DataFrame:
     has_snp = any(c in df.columns for c in ["SNP", "rsid", "ID", "variant_id"])
     if not has_snp:
         if "CHR" in df.columns and "BP" in df.columns:
-            logger.info("No SNP/rsid column — synthesising variant IDs as 'CHR:BP'.")
+            logger.info("No SNP/rsid column, synthesising variant IDs as 'CHR:BP'.")
             df["SNP"] = (
                 df["CHR"].astype(str).str.replace("chr", "", regex=False)
                 + ":"
@@ -172,7 +172,7 @@ def _annotate_gwas_with_bim_ids(
 
     if gwas_has_rsids and bim_has_rsids:
         logger.info(
-            "SNP ID annotation: GWAS and bim both use rsIDs — skipping "
+            "SNP ID annotation: GWAS and bim both use rsIDs, skipping "
             "CHR:BP lookup (direct rsID matching will be used by PLINK)."
         )
         return gwas_df
@@ -195,8 +195,8 @@ def _annotate_gwas_with_bim_ids(
     )
     if match_pct < 20.0:
         logger.warning(
-            f"Only {match_pct:.1f}% of GWAS variants matched by position — "
-            "this typically means a genome-build mismatch between the GWAS "
+            f"Only {match_pct:.1f}% of GWAS variants matched by position. "
+            "This typically means a genome-build mismatch between the GWAS "
             "(e.g. GRCh38) and the bfile (e.g. GRCh37).  "
             "Fetch the GWAS in the same build as your bfile, or supply a "
             "matching reference panel."
@@ -391,7 +391,7 @@ def _build_knn_graph(
     elif "X_pca" in adata.obsm:
         atac_embed = adata.obsm["X_pca"]
     else:
-        logger.info("No LSI/PCA found — computing PCA.")
+        logger.info("No LSI/PCA found, computing PCA.")
         import scipy.sparse as sp
 
         X_bin = (adata.X > 0).astype(float)
@@ -605,10 +605,10 @@ def write_slurm_array_job(
 
     1. Pre-generates per-cell filtered GWAS files in ``prs_dir`` (Python step,
        requires AnnData, must be run once before cluster submission).
-    2. Writes ``{output_dir}/{job_name}_commands.txt`` — one shell command per
+    2. Writes ``{output_dir}/{job_name}_commands.txt``: one shell command per
        cell, where each command runs PLINK clumping + scoring for all r²
        thresholds for that cell.
-    3. Writes ``{output_dir}/{job_name}_array.sh`` — a SLURM array job script
+    3. Writes ``{output_dir}/{job_name}_array.sh``: a SLURM array job script
        where task ``$SLURM_ARRAY_TASK_ID`` executes the corresponding line of
        the commands file.
     4. Logs the ``sbatch`` command and the follow-up Python call to run after
@@ -656,7 +656,7 @@ def write_slurm_array_job(
         ``slurm_cpus`` so the CPU allocation is fully utilised.
     slurm_partition : str, optional
         ``#SBATCH --partition`` value (``-p`` flag).  If ``None``, the line
-        is omitted — useful on clusters where the default partition is fine or
+        is omitted, useful on clusters where the default partition is fine or
         where ``-q``/``--qos`` selects the queue instead.
     slurm_qos : str, optional
         ``#SBATCH -q`` value.  If ``None``, the line is omitted.
@@ -760,7 +760,7 @@ def write_slurm_array_job(
             "# Read the command for this array task (tasks are 0-indexed, sed is 1-indexed)",
             'CMD=$(sed -n "$((SLURM_ARRAY_TASK_ID + 1))p" "$COMMANDS_FILE")',
             'if [ -z "$CMD" ]; then',
-            '    echo "Task $SLURM_ARRAY_TASK_ID: no command (cell skipped — no peak SNPs)."; exit 0',
+            '    echo "Task $SLURM_ARRAY_TASK_ID: no command (cell skipped, no peak SNPs)."; exit 0',
             "fi",
             "",
             'echo "Task $SLURM_ARRAY_TASK_ID starting: $CMD"',
@@ -786,7 +786,7 @@ def write_slurm_array_job(
         f"  Submit with:     {submit_cmd}\n"
         f"\n"
         f"  Memory guidance:\n"
-        f"    Current default: {slurm_mem} — suitable for 1000G EUR (~500 samples, ~8M variants).\n"
+        f"    Current default: {slurm_mem}, suitable for 1000G EUR (~500 samples, ~8M variants).\n"
         f"    For UK Biobank scale (~400k samples): increase to 64G or more.\n"
         f"\n"
         f"  Timing guidance:\n"
@@ -976,7 +976,7 @@ def run_scprs(
     L_np = nx.normalized_laplacian_matrix(graph).toarray()
 
     if "cuda" in device and not torch.cuda.is_available():
-        logger.warning("CUDA not available — falling back to CPU.")
+        logger.warning("CUDA not available, falling back to CPU.")
         device = "cpu"
     dev = torch.device(device)
 

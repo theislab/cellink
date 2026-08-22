@@ -730,7 +730,7 @@ def get_magma_gene_loc(
     See Also
     --------
     generate_gene_coord_file : Headed GENE/CHR/START/END format for S-LDSC.
-    run_magma_annotate : MAGMA Step I — uses the gene location file.
+    run_magma_annotate : MAGMA Step I, uses the gene location file.
     """
     from cellink.resources._utils import get_data_home
 
@@ -762,7 +762,7 @@ def get_magma_gene_loc(
     gene_loc = gene_loc.drop_duplicates(subset=["gene"], keep="first")
     gene_loc = gene_loc.sort_values(["chrom", "start"])
 
-    # Write headless (no column names) — MAGMA format
+    # Write headless (no column names), MAGMA format
     gene_loc.to_csv(out_path, sep="\t", index=False, header=False)
     logger.info("Wrote %d gene locations to %s", len(gene_loc), out_path)
     return str(out_path)

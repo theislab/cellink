@@ -206,12 +206,12 @@ def from_sgkit_dataset(
     var_df.columns = var_df.columns.str.replace("variant_", "")
 
     if alleles_arr is not None:
-        var_df[VAnn.a0] = alleles_arr[:, 0]
+        var_df[VAnn.a0] = alleles_arr[:, 0].astype(str)
         if alleles_arr.shape[1] > 1:
-            var_df[VAnn.a1] = alleles_arr[:, 1]
+            var_df[VAnn.a1] = alleles_arr[:, 1].astype(str)
         if keep_multiallelic and alleles_arr.shape[1] > 2:
             for ai in range(2, alleles_arr.shape[1]):
-                var_df[f"a{ai}"] = alleles_arr[:, ai]
+                var_df[f"a{ai}"] = alleles_arr[:, ai].astype(str)
 
     if SgVars.contig_label in ds.data_vars:
         contigs = asarray(ds[SgVars.contig_label])
@@ -221,6 +221,7 @@ def from_sgkit_dataset(
                 var_df["chrom"] = pd.Index(vc).map(dict(enumerate(contigs)))
             except (KeyError, TypeError, ValueError):
                 var_df["chrom"] = vc
+            var_df["chrom"] = var_df["chrom"].astype(str)
         else:
             pass
 
@@ -263,7 +264,7 @@ def from_sgkit_dataset(
             for h in range(ploidy):
                 adata.layers[f"PHASE_{h}"] = phased_data[:, :, h].T
         else:
-            # 2D (variants, samples) — single phased flag per call
+            # 2D (variants, samples): single phased flag per call
             adata.layers["PHASE_0"] = phased_data.T
     else:
         adata.uns["has_phased_flag"] = False

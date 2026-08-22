@@ -29,7 +29,7 @@ def build_annbatch_collection(
     Parameters
     ----------
     c_group
-        The cell-level AnnData store to stream from -- a `zarr.Group` /
+        The cell-level AnnData store to stream from: a `zarr.Group` /
         `h5py.Group` (e.g. the "C" group of a DonorData `.dd.zarr`/`.dd.h5`
         cache: ``zarr.open(path, "r")["C"]``) or a path to a standalone
         AnnData file.
@@ -178,7 +178,7 @@ class CisGenotype:
         if n_missing:
             logger.warning(
                 "%d missing genotype calls (%.2f%%) among the selected cis SNPs; treating them as "
-                "allele-absent (0) for this binary presence feature -- NaN > 0 is always False in "
+                "allele-absent (0) for this binary presence feature, since NaN > 0 is always False in "
                 "numpy, so this was previously happening silently.",
                 n_missing,
                 100 * n_missing / raw.size,
@@ -406,20 +406,20 @@ def train_livi_annbatch(
     `DatasetCollection` (built from `c_group` if `collection_path` doesn't
     exist yet) instead of being held fully in memory. Genotype (donors x
     SNPs) is still loaded into memory and looked up per cell, exactly like
-    `train_livi`'s `eqtl_genotypes` -- it's orders of magnitude smaller than
+    `train_livi`'s `eqtl_genotypes`, since it's orders of magnitude smaller than
     cell expression.
 
     Parameters
     ----------
     c_group
-        Cell-level AnnData store to stream from -- e.g. the "C" group of a
+        Cell-level AnnData store to stream from, e.g. the "C" group of a
         DonorData `.dd.zarr`/`.dd.h5` cache (``zarr.open(path, "r")["C"]``).
         Ignored if `collection_path` already has a built collection.
     gdata : AnnData
         Genotype (donors x SNPs) AnnData, e.g. from :func:`read_g_from_dd_store`.
     output_dir
         Unused for checkpointing currently (annbatch path doesn't checkpoint
-        by default -- see Notes); kept for signature parity with `train_livi`.
+        by default; see Notes), kept for signature parity with `train_livi`.
     collection_path
         Path to the (possibly to-be-built) annbatch `DatasetCollection`.
     donor_key
@@ -429,7 +429,7 @@ def train_livi_annbatch(
     known_cis_eqtls
         Real SNPs x genes 0/1 mapping (e.g. from genomic-distance windows or a
         curated association list). If `None`, a synthetic random mapping is
-        generated from `cis_snps`/`target_genes`/`cis_genes_per_snp` -- fine
+        generated from `cis_snps`/`target_genes`/`cis_genes_per_snp`; fine
         for smoke testing, not biologically meaningful.
     cis_snps, target_genes, cis_genes_per_snp
         See `CisGenotype`; only used when `known_cis_eqtls` is `None`.
@@ -466,7 +466,7 @@ def train_livi_annbatch(
 
     Notes
     -----
-    No `ModelCheckpoint` is added by default (unlike `train_livi`) -- pass one
+    No `ModelCheckpoint` is added by default (unlike `train_livi`); pass one
     via `callbacks` if you need checkpointing.
     """
     if runner is None:

@@ -6,14 +6,11 @@ from cellink._core.data_fields import VAnn
 
 
 def _split_snp_id(snp_str):
-    chrom = snp_str.split(":")[0]
-    pos = snp_str.split(":")[1].split("_")[0]
-    a0 = snp_str.split(":")[1].split("_")[1]
-    a1 = snp_str.split(":")[1].split("_")[2]
+    chrom, pos, a0, a1 = snp_str.split(":")
     return chrom, pos, a0, a1
 
 
-def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
+def get_snp_df(variant_codes, server="https://rest.ensembl.org/"):
     """
     Retrieve SNP (Single Nucleotide Polymorphism) information and overlap with genes from Ensembl.
 
@@ -25,9 +22,10 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
     Parameters
     ----------
     variant_codes : list of str
-        A list of SNP identifiers in the format of chromosome, position, and alleles (e.g., `1_55516888_T_C`).
+        A list of SNP identifiers as colon-separated chromosome, position, and alleles (e.g., `1:55516888:T:C`).
     server : str, optional
-        The URL of the Ensembl REST API server to query. Defaults to the GRCh37 Ensembl server.
+        The URL of the Ensembl REST API server to query. Defaults to the GRCh38 Ensembl server. Pass
+        `https://grch37.rest.ensembl.org/` explicitly for GRCh37-coordinate variant codes.
 
     Returns
     -------
@@ -45,12 +43,12 @@ def get_snp_df(variant_codes, server="https://grch37.rest.ensembl.org/"):
 
     Example
     -------
-    >>> variant_codes = ["1_55516888_T_C", "2_117900001_A_G"]
+    >>> variant_codes = ["1:55516888:T:C", "2:117900001:A:G"]
     >>> var_df, gene_df = get_snp_df(variant_codes)
     >>> var_df.head()
           snp_id  is_in_gene    genes  ...  clinical_significance
-    0  1_55516888_T_C        True    GENE1  ...          pathogenic
-    1  2_117900001_A_G       False     GENE2 ...                benign
+    0  1:55516888:T:C        True    GENE1  ...          pathogenic
+    1  2:117900001:A:G       False     GENE2 ...                benign
     >>> gene_df.head()
           biotype    start     end  ...       strand
     id

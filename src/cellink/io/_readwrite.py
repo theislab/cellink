@@ -5,11 +5,13 @@ import zarr
 from anndata._io.zarr import read_dataframe
 from anndata._types import StorageType
 from anndata.compat import _read_attr
+from anndata.experimental import read_dispatched
 from anndata.io import read_elem
 from mudata._core.io import _read_h5mu_mod
 from mudata._core.mudata import ModDict, MuData
 
 from cellink._core import DonorData
+from cellink.io._pgen import lazy_anndata_zarr_callback
 
 warnings.filterwarnings(
     "ignore",
@@ -72,9 +74,9 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     return mu
 
 
-def _read_dd(f: h5py.File) -> DonorData:
+def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
     """
-    Internal function to read a DonorData object from an HDF5 file handle.
+    Internal function to read a DonorData object from an HDF5 or Zarr group.
 
     Reads donor-level genotype data (`G`) and cell-level expression data (`C`),
     reconstructs them as either AnnData or MuData objects, and collects additional
@@ -83,8 +85,13 @@ def _read_dd(f: h5py.File) -> DonorData:
 
     Parameters
     ----------
-    f : h5py.File
-        An open HDF5 file handle containing the DonorData object.
+    f : h5py.File or zarr.Group
+        An open HDF5 file handle or Zarr group containing the DonorData object.
+    lazy : bool, default=False
+        If True (Zarr only), read `G`/`C` via :func:`lazy_anndata_zarr_callback`
+        so a dense `X` stays Dask-backed instead of being materialized, which
+        lets callers select a subset (e.g. one cell type) before ever loading
+        the full array into memory.
 
     Returns
     -------
@@ -97,17 +104,21 @@ def _read_dd(f: h5py.File) -> DonorData:
     ValueError
         If the encoding type of `G` or `C` is not recognized.
     """
+
+    def _read_anndata(group):
+        return read_dispatched(group, callback=lazy_anndata_zarr_callback) if lazy else read_elem(group)
+
     if f["G"].attrs.get("encoding-type") == "MuData":
         G = _read_mudata(group=f["G"])
     elif f["G"].attrs.get("encoding-type") == "anndata":
-        G = read_elem(f["G"])
+        G = _read_anndata(f["G"])
     else:
         raise ValueError("Unknown encoding type for G")
 
     if f["C"].attrs.get("encoding-type") == "MuData":
         C = _read_mudata(group=f["C"])
     elif f["C"].attrs.get("encoding-type") == "anndata":
-        C = read_elem(f["C"])
+        C = _read_anndata(f["C"])
     else:
         raise ValueError("Unknown encoding type for C")
 
@@ -147,6 +158,11 @@ def read_zarr_dd(path: str) -> DonorData:
     """
     Read a DonorData object from a Zarr store on disk.
 
+    `G` and `C` are read lazily: a dense `X` stays Dask-backed rather than
+    being materialized on load, so a caller can select a subset (e.g. one
+    cell type via ``dd.sel(C_obs=...)``) and only that subset is ever read
+    off disk once it's actually computed/materialized.
+
     Parameters
     ----------
     path : str
@@ -158,7 +174,7 @@ def read_zarr_dd(path: str) -> DonorData:
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
     f = zarr.open(path, mode="r")
-    return _read_dd(f)
+    return _read_dd(f, lazy=True)
 
 
 def read_dd(path: str, fmt: str = None) -> DonorData:

@@ -239,7 +239,7 @@ def run_seismic_torch(
     ----------
     adata : AnnData
         Single-cell data. ``species="mouse"`` is not auto-translated (unlike
-        the R backend) — pass an adata already indexed by the target species'
+        the R backend), pass an adata already indexed by the target species'
         gene symbols if you need cross-species gene mapping.
     magma_file : str or Path
         MAGMA ``.genes.out`` file with columns ``magma_gene_col``/``magma_z_col``.
@@ -302,8 +302,8 @@ def run_seismic_torch(
     shared_genes = scores_df.index.intersection(magma_df.index)
     if len(shared_genes) < 200:
         raise ValueError(
-            f"Only {len(shared_genes)} genes shared between expression data and MAGMA output "
-            "— check that gene identifiers match (gene symbols vs Ensembl IDs)."
+            f"Only {len(shared_genes)} genes shared between expression data and MAGMA output. "
+            "Check that gene identifiers match (gene symbols vs Ensembl IDs)."
         )
     logger.info(f"run_seismic_torch: {len(shared_genes)} genes shared with MAGMA output")
 

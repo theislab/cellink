@@ -1,11 +1,11 @@
 # %% [markdown]
-# # LIVI baseline — JOINT C+G (cis-eQTL) mode, PAPER config, default in-memory loader
+# # LIVI baseline: JOINT C+G (cis-eQTL) mode, PAPER config, default in-memory loader
 #
 # Companion to `livi_annbatch_cis_train.py`. Same model + same deterministic
-# synthetic cis annotation; the ONLY difference is the dataloader — here the stock
+# synthetic cis annotation; the ONLY difference is the dataloader, here the stock
 # in-memory `LIVIDataModule` (loads the whole AnnData into RAM, torch DataLoader).
 #
-# Thin wrapper around `cellink.tl.external.train_livi` -- the
+# Thin wrapper around `cellink.tl.external.train_livi`; the
 # `LIVIDataModule`/`LIVI`/`Trainer` wiring it used to define inline now lives
 # in `_livi.py`'s `train_livi`, reusable outside this script too. We still pass
 # `callbacks=[ThroughputCallback()]` and `limit_train_batches=BENCH_BATCHES` so
@@ -93,7 +93,7 @@ target_genes = list(dd.C.var_names[:N_TARGET_GENES])
 eqtl_genotypes = pd.DataFrame(asarray(dd.G[:, :N_CIS_SNPS].X), index=dd.G.obs_names, columns=snp_names)
 # Real genotype calls can have missing entries (NaN); left as-is they'd propagate
 # into a NaN decoder output once LIVI's V/DxC path activates. Mean-impute per SNP
-# (standard eQTL practice) -- see livi_baseline_cis_train_realistic.py, which hits
+# (standard eQTL practice); see livi_baseline_cis_train_realistic.py, which hits
 # this for real at full SNP scale (these first N_CIS_SNPS happen to have none).
 n_missing = int(eqtl_genotypes.isna().sum().sum())
 if n_missing:

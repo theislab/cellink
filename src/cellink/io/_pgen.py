@@ -22,6 +22,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _is_matrix_elem(elem_name: str) -> bool:
+    """True for ``X`` or any ``layers`` entry, the elements that can be a
+    dense, genome/transcriptome-scale array and so need lazy Dask loading.
+    """
+    return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")
+
+
+def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec):
+    """``read_dispatched`` callback that reconstructs an AnnData (at any
+    nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
+    while keeping a dense ``X``/``layers`` entry Dask-backed instead of
+    materializing it.
+    """
+    if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
+        return ad.AnnData(
+            **{
+                k: read_dispatched(v, lazy_anndata_zarr_callback)
+                for k, v in dict(elem).items()
+                if not k.startswith("raw.")
+            }
+        )
+    elif _is_matrix_elem(elem_name) and iospec.encoding_type in (
+        "dataframe",
+        "csr_matrix",
+        "csc_matrix",
+        "awkward-array",
+    ):
+        return read_elem(elem)
+    elif _is_matrix_elem(elem_name) and iospec.encoding_type == "array":
+        return da.from_zarr(elem)
+    else:
+        return func(elem)
+
+
 def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     """
     Lazily read an AnnData Zarr v3 store written by `stream_pgen_to_zarr`.
@@ -72,33 +106,15 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     >>> X = adata.X.compute()
     """
     f = zarr.open(str(store), mode="r")
-
-    def callback(func, elem_name: str, elem, iospec):
-        if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
-            return ad.AnnData(
-                **{k: read_dispatched(v, callback) for k, v in dict(elem).items() if not k.startswith("raw.")}
-            )
-        elif elem_name == "/X" and iospec.encoding_type in (
-            "dataframe",
-            "csr_matrix",
-            "csc_matrix",
-            "awkward-array",
-        ):
-            return read_elem(elem)
-        elif elem_name == "/X" and iospec.encoding_type == "array":
-            return da.from_zarr(elem)
-        else:
-            return func(elem)
-
-    return read_dispatched(f, callback=callback)
+    return read_dispatched(f, callback=lazy_anndata_zarr_callback)
 
 
 def _read_pvar(pvar_file: Path) -> pd.DataFrame:
-    """Read a PLINK2 .pvar file, correctly using its ``#CHROM POS ID REF ALT
-    ...`` header line for column names (mapped to cellink's canonical
-    ``chrom``/``pos``/``snp_id``/``a0``/``a1`` variant-annotation field
-    names, see :class:`cellink._core.data_fields.VAnn`) and skipping only
-    the preceding ``##`` metadata lines.
+    """Read a PLINK2 .pvar file, mapping its ``CHROM POS ID REF ALT ...``
+    columns to cellink's canonical ``chrom``/``pos``/``snp_id``/``a0``/``a1``
+    variant-annotation field names (see
+    :class:`cellink._core.data_fields.VAnn`), whether taken from a
+    ``#CHROM`` header line or, if absent, the standard PLINK2 column order.
     """
     n_meta = 0
     header_cols = None
@@ -112,18 +128,25 @@ def _read_pvar(pvar_file: Path) -> pd.DataFrame:
                 n_meta += 1
             break
 
+    standard_cols = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO"]
     if header_cols is None:
         pv = pd.read_csv(pvar_file, sep="\t", comment="#", header=None)
-        pv.columns = pv.columns.astype(str)
-        return pv
+        n = pv.shape[1]
+        header_cols = standard_cols[:n] if n <= len(standard_cols) else standard_cols + list(pv.columns[len(standard_cols) :])
+        pv.columns = header_cols
+    else:
+        pv = pd.read_csv(pvar_file, sep="\t", skiprows=n_meta, header=None, names=header_cols, dtype={"CHROM": str})
 
-    pv = pd.read_csv(pvar_file, sep="\t", skiprows=n_meta, header=None, names=header_cols, dtype={"CHROM": str})
     rename_map = {"CHROM": VAnn.chrom, "POS": VAnn.pos, "ID": VAnn.index, "REF": VAnn.a0, "ALT": VAnn.a1}
     pv = pv.rename(columns={k: v for k, v in rename_map.items() if k in pv.columns})
     if VAnn.index in pv.columns:
         pv[VAnn.index] = pv[VAnn.index].astype(str)
     if VAnn.chrom in pv.columns:
         pv[VAnn.chrom] = pv[VAnn.chrom].astype(str)
+    if VAnn.a0 in pv.columns:
+        pv[VAnn.a0] = pv[VAnn.a0].astype(str)
+    if VAnn.a1 in pv.columns:
+        pv[VAnn.a1] = pv[VAnn.a1].astype(str)
     return pv
 
 

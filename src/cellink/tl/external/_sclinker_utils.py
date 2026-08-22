@@ -72,11 +72,11 @@ def download_sclinker_enhancer_links(
     out_dir
         Directory to download files into.
     tissue
-        Accepted for API compatibility but ignored — the combined files cover
+        Accepted for API compatibility but ignored; the combined files cover
         all tissues. Pass ``tissue`` to :func:`load_roadmap_links` /
         :func:`load_abc_links` to filter after downloading.
     chromosomes
-        Unused — kept for API consistency.
+        Unused, kept for API consistency.
 
     Returns
     -------
@@ -266,7 +266,7 @@ def download_sclinker_references(
     Download sc-linker reference files.
 
     **For 1000G files (PLINK, LD scores, weights, frq, HapMap3), use the
-    cellink resource helpers instead** — they download from Zenodo
+    cellink resource helpers instead**, since they download from Zenodo
     (https://zenodo.org/records/10515792) which is reliable and fast:
 
     .. code-block:: python
@@ -293,7 +293,7 @@ def download_sclinker_references(
     download_roadmap, download_abc, download_gene_coords
         Which enhancer-gene link files to download (default: all True).
     download_bims, download_frq, download_weights, download_hapmap3, download_baseline
-        Kept for API compatibility but ignored — use the cellink resource
+        Kept for API compatibility but ignored; use the cellink resource
         helpers listed above instead.
     chromosomes
         Ignored (kept for API compatibility).
@@ -595,7 +595,7 @@ def get_gene_annotation(
 
         ``"ensembl"`` *(default)*
             Ensembl stable IDs (e.g. ``ENSG00000099338``).  Use this when
-            your AnnData ``var_names`` are ENSG IDs — the typical case for
+            your AnnData ``var_names`` are ENSG IDs, the typical case for
             sc-linker gene programs derived from standard scRNA-seq pipelines.
 
         ``"hgnc"``
@@ -656,7 +656,7 @@ def load_gene_annotation(
         Explicit path to an existing coord file. Passed to
         :func:`get_gene_annotation` as ``path``.
     gene_id_type : ``"ensembl"`` | ``"hgnc"``
-        Which identifier is in the ``GENE`` column — must match your data.
+        Which identifier is in the ``GENE`` column; must match your data.
         Default is ``"ensembl"`` because sc-linker AnnData objects typically
         have ENSG ``var_names``.
     data_home
@@ -1353,9 +1353,9 @@ def load_sclinker_heritability_results(
     if not rows:
         logger.warning(
             "No results parsed. Possible causes:\n"
-            "  1. No .results files alongside the .log files — check that LDSC ran with "
+            "  1. No .results files alongside the .log files: check that LDSC ran with "
             "--overlap-annot and that annotation_prefixes= was passed to run_sclinker_heritability().\n"
-            "  2. LDSC exited before writing .results — open a .log file and check for errors."
+            "  2. LDSC exited before writing .results: open a .log file and check for errors."
         )
         return pd.DataFrame()
 
@@ -1446,11 +1446,11 @@ def _get_parse_py_path(runner) -> str | None:
 
     Resolution order:
 
-    1. ``runner.parse_script`` / ``runner.config["parse_script"]`` — the
+    1. ``runner.parse_script`` / ``runner.config["parse_script"]``: the
        canonical field on ``LDSCRunner``.  Always set this explicitly for
        Docker and Singularity; the path inside the container is typically
        ``/ldsc/ldscore/parse.py``.
-    2. Auto-discovery via PATH — find ``ldsc.py`` on the host PATH and infer
+    2. Auto-discovery via PATH: find ``ldsc.py`` on the host PATH and infer
        the sibling ``ldscore/parse.py``.  Works for local installs; will not
        work inside containers.
 
@@ -1529,15 +1529,15 @@ def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
         Overwrites ``parse.py`` on disk; backs up original as ``parse.py.bak``.
 
     **docker**
-        ``docker cp`` + ``docker commit`` — the patched file is baked
+        ``docker cp`` + ``docker commit``: the patched file is baked
         permanently into the image. Idempotent and survives restarts.
 
     **singularity**
-        SIF images are read-only squashfs archives — they cannot be edited
+        SIF images are read-only squashfs archives, so they cannot be edited
         in-place.  cellink supports three strategies, chosen via
         ``singularity_patch_strategy`` in the runner config:
 
-        ``"overlay"`` *(default — HPC-friendly, no root needed)*
+        ``"overlay"`` *(default, HPC-friendly, no root needed)*
             Creates a persistent ext3 overlay image alongside the SIF.
             On every ``ldsc.py`` call cellink appends
             ``--overlay <overlay.img>`` so the patch is always active.
@@ -1793,7 +1793,7 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
     Works for **local**, **Docker** and **Singularity** execution modes.
 
-    **Configuration** — add ``parse_script`` to your runner config so cellink
+    **Configuration**: add ``parse_script`` to your runner config so cellink
     knows exactly where ``parse.py`` lives, especially for containerised setups:
 
     .. code-block:: python
@@ -1812,12 +1812,12 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
 
     Behaviour by mode
     -----------------
-    - **local** — patches ``parse.py`` on disk and backs up the original as
+    - **local**: patches ``parse.py`` on disk and backs up the original as
       ``parse.py.bak``.
-    - **docker** — patches the file inside the image via ``docker cp`` +
+    - **docker**: patches the file inside the image via ``docker cp`` +
       ``docker commit``.  The image is updated in-place and the patch survives
       container restarts.
-    - **singularity** — SIF images are read-only, so cellink writes the patched
+    - **singularity**: SIF images are read-only, so cellink writes the patched
       ``parse.py`` to a host-side shadow directory (default:
       ``~/.cellink/ldsc_patch/ldscore/``) and injects
       ``PYTHONPATH=<shadow>:$PYTHONPATH`` into every subsequent ``ldsc.py``
@@ -1832,11 +1832,11 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
     Returns
     -------
     dict with keys:
-        ``"status"``     — ``"already_patched"``, ``"patched"``,
+        ``"status"``     : ``"already_patched"``, ``"patched"``,
                            ``"patch_failed"`` or ``"not_found"``
-        ``"mode"``       — ``"local"``, ``"docker"`` or ``"singularity"``
-        ``"parse_path"`` — resolved path to ``parse.py`` (or None)
-        ``"detail"``     — human-readable explanation
+        ``"mode"``       : ``"local"``, ``"docker"`` or ``"singularity"``
+        ``"parse_path"`` : resolved path to ``parse.py`` (or None)
+        ``"detail"``     : human-readable explanation
     """
     mode = runner.config.get("execution_mode", "local")
     parse_path = _get_parse_py_path(runner)
@@ -1859,7 +1859,7 @@ def check_and_patch_ldsc_parse_bug(runner) -> dict:
             "status": "already_patched",
             "mode": mode,
             "parse_path": parse_path,
-            "detail": "parse.py already patched (chr_ld[0].columns reindex present) — no action needed.",
+            "detail": "parse.py already patched (chr_ld[0].columns reindex present), no action needed.",
         }
 
     patched = source
@@ -1953,7 +1953,7 @@ def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
 
 
 def _merge_bedgraph_python(bg: pd.DataFrame) -> pd.DataFrame:
-    """Interval merge with score summing — numpy-based, no iterrows."""
+    """Interval merge with score summing, numpy-based, no iterrows."""
     out_chrs, out_starts, out_ends, out_scores = [], [], [], []
     for chrom, grp in bg.groupby("chr", sort=False):
         starts = grp["start"].to_numpy(dtype=np.int64)
@@ -2148,7 +2148,7 @@ def _parse_ldsc_log(log_file: Path) -> dict | None:
     and runtime metadata to ``<prefix>.log``.  This function reads both.
 
     Always extracted from ``.log`` (if present):
-        ``h2_obs``, ``h2_obs_se`` — observed-scale heritability.
+        ``h2_obs``, ``h2_obs_se``: observed-scale heritability.
 
     Extracted from ``.results`` (when ``--overlap-annot`` succeeded):
         ``Enrichment``, ``Enrichment_std_error``, ``Enrichment_z_score``,
