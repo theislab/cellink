@@ -160,7 +160,6 @@ def _read_pvar(pvar_file: Path) -> pd.DataFrame:
     pv = pv.rename(columns={k: v for k, v in rename_map.items() if k in pv.columns})
     if VAnn.index in pv.columns:
         pv[VAnn.index] = pv[VAnn.index].astype(str)
-     and
 
     if VAnn.chrom in pv.columns:
         pv[VAnn.chrom] = pv[VAnn.chrom].astype(str).astype("category")
