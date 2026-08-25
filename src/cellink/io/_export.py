@@ -2,6 +2,7 @@ import logging
 import sys
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from anndata import AnnData
 from pandas_plink import write_plink1_bin
@@ -71,6 +72,12 @@ def to_plink(
     """
     if not output_prefix.endswith(".bed"):
         output_prefix += ".bed"
+
+    categorical_cols = [c for c in (chrom, a0, a1) if isinstance(gdata.var[c].dtype, pd.CategoricalDtype)]
+    if categorical_cols:
+        gdata = gdata.copy()
+        for c in categorical_cols:
+            gdata.var[c] = gdata.var[c].astype(str)
 
     xarr = xr.DataArray(
         gdata.X.astype("float32", copy=False),

@@ -189,11 +189,7 @@ class RegressionNLL(nn.Module):
         if return_all:
             pval_two_sided = torch.tensor(st.chi2(1).sf(self.lrt.cpu().data.numpy()), device=self.F.device)
             pval_one_sided = torch.where(self.beta_g > 0, pval_two_sided / 2.0, 1.0 - (pval_two_sided / 2.0))
-            z = np.sign(self.beta_g.cpu().data.numpy()) * np.sqrt(
-                st.chi2.ppf(1.0 - pval_two_sided.cpu().data.numpy(), df=1)
-            )
-            z = torch.tensor(z, device=self.F.device)
-            ste = self.beta_g / z
+            ste = torch.sqrt(self.s2 * n[:, None])
             return nll, pval_one_sided, self.beta_g, ste
 
         return nll

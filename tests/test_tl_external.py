@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from cellink.tl.external import JointNMFWrapper, compute_escore, scores_to_covar, scores_to_gmt
+from cellink.tl.external._tensorqtl import build_known_cis_eqtls_from_tensorqtl
 
 
 def test_scores_to_gmt(tmp_path):
@@ -97,3 +99,69 @@ def test_joint_nmf_wrapper():
     assert wrapper.Hd.shape == (3, 12)
     assert (wrapper.Wh >= 0).all()
     assert (wrapper.Hh >= 0).all()
+
+
+def _write_tensorqtl_nominal_parquet(path, rows):
+    pd.DataFrame(rows, columns=["gene", "variant_id", "pval"]).to_parquet(path)
+    return path
+
+
+def test_build_known_cis_eqtls_picks_lowest_pval_per_gene(tmp_path):
+    parquet = _write_tensorqtl_nominal_parquet(
+        tmp_path / "nominal.parquet",
+        [
+            ("ENSG1", "1:100:A:G", 0.5),
+            ("ENSG1", "1:200:A:G", 0.01),  # lowest p for ENSG1
+            ("ENSG2", "2:100:A:G", 0.2),
+            ("ENSG2", "2:200:A:G", 0.9),
+        ],
+    )
+    known = build_known_cis_eqtls_from_tensorqtl(str(parquet), gene_names=["ENSG1", "ENSG2"])
+
+    # only the winning (lowest-pval) SNP per gene becomes a row at all: this is a
+    # sparse "selected loci" matrix, not a full candidate universe with explicit 0s
+    assert known.shape == (2, 2)
+    assert known.loc["1:200:A:G", "ENSG1"] == 1
+    assert "1:100:A:G" not in known.index  # the higher-pval candidate never appears
+    assert known.loc["2:100:A:G", "ENSG2"] == 1
+    assert known.values.sum() == 2  # exactly one selected SNP per gene
+
+
+def test_build_known_cis_eqtls_respects_pval_threshold(tmp_path):
+    parquet = _write_tensorqtl_nominal_parquet(
+        tmp_path / "nominal.parquet",
+        [
+            ("ENSG1", "1:100:A:G", 0.5),
+            ("ENSG2", "2:100:A:G", 0.2),
+        ],
+    )
+    # ENSG1's only variant fails the threshold and must not appear at all
+    known = build_known_cis_eqtls_from_tensorqtl(
+        str(parquet), gene_names=["ENSG1", "ENSG2"], pval_threshold=0.3,
+    )
+    assert "ENSG1" not in known.columns
+    assert known.loc["2:100:A:G", "ENSG2"] == 1
+
+
+def test_build_known_cis_eqtls_max_snps_per_gene(tmp_path):
+    parquet = _write_tensorqtl_nominal_parquet(
+        tmp_path / "nominal.parquet",
+        [
+            ("ENSG1", "1:100:A:G", 0.5),
+            ("ENSG1", "1:200:A:G", 0.01),
+            ("ENSG1", "1:300:A:G", 0.02),
+        ],
+    )
+    known = build_known_cis_eqtls_from_tensorqtl(str(parquet), gene_names=["ENSG1"], max_snps_per_gene=2)
+    assert known["ENSG1"].sum() == 2
+    assert "1:100:A:G" not in known.index  # the worst of the 3 is still excluded
+    assert set(known.index) == {"1:200:A:G", "1:300:A:G"}
+
+
+def test_build_known_cis_eqtls_raises_when_nothing_survives(tmp_path):
+    parquet = _write_tensorqtl_nominal_parquet(
+        tmp_path / "nominal.parquet",
+        [("ENSG1", "1:100:A:G", 0.9)],
+    )
+    with pytest.raises(ValueError, match="No cis-eQTL pairs survived"):
+        build_known_cis_eqtls_from_tensorqtl(str(parquet), gene_names=["ENSG1"], pval_threshold=0.01)

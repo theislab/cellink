@@ -67,6 +67,18 @@ def test_slice_all(adata, gdata):
     assert dd.shape == (1, 1, 1, 1)
 
 
+def test_copy_returns_independent_object(adata, gdata):
+    dd = DonorData(G=gdata, C=adata)
+    dd_copy = dd.copy()
+    assert dd_copy is not dd
+    assert dd_copy.G is not dd.G
+    assert dd_copy.C is not dd.C
+    dd_copy.uns["marker"] = "mutated_via_copy"
+    dd_copy.G.obs["new_col"] = 0
+    assert "marker" not in dd.uns
+    assert "new_col" not in dd.G.obs
+
+
 def test_donordata_aggregate(adata, gdata, dummy_covariates):
     previous_adata_shape = adata.shape
 

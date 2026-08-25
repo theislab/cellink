@@ -108,6 +108,31 @@ def test_stream_pgen_to_zarr_roundtrip(tmp_path):
 
 
 @pytest.mark.slow
+def test_stream_pgen_to_zarr_no_compression(tmp_path):
+    """compressor=None writes a plain, uncompressed Zarr array -- the fair
+    comparison point against PGEN's own storage_mode=0x10 (fixed 2-bit, no
+    compression, no difference lists): both stores should decode to the same
+    genotypes, and skipping BloscCodec entirely (not clevel=0, which still
+    pays codec framing overhead) should not change any value.
+    """
+    pytest.importorskip("pgenlib")
+    from cellink.io import read_pgen_zarr, stream_pgen_to_zarr
+
+    pgen_file = DATA / "simulated_genotype_calls.pgen"
+    out_path = tmp_path / "pgen_nocompression.zarr"
+
+    stream_pgen_to_zarr(str(pgen_file), str(out_path), chunk_samples=50, chunk_variants=200, compressor=None)
+    reloaded = read_pgen_zarr(str(out_path), backend="zarr")
+    assert reloaded.X.compressors == ()
+    X = np.asarray(reloaded.X[:])
+
+    out_path_compressed = tmp_path / "pgen_compressed.zarr"
+    stream_pgen_to_zarr(str(pgen_file), str(out_path_compressed), chunk_samples=50, chunk_variants=200)
+    X_compressed = np.asarray(read_pgen_zarr(str(out_path_compressed), backend="zarr").X[:])
+    np.testing.assert_array_equal(X, X_compressed)
+
+
+@pytest.mark.slow
 def test_stream_pgen_to_zarr_sparse(tmp_path):
     pytest.importorskip("pgenlib")
 
