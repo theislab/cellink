@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy as _copy
 import logging
 from collections.abc import Callable
 
@@ -167,11 +168,13 @@ class DonorData:
         self._G = G
 
     def copy(self) -> DonorData:
-        if self._G.is_view:
-            self._G = self._G.copy()
-        if self._C.is_view:
-            self._C = self._C.copy()
-        return self
+        new = DonorData.__new__(DonorData)
+        new._var_dims_to_sync = list(self._var_dims_to_sync)
+        new.donor_id = self.donor_id
+        new._G = self._G.copy()
+        new._C = self._C.copy()
+        new.uns = _copy.deepcopy(self.uns)
+        return new
 
     def _write_dd(self, f: h5py.File, zarr_path: str | None = None, x_chunks=None):
         is_zarr = isinstance(f, zarr.Group)
@@ -312,10 +315,8 @@ class DonorData:
         C_obs: slice = slice(None),
         C_var: slice = slice(None),
     ):
-        _G = self.G[G_obs]
-        _G = _G[:, G_var]
-        _C = self.C[C_obs]
-        _C = _C[:, C_var]
+        _G = self.G[G_obs, G_var]
+        _C = self.C[C_obs, C_var]
 
         _G = self._sync_var_dims(_G, _C)
         return DonorData(G=_G, C=_C, donor_id=self.donor_id, var_dims_to_sync=self._var_dims_to_sync)

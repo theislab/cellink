@@ -29,16 +29,24 @@ def _is_matrix_elem(elem_name: str) -> bool:
     return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")
 
 
-def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec):
+
+
+def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Literal["dask", "zarr"] = "dask"):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
     nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
-    while keeping a dense ``X``/``layers`` entry Dask-backed instead of
+    while keeping a dense ``X``/``layers`` entry lazily backed instead of
     materializing it.
+
+    ``backend="dask"`` (default, unchanged behavior) wraps the dense array in
+    a Dask array. ``backend="zarr"`` instead returns the raw Zarr array
+    directly.
     """
     if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
         return ad.AnnData(
             **{
-                k: read_dispatched(v, lazy_anndata_zarr_callback)
+                k: read_dispatched(
+                    v, lambda f, n, e, iospec: lazy_anndata_zarr_callback(f, n, e, iospec, backend=backend)
+                )
                 for k, v in dict(elem).items()
                 if not k.startswith("raw.")
             }
@@ -51,22 +59,23 @@ def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec):
     ):
         return read_elem(elem)
     elif _is_matrix_elem(elem_name) and iospec.encoding_type == "array":
-        return da.from_zarr(elem)
+        return elem if backend == "zarr" else da.from_zarr(elem)
     else:
         return func(elem)
 
 
-def read_pgen_zarr(store: str | Path) -> ad.AnnData:
+def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask") -> ad.AnnData:
     """
     Lazily read an AnnData Zarr v3 store written by `stream_pgen_to_zarr`.
 
     This function reconstructs an :class:`anndata.AnnData` object from a Zarr
-    store while keeping the primary data matrix (`X`) backed by Dask arrays.
-    It is designed for large genotype matrices that cannot be loaded fully
-    into memory.
+    store while keeping the primary data matrix (`X`) lazily backed rather
+    than materializing it. It is designed for large genotype matrices that
+    cannot be loaded fully into memory.
 
     The reader preserves:
-      - Dense X stored as a Zarr array (returned as a Dask-backed array)
+      - Dense X stored as a Zarr array (backed by Dask, or the raw Zarr
+        array directly; see `backend`)
       - Sparse matrices (CSR/CSC)
       - DataFrames (obs, var)
       - Awkward arrays
@@ -77,12 +86,17 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     store : str or pathlib.Path
         Path to a Zarr directory created by `stream_pgen_to_zarr`
         or a compatible AnnData Zarr v3 store.
+    backend : {"dask", "zarr"}
+        How to back a dense `X`/`layers` entry. ``"dask"`` (default) wraps it in a Dask array, useful if
+        you need Dask's own lazy-graph chaining on X. ``"zarr"`` returns the
+        raw Zarr array directly instead.
 
     Returns
     -------
     anndata.AnnData
         AnnData object with:
-        - `X` as a Dask-backed array (for dense storage)
+        - `X` as a Dask-backed or raw-Zarr-backed array (for dense storage),
+          per `backend`
         - `obs` and `var` as pandas DataFrames
         - empty container groups (`uns`, `obsm`, `varm`, `layers`, etc.)
           if present in the store
@@ -90,9 +104,10 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     Notes
     -----
     - The returned object is **lazy** when X is dense. Computation is triggered
-      only when `.compute()` or in-memory materialization is requested.
+      only when `.compute()` (Dask backend) or ordinary indexing (Zarr
+      backend) is requested.
     - For sparse X written via `stream_pgen_to_zarr(..., sparse=True)`,
-      the matrix is loaded as a SciPy sparse matrix.
+      the matrix is loaded as a SciPy sparse matrix regardless of `backend`.
     - This function relies on AnnData's experimental dispatched I/O API.
 
     Examples
@@ -101,12 +116,16 @@ def read_pgen_zarr(store: str | Path) -> ad.AnnData:
     >>> adata = cellink.io.read_pgen_zarr("genotypes.zarr")
     >>> adata
     AnnData object with n_obs x n_vars = ...
+    >>> fast = cellink.io.read_pgen_zarr("genotypes.zarr", backend="zarr")
+    >>> fast.X[donor_idx, :]  # direct Zarr read, no Dask task overhead
 
     >>> # Trigger computation
     >>> X = adata.X.compute()
     """
     f = zarr.open(str(store), mode="r")
-    return read_dispatched(f, callback=lazy_anndata_zarr_callback)
+    return read_dispatched(
+        f, callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(func, name, elem, iospec, backend=backend)
+    )
 
 
 def _read_pvar(pvar_file: Path) -> pd.DataFrame:
@@ -141,12 +160,16 @@ def _read_pvar(pvar_file: Path) -> pd.DataFrame:
     pv = pv.rename(columns={k: v for k, v in rename_map.items() if k in pv.columns})
     if VAnn.index in pv.columns:
         pv[VAnn.index] = pv[VAnn.index].astype(str)
+     and
+
     if VAnn.chrom in pv.columns:
-        pv[VAnn.chrom] = pv[VAnn.chrom].astype(str)
+        pv[VAnn.chrom] = pv[VAnn.chrom].astype(str).astype("category")
+    if "FILTER" in pv.columns:
+        pv["FILTER"] = pv["FILTER"].astype(str).astype("category")
     if VAnn.a0 in pv.columns:
-        pv[VAnn.a0] = pv[VAnn.a0].astype(str)
+        pv[VAnn.a0] = pv[VAnn.a0].astype(str).astype("category")
     if VAnn.a1 in pv.columns:
-        pv[VAnn.a1] = pv[VAnn.a1].astype(str)
+        pv[VAnn.a1] = pv[VAnn.a1].astype(str).astype("category")
     return pv
 
 
@@ -159,7 +182,7 @@ def stream_pgen_to_zarr(
     chunk_samples: int = 4096,
     chunk_variants: int = 2048,
     memory_limit_gb: float = 10.0,
-    compressor: str = "zstd",
+    compressor: str | None = "zstd",
     compression_level: int = 7,
     sparse: bool = False,
     sparse_format: Literal["csc", "csr"] = "csc",
@@ -284,11 +307,7 @@ def stream_pgen_to_zarr(
         pvar.index = pvar.index.astype(str)
 
     output_path = Path(output_path)
-    blosc = BloscCodec(
-        cname=compressor,
-        clevel=compression_level,
-        shuffle=BloscShuffle.bitshuffle,
-    )
+    codecs = () if compressor is None else (BloscCodec(cname=compressor, clevel=compression_level, shuffle=BloscShuffle.bitshuffle),)
 
     if sparse:
         if sparse_format not in ("csr", "csc"):
@@ -356,7 +375,7 @@ def stream_pgen_to_zarr(
             shape=(n_samples, n_variants_total),
             chunks=(chunk_samples, chunk_variants),
             dtype="i1",
-            compressors=(blosc,),
+            compressors=codecs,
         )
         Xz.attrs["encoding-type"] = "array"
         Xz.attrs["encoding-version"] = "0.2.0"

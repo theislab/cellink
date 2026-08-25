@@ -54,7 +54,7 @@ def calculate_ld(
         plink_export_kwargs = {}
 
     if run and shutil.which("plink") is None:
-        raise ImportError("plink is required for `calculate_pcs`. Please install it.")
+        raise ImportError("plink is required for `calculate_ld`. Please install it.")
 
     if out is None:
         out = f"{prefix}_ld"

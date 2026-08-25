@@ -549,7 +549,7 @@ def _pick_var_col(adata: AnnData, candidates: list[str], default: str | None) ->
 
 def _normalize_chromosome(chr_series: pd.Series) -> pd.Series:
     """Normalize chromosome labels to standard format."""
-    normalized = chr_series.astype(str).str.replace("^chr", "", regex=True).str.upper()
+    normalized = chr_series.astype(str).str.replace("^chr", "", regex=True, case=False).str.upper()
     return normalized.str.extract(r"^([0-9XYM]+)", expand=False)
 
 
