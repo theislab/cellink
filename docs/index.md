@@ -28,6 +28,7 @@
 :hidden: true
 :maxdepth: 1
 
+installation.md
 tutorials/index.md
 api/index.md
 donordata_format_spec.md
