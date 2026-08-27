@@ -391,13 +391,21 @@ def load_roadmap_links(
             None,
         )
         if tissue_col is not None:
-            pattern = "|".join(re.escape(kw) for kw in keywords)
-            mask = df[tissue_col].str.lower().str.contains(pattern, regex=True, na=False)
-            df = df[mask]
-            logger.info(
-                f"Filtered to {len(df):,} Roadmap rows for tissue={tissue} "
-                f"via column '{tissue_col}' (keywords: {keywords})"
-            )
+            exact_mask = df[tissue_col].astype(str).str.strip().str.upper() == tissue_upper
+            if exact_mask.any():
+                df = df[exact_mask]
+                logger.info(
+                    f"Filtered to {len(df):,} Roadmap rows for tissue={tissue} "
+                    f"via exact code match on column '{tissue_col}'"
+                )
+            else:
+                pattern = "|".join(re.escape(kw) for kw in keywords)
+                mask = df[tissue_col].str.lower().str.contains(pattern, regex=True, na=False)
+                df = df[mask]
+                logger.info(
+                    f"Filtered to {len(df):,} Roadmap rows for tissue={tissue} "
+                    f"via keyword match on column '{tissue_col}' (keywords: {keywords})"
+                )
 
         elif eid_map_file is not None:
             eid_map = load_roadmap_eid_map(eid_map_file)
@@ -498,19 +506,45 @@ def load_abc_links(
 
 
 _GENE_COORD_CACHE = {
-    "ensembl": "gene_coord_ensembl.txt",
-    "hgnc": "gene_coord_hgnc.txt",
+    "ensembl": "gene_coord_ensembl_{build}.txt",
+    "hgnc": "gene_coord_hgnc_{build}.txt",
 }
 _VALID_CHRS = {str(c) for c in range(1, 23)} | {"X", "Y", "MT"}
 
 
-def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
+_BIOMART_HOSTS = {
+    "GRCh37": "http://grch37.ensembl.org",
+    "GRCh38": "http://www.ensembl.org",
+}
+
+
+def _normalize_sclinker_build(genome_build: str) -> str:
+    lower = genome_build.lower()
+    if lower in ("grch38", "hg38", "build38"):
+        return "GRCh38"
+    if lower in ("grch37", "hg19", "build37"):
+        return "GRCh37"
+    raise ValueError(f"Invalid genome_build '{genome_build}'. Use 'GRCh38', 'GRCh37', or an alias (hg38/hg19).")
+
+
+def _query_biomart_and_write_gene_coords(data_dir: Path, genome_build: str = "GRCh37") -> None:
     """
     Query Ensembl BioMart once and write both ENSG and HGNC gene coord files.
 
     A single BioMart query retrieves both ``ensembl_gene_id`` and
     ``external_gene_name`` alongside coordinates, so both cache files are
     populated in one network round-trip.
+
+    Parameters
+    ----------
+    genome_build
+        ``"GRCh37"`` (default) or ``"GRCh38"``. Selects the matching Ensembl
+        BioMart archive host so coordinates land on the build you actually
+        intend to intersect against The sc-linker enhancer-gene link files downloaded by
+        :func:`download_sclinker_enhancer_links` (Roadmap + ABC) are on
+        GRCh38, so pass ``genome_build="GRCh38"`` here (and to the LD/bim
+        panel used downstream) if you intend to keep everything on GRCh38
+        instead of lifting the enhancer links over to GRCh37.
 
     Requires ``pybiomart`` (``pip install pybiomart``).
     """
@@ -521,8 +555,10 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
             "pybiomart is required to generate the gene coordinate file.\n" "Install it with:  pip install pybiomart"
         ) from exc
 
-    logger.info("Querying Ensembl BioMart for human gene coordinates ...")
-    server = Server(host="http://www.ensembl.org")
+    genome_build = _normalize_sclinker_build(genome_build)
+    host = _BIOMART_HOSTS[genome_build]
+    logger.info(f"Querying Ensembl BioMart ({host}, {genome_build}) for human gene coordinates ...")
+    server = Server(host=host)
     dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
 
     df = retry_with_backoff(
@@ -561,20 +597,23 @@ def _query_biomart_and_write_gene_coords(data_dir: Path) -> None:
     ensg = df[["ensembl_gene_id", "CHR", "START", "END"]].copy()
     ensg.columns = ["GENE", "CHR", "START", "END"]
     ensg = _dedup(ensg)
-    ensg.to_csv(data_dir / _GENE_COORD_CACHE["ensembl"], sep=" ", index=False)
-    logger.info(f"Wrote {len(ensg):,} unique ENSG entries → {_GENE_COORD_CACHE['ensembl']}")
+    ensg_cache = _GENE_COORD_CACHE["ensembl"].format(build=genome_build)
+    ensg.to_csv(data_dir / ensg_cache, sep=" ", index=False)
+    logger.info(f"Wrote {len(ensg):,} unique ENSG entries ({genome_build}) → {ensg_cache}")
 
     hgnc = df[df["hgnc_name"].notna() & (df["hgnc_name"].str.strip() != "")]
     hgnc = hgnc[["hgnc_name", "CHR", "START", "END"]].copy()
     hgnc.columns = ["GENE", "CHR", "START", "END"]
     hgnc = _dedup(hgnc)
-    hgnc.to_csv(data_dir / _GENE_COORD_CACHE["hgnc"], sep=" ", index=False)
-    logger.info(f"Wrote {len(hgnc):,} unique HGNC entries → {_GENE_COORD_CACHE['hgnc']}")
+    hgnc_cache = _GENE_COORD_CACHE["hgnc"].format(build=genome_build)
+    hgnc.to_csv(data_dir / hgnc_cache, sep=" ", index=False)
+    logger.info(f"Wrote {len(hgnc):,} unique HGNC entries ({genome_build}) → {hgnc_cache}")
 
 
 def get_gene_annotation(
     path: str | Path | None = None,
     gene_id_type: str = "hgnc",
+    genome_build: str = "GRCh37",
     data_home: str | Path | None = None,
     refresh: bool = False,
 ) -> Path:
@@ -593,15 +632,28 @@ def get_gene_annotation(
     gene_id_type : ``"ensembl"`` | ``"hgnc"``
         Which identifier to put in the ``GENE`` column:
 
-        ``"ensembl"`` *(default)*
+        ``"ensembl"``
             Ensembl stable IDs (e.g. ``ENSG00000099338``).  Use this when
             your AnnData ``var_names`` are ENSG IDs, the typical case for
             sc-linker gene programs derived from standard scRNA-seq pipelines.
 
-        ``"hgnc"``
+        ``"hgnc"`` *(default)*
             HGNC gene symbols (e.g. ``CD19``, ``FOXP3``).  Use this when
-            your gene-set files contain gene names.
+            your gene-set files contain gene names (required for matching
+            against the Roadmap/ABC ``TargetGene`` columns, since those use
+            HGNC symbols, not Ensembl IDs).
 
+    genome_build : ``"GRCh37"`` | ``"GRCh38"``
+        Genome build for the returned coordinates. Must match the build of
+        whatever you intersect this against, typically the ``.bim`` file
+        of your LD/reference panel. Default is ``"GRCh37"`` to match the
+        classic 1000G LDSC baseline panel from
+        :func:`~cellink.resources.get_1000genomes_plink_files`. The sc-linker
+        enhancer-gene link files from :func:`download_sclinker_enhancer_links`
+        (Roadmap + ABC) are on GRCh38; pass ``genome_build="GRCh38"`` here
+        (and use a GRCh38 bim panel) if you want the ``100kb`` strategy to
+        stay on the same build as the ``ABC_Road`` strategy instead of
+        lifting the enhancer links over to GRCh37.
     data_home
         Override for the cellink data directory.
     refresh
@@ -615,12 +667,14 @@ def get_gene_annotation(
     Raises
     ------
     ValueError
-        If ``gene_id_type`` is not ``"ensembl"`` or ``"hgnc"``.
+        If ``gene_id_type`` is not ``"ensembl"`` or ``"hgnc"``, or
+        ``genome_build`` is not a recognized build/alias.
     ImportError
         If ``pybiomart`` is not installed and no cached/explicit file exists.
     """
     if gene_id_type not in _GENE_COORD_CACHE:
         raise ValueError(f"gene_id_type must be 'ensembl' or 'hgnc', got {gene_id_type!r}")
+    genome_build = _normalize_sclinker_build(genome_build)
 
     if path is not None and Path(path).exists():
         return Path(path)
@@ -628,19 +682,20 @@ def get_gene_annotation(
     from cellink.resources._utils import get_data_home
 
     data_dir = Path(get_data_home(data_home))
-    cache = data_dir / _GENE_COORD_CACHE[gene_id_type]
+    cache = data_dir / _GENE_COORD_CACHE[gene_id_type].format(build=genome_build)
 
     if cache.exists() and not refresh:
-        logger.info(f"Using cached gene coordinates ({gene_id_type}): {cache}")
+        logger.info(f"Using cached gene coordinates ({gene_id_type}, {genome_build}): {cache}")
         return cache
 
-    _query_biomart_and_write_gene_coords(data_dir)
+    _query_biomart_and_write_gene_coords(data_dir, genome_build=genome_build)
     return cache
 
 
 def load_gene_annotation(
     gene_annotation_file: str | Path | None = None,
     gene_id_type: str = "hgnc",
+    genome_build: str = "GRCh37",
     data_home: str | Path | None = None,
     refresh: bool = False,
 ) -> pd.DataFrame:
@@ -657,8 +712,12 @@ def load_gene_annotation(
         :func:`get_gene_annotation` as ``path``.
     gene_id_type : ``"ensembl"`` | ``"hgnc"``
         Which identifier is in the ``GENE`` column; must match your data.
-        Default is ``"ensembl"`` because sc-linker AnnData objects typically
-        have ENSG ``var_names``.
+        Default is ``"hgnc"``, matching HGNC-symbol Roadmap/ABC ``TargetGene``
+        columns; pass ``"ensembl"`` if your gene-set files use ENSG IDs.
+    genome_build : ``"GRCh37"`` | ``"GRCh38"``
+        Genome build for the returned coordinates; forwarded to
+        :func:`get_gene_annotation`. Must match the build of the LD/bim panel
+        you intersect against; see :func:`get_gene_annotation` for details.
     data_home
         Override for the cellink data directory.
     refresh
@@ -669,10 +728,14 @@ def load_gene_annotation(
     pd.DataFrame
         Columns: ``GENE``, ``CHR``, ``START``, ``END``.
     """
-    resolved = get_gene_annotation(gene_annotation_file, gene_id_type, data_home, refresh)
+    resolved = get_gene_annotation(gene_annotation_file, gene_id_type, genome_build, data_home, refresh)
     df = pd.read_csv(resolved, sep=" ")
     df.columns = [c.strip() for c in df.columns]
-    logger.info(f"Loaded {len(df):,} gene coordinates " f"(gene_id_type='{gene_id_type}') from {resolved.name}")
+    df.attrs["genome_build"] = _normalize_sclinker_build(genome_build)
+    logger.info(
+        f"Loaded {len(df):,} gene coordinates "
+        f"(gene_id_type='{gene_id_type}', genome_build='{genome_build}') from {resolved.name}"
+    )
     return df
 
 
@@ -857,6 +920,7 @@ def genescores_to_abc_road_bedgraph(
         else:
             bg = _merge_bedgraph_python(bg)
 
+        bg.attrs["genome_build"] = SCLINKER_ENHANCER_LINKS_GENOME_BUILD
         bedgraphs[program] = bg
 
     return bedgraphs
@@ -902,6 +966,7 @@ def genescores_to_100kb_bedgraph(
         Program name → bedgraph DataFrame (chr, start, end, score).
     """
     window_bp = window_kb * 1000
+    gene_annotation_build = gene_annotation.attrs.get("genome_build")
 
     genescores = genescores.copy()
     genescores.index = genescores.index.str.upper()
@@ -952,9 +1017,122 @@ def genescores_to_100kb_bedgraph(
         else:
             bg = _merge_bedgraph_python(bg)
 
+        if gene_annotation_build:
+            bg.attrs["genome_build"] = gene_annotation_build
         bedgraphs[program] = bg
 
     return bedgraphs
+
+
+SCLINKER_ENHANCER_LINKS_GENOME_BUILD = "GRCh38"
+
+
+def _check_build_consistency(
+    bg: pd.DataFrame,
+    bim: pd.DataFrame,
+    *,
+    on_mismatch: str = "error",
+    bim_genome_build: str | None = None,
+    min_overlap_frac: float = 0.05,
+    context: str = "",
+) -> None:
+    """
+    Check for a genome-build mismatch between a bedgraph and a BIM panel.
+
+    Two independent checks are combined:
+
+    1. **Declared-metadata check (authoritative).** If ``bg.attrs`` carries a
+       ``"genome_build"`` key (set by :func:`genescores_to_100kb_bedgraph` /
+       :func:`genescores_to_abc_road_bedgraph`) and ``bim_genome_build`` is
+       given, they are compared directly. 
+    2. **Coordinate range sanity check (best-effort only).** If build labels
+       aren't available on either side, fall back to checking whether the
+       bedgraph's coordinate span even plausibly overlaps the BIM's SNP
+       positions per shared chromosome. 
+
+    Parameters
+    ----------
+    on_mismatch : ``"error"`` | ``"warn"`` | ``"ignore"``
+        What to do when a mismatch is detected by either check.
+    bim_genome_build
+        Declared genome build of the BIM panel, if known. Strongly
+        recommended: without it, only the unreliable range-overlap fallback
+        runs.
+    """
+    if on_mismatch not in ("error", "warn", "ignore") or on_mismatch == "ignore":
+        return
+    if bg.empty or bim.empty:
+        return
+
+    bg_build = bg.attrs.get("genome_build")
+    if bg_build and bim_genome_build:
+        bg_build_n = _normalize_sclinker_build(bg_build)
+        bim_build_n = _normalize_sclinker_build(bim_genome_build)
+        if bg_build_n != bim_build_n:
+            msg = (
+                f"Genome-build mismatch{' (' + context + ')' if context else ''}: "
+                f"the bedgraph's coordinates are declared as {bg_build_n} but "
+                f"bim_genome_build={bim_build_n!r} was declared for the BIM panel. "
+                "Intersecting these annotates the wrong SNPs (a build "
+                "shift of 1+ Mb still lands plenty of SNPs inside each window "
+                "on a densely-genotyped panel like 1000G, so this does not show up "
+                "as an empty or obviously-wrong result). Lift one side over to match "
+                "the other, or pass on_build_mismatch='warn'/'ignore' if this is "
+                "intentional."
+            )
+            if on_mismatch == "error":
+                raise ValueError(msg)
+            logger.warning(msg)
+            return
+        return
+
+    bg_chr = bg["chr"].astype(str).str.replace("^chr", "", regex=True)
+    bim_chr = bim["CHR"].astype(str)
+
+    shared = sorted(set(bg_chr) & set(bim_chr))
+    if not shared:
+        return
+
+    bad_chroms = []
+    for chrom in shared:
+        bg_lo = bg.loc[bg_chr == chrom, "start"].min()
+        bg_hi = bg.loc[bg_chr == chrom, "end"].max()
+        bp = bim.loc[bim_chr == chrom, "BP"]
+        if len(bp) == 0:
+            continue
+        frac_within = ((bp >= bg_lo) & (bp <= bg_hi)).mean()
+        if frac_within < min_overlap_frac:
+            bad_chroms.append((chrom, bg_lo, bg_hi, bp.min(), bp.max(), frac_within))
+
+    if not bad_chroms:
+        if bg_build is None or bim_genome_build is None:
+            logger.info(
+                "bedgraph_to_snp_annotation: no genome_build declared for the bedgraph and/or "
+                "bim_genome_build was not passed, so only a coarse range-overlap check ran "
+                "(it cannot detect a same-chromosome build shift of a few Mb; see "
+                "SCLINKER_ENHANCER_LINKS_GENOME_BUILD and pass bim_genome_build= to verify properly)."
+            )
+        return
+
+    detail = "; ".join(
+        f"chr{c}: bedgraph spans [{lo:,.0f}, {hi:,.0f}] but only "
+        f"{frac:.1%} of BIM SNPs (range [{bp_lo:,.0f}, {bp_hi:,.0f}]) fall inside it"
+        for c, lo, hi, bp_lo, bp_hi, frac in bad_chroms
+    )
+    msg = (
+        f"Possible genome-build mismatch{' (' + context + ')' if context else ''}: "
+        f"the bedgraph/enhancer-link coordinates barely overlap the BIM panel's SNP "
+        f"positions on {len(bad_chroms)} shared chromosome(s). {detail}. "
+        "This is the signature of intersecting coordinates from different genome "
+        "builds (e.g. GRCh38 gene/enhancer coordinates against a GRCh37 LD panel, "
+        "or vice versa). Check `genome_build=` on load_gene_annotation()/"
+        "get_gene_annotation() and the build of your bim/LD reference panel. "
+        "Pass on_build_mismatch='warn' or 'ignore' to bedgraph_to_snp_annotation()/"
+        "genescores_to_annotations() if this is expected."
+    )
+    if on_mismatch == "error":
+        raise ValueError(msg)
+    logger.warning(msg)
 
 
 def bedgraph_to_snp_annotation(
@@ -963,6 +1141,8 @@ def bedgraph_to_snp_annotation(
     out_prefix: str,
     *,
     use_bedtools: bool = True,
+    on_build_mismatch: str = "error",
+    bim_genome_build: str | None = None,
 ) -> Path:
     """
     Convert a bedgraph file to an S-LDSC annotation file (.annot.gz).
@@ -982,6 +1162,16 @@ def bedgraph_to_snp_annotation(
     use_bedtools
         If True and bedtools is available, use bedtools intersect (more robust).
         Otherwise falls back to pure-Python interval lookup.
+    on_build_mismatch : ``"error"`` | ``"warn"`` | ``"ignore"``
+        What to do if the bedgraph's declared ``genome_build`` (set by
+        :func:`genescores_to_100kb_bedgraph` / :func:`genescores_to_abc_road_bedgraph`
+        from ``gene_annotation``'s build or from
+        :data:`SCLINKER_ENHANCER_LINKS_GENOME_BUILD`) disagrees with
+        ``bim_genome_build``, or (if neither declares a build) a coarse
+        coordinate-range check flags a gross mismatch. 
+    bim_genome_build
+        Genome build of ``bim_file`` (e.g. ``"GRCh37"``), if known. Strongly
+        recommended; see :func:`_check_build_consistency`.
 
     Returns
     -------
@@ -998,6 +1188,10 @@ def bedgraph_to_snp_annotation(
         sep=r"\s+",
         header=None,
         names=["CHR", "SNP", "CM", "BP", "A1", "A2"],
+    )
+
+    _check_build_consistency(
+        bg, bim, on_mismatch=on_build_mismatch, bim_genome_build=bim_genome_build, context=str(bim_file)
     )
 
     out_path = Path(f"{out_prefix}.annot.gz")
@@ -1027,6 +1221,8 @@ def genescores_to_annotations(
     window_kb: int = 100,
     save_bedgraphs: bool = True,
     use_bedtools: bool = True,
+    on_build_mismatch: str = "error",
+    bim_genome_build: str | None = None,
     **link_kwargs,
 ) -> dict[str, dict[str, str]]:
     """
@@ -1061,6 +1257,14 @@ def genescores_to_annotations(
         Whether to save bedgraph files alongside annotation files.
     use_bedtools
         Use bedtools binary for interval merging and annotation.
+    on_build_mismatch : ``"error"`` | ``"warn"`` | ``"ignore"``
+        Forwarded to :func:`bedgraph_to_snp_annotation`. Default ``"error"``:
+        raise if a bedgraph's coordinates and a chromosome's BIM SNP
+        positions show the signature of a genome-build mismatch (e.g.
+        GRCh38 ``gene_annotation``/enhancer links against a GRCh37 bim panel).
+    bim_genome_build
+        Genome build of ``bim_file`` (e.g. ``"GRCh37"``), if known. Strongly
+        recommended; see :func:`_check_build_consistency`.
 
     Returns
     -------
@@ -1121,6 +1325,7 @@ def genescores_to_annotations(
 
                 chrom_str = str(chrom)
                 bg_chrom = bg_df[bg_df["chr"].astype(str).str.replace("^chr", "", regex=True) == chrom_str]
+                bg_chrom.attrs["genome_build"] = bg_df.attrs.get("genome_build")
 
                 if len(bg_chrom) == 0:
                     _write_zero_annotation(bim_file, str(strategy_dir / f"{safe_name}.{chrom}"))
@@ -1130,6 +1335,8 @@ def genescores_to_annotations(
                     bg_chrom,
                     bim_file,
                     out_prefix=str(strategy_dir / f"{safe_name}.{chrom}"),
+                    on_build_mismatch=on_build_mismatch,
+                    bim_genome_build=bim_genome_build,
                     use_bedtools=use_bedtools,
                 )
 
@@ -1257,6 +1464,7 @@ def compute_ld_scores_for_sclinker(
             annot_file=annot_file,
             out_prefix=out_prefix,
             print_snps=print_snps,
+            thin_annot=True,
             runner=runner,
         )
         return f"{program}/{strategy_name}/chr{chrom}"
@@ -1288,6 +1496,11 @@ def compute_ld_scores_for_sclinker(
 
     if errors:
         logger.warning(f"{len(errors)} LD score job(s) failed:\n" + "\n".join(errors))
+        if completed == 0 and n_total > 0:
+            raise RuntimeError(
+                f"All {n_total} LD score job(s) failed; no .l2.ldscore.gz files were written. "
+                f"First error: {errors[0]}"
+            )
 
     return ld_prefixes
 
@@ -1425,481 +1638,6 @@ def compute_escore(
     merged["E_score_se"] = np.sqrt(merged[se_col] ** 2 + merged["_ctrl_se"] ** 2)
     merged["E_score_z"] = merged["E_score"] / (merged["E_score_se"] + 1e-12)
     return merged.drop(columns=["_ctrl_enr", "_ctrl_se"])
-
-
-_PARSE_PY_PATCH_MARKER = "chr_ld[0].columns"
-_PARSE_PY_BUGGY_PATTERNS = [
-    (
-        "x = pd.concat(chr_ld)  # automatically sorted by chromosome",
-        "x = pd.concat(chr_ld)[chr_ld[0].columns]  # automatically sorted by chromosome",
-    ),
-    (
-        "x = pd.concat(chr_ld)",
-        "x = pd.concat(chr_ld)[chr_ld[0].columns]",
-    ),
-]
-
-
-def _get_parse_py_path(runner) -> str | None:
-    """
-    Return the path to ``ldscore/parse.py`` to be used for reading/writing.
-
-    Resolution order:
-
-    1. ``runner.parse_script`` / ``runner.config["parse_script"]``: the
-       canonical field on ``LDSCRunner``.  Always set this explicitly for
-       Docker and Singularity; the path inside the container is typically
-       ``/ldsc/ldscore/parse.py``.
-    2. Auto-discovery via PATH: find ``ldsc.py`` on the host PATH and infer
-       the sibling ``ldscore/parse.py``.  Works for local installs; will not
-       work inside containers.
-
-    Returns None if the path cannot be determined.
-    """
-    explicit = getattr(runner, "parse_script", None) or runner.config.get("parse_script")
-    if explicit:
-        return str(explicit)
-
-    ldsc_cmd = runner.config.get("ldsc_command", "ldsc.py")
-    ldsc_bin = shutil.which(ldsc_cmd)
-    if ldsc_bin is None:
-        return None
-
-    for candidate in [
-        Path(ldsc_bin).parent / "ldscore" / "parse.py",
-        Path(ldsc_bin).parent.parent / "ldscore" / "parse.py",
-    ]:
-        if candidate.exists():
-            return str(candidate)
-
-    return None
-
-
-def _read_parse_py_via_runner(runner) -> str | None:
-    """
-    Read the source of ``ldscore/parse.py`` through the configured runner.
-
-    - **local**: reads the file directly from disk.
-    - **docker**: uses ``docker run --rm ... cat <path>``.
-    - **singularity**: uses ``singularity exec ... cat <path>``.
-
-    Returns the source text, or None if the file cannot be read.
-    """
-    mode = runner.config.get("execution_mode", "local")
-    parse_path = _get_parse_py_path(runner)
-
-    if parse_path is None:
-        logger.warning(
-            "Cannot locate ldscore/parse.py. "
-            "Set parse_script in your runner config to the explicit path, "
-            "e.g. /ldsc/ldscore/parse.py for Singularity/Docker."
-        )
-        return None
-
-    if mode == "local":
-        p = Path(parse_path)
-        return p.read_text() if p.exists() else None
-
-    elif mode == "docker":
-        image = runner.config.get("docker_image", "zijingliu/ldsc")
-        result = subprocess.run(
-            ["docker", "run", "--rm", image, "cat", parse_path],
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout if result.returncode == 0 else None
-
-    elif mode == "singularity":
-        image = runner.config.get("singularity_image", "")
-        result = subprocess.run(
-            ["singularity", "exec", image, "cat", parse_path],
-            capture_output=True,
-            text=True,
-        )
-        return result.stdout if result.returncode == 0 else None
-
-    return None
-
-
-def _write_parse_py_via_runner(runner, patched_source: str) -> bool:
-    """
-    Write ``patched_source`` back to ``ldscore/parse.py`` through the runner.
-
-    **local**
-        Overwrites ``parse.py`` on disk; backs up original as ``parse.py.bak``.
-
-    **docker**
-        ``docker cp`` + ``docker commit``: the patched file is baked
-        permanently into the image. Idempotent and survives restarts.
-
-    **singularity**
-        SIF images are read-only squashfs archives, so they cannot be edited
-        in-place.  cellink supports three strategies, chosen via
-        ``singularity_patch_strategy`` in the runner config:
-
-        ``"overlay"`` *(default, HPC-friendly, no root needed)*
-            Creates a persistent ext3 overlay image alongside the SIF.
-            On every ``ldsc.py`` call cellink appends
-            ``--overlay <overlay.img>`` so the patch is always active.
-            The overlay file lives at ``singularity_overlay_path`` (default:
-            ``~/.cellink/ldsc_overlay.img``).
-
-        ``"sandbox"``
-            Converts the SIF to a writable directory sandbox once, then
-            patches ``parse.py`` inside it.  Subsequent runs use
-            ``singularity exec <sandbox_dir>`` instead of the SIF.  The
-            sandbox path is stored in ``singularity_sandbox_path`` (default:
-            next to the SIF as ``<sif>.sandbox/``).
-
-        ``"rebuild"``
-            Converts to sandbox, patches, then rebuilds a new SIF.  The
-            patched SIF replaces the original (original is backed up as
-            ``<sif>.bak.sif``).  Requires Singularity build privileges (or
-            ``--fakeroot``).  After rebuild the runner ``singularity_image``
-            config is updated to point at the new image.
-
-    Returns True on success, False otherwise.
-    """
-    import tempfile
-
-    mode = runner.config.get("execution_mode", "local")
-    parse_path = _get_parse_py_path(runner)
-
-    if parse_path is None:
-        return False
-
-    with tempfile.NamedTemporaryFile(mode="w", suffix="_parse_patched.py", delete=False) as tf:
-        tf.write(patched_source)
-        tmp_path = tf.name
-
-    try:
-        if mode == "local":
-            p = Path(parse_path)
-            if not p.exists():
-                logger.error(f"parse.py not found on disk at {p}")
-                return False
-            shutil.copy2(str(p), str(p) + ".bak")
-            shutil.copy2(tmp_path, str(p))
-            logger.info(f"Patched {p}  (backup: {p}.bak)")
-            return True
-
-        elif mode == "docker":
-            image = runner.config.get("docker_image", "zijingliu/ldsc")
-            cid_result = subprocess.run(
-                ["docker", "create", image],
-                capture_output=True,
-                text=True,
-            )
-            if cid_result.returncode != 0:
-                logger.error(f"docker create failed: {cid_result.stderr}")
-                return False
-            cid = cid_result.stdout.strip()
-            try:
-                subprocess.run(
-                    ["docker", "cp", tmp_path, f"{cid}:{parse_path}"],
-                    check=True,
-                    capture_output=True,
-                )
-                subprocess.run(
-                    ["docker", "commit", cid, image],
-                    check=True,
-                    capture_output=True,
-                )
-                logger.info(f"Patched {parse_path} committed to Docker image '{image}' permanently.")
-                return True
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Docker patch failed: {e.stderr}")
-                return False
-            finally:
-                subprocess.run(["docker", "rm", cid], capture_output=True)
-
-        elif mode == "singularity":
-            strategy = runner.config.get("singularity_patch_strategy", "overlay")
-            sif = runner.config.get("singularity_image", "")
-
-            if strategy == "overlay":
-                return _singularity_patch_overlay(runner, sif, parse_path, tmp_path)
-            elif strategy == "sandbox":
-                return _singularity_patch_sandbox(runner, sif, parse_path, tmp_path, rebuild=False)
-            elif strategy == "rebuild":
-                return _singularity_patch_sandbox(runner, sif, parse_path, tmp_path, rebuild=True)
-            else:
-                logger.error(
-                    f"Unknown singularity_patch_strategy '{strategy}'. " "Choose 'overlay', 'sandbox', or 'rebuild'."
-                )
-                return False
-
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:  # noqa: BLE001
-            pass
-
-    return False
-
-
-def _singularity_patch_overlay(runner, sif: str, parse_path: str, patched_tmp: str) -> bool:
-    """
-    Singularity overlay strategy.
-
-    Create a persistent ext3 overlay image, copy the patched parse.py into it,
-    and configure the runner to always mount it.
-
-    The overlay file path defaults to ``~/.cellink/ldsc_overlay.img`` but
-    can be overridden via ``singularity_overlay_path`` in the runner config.
-
-    On every subsequent call, ``run_command`` in BaseToolRunner automatically
-    appends ``--overlay <overlay.img>`` to the ``singularity exec`` invocation
-    because ``_ldsc_overlay_path`` is stored in ``runner.config``.
-    """
-    overlay_path = runner.config.get(
-        "singularity_overlay_path",
-        str(Path.home() / ".cellink" / "ldsc_overlay.img"),
-    )
-    overlay_path = str(overlay_path)
-    overlay_size_mb = runner.config.get("singularity_overlay_size_mb", 256)
-
-    if not Path(overlay_path).exists():
-        logger.info(f"Creating Singularity overlay image: {overlay_path} ({overlay_size_mb} MB)")
-        Path(overlay_path).parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["singularity", "overlay", "create", "--size", str(overlay_size_mb), overlay_path],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.error(f"singularity overlay create failed: {result.stderr}")
-            return False
-
-    result = subprocess.run(
-        [
-            "singularity",
-            "exec",
-            "--overlay",
-            f"{overlay_path}:rw",
-            sif,
-            "bash",
-            "-c",
-            f"mkdir -p $(dirname {parse_path}) && cp /dev/stdin {parse_path}",
-        ],
-        input=open(patched_tmp).read(),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        logger.error(f"Failed to write patched parse.py into overlay: {result.stderr}")
-        return False
-
-    runner.config["_ldsc_overlay_path"] = overlay_path
-    logger.info(
-        f"Patched {parse_path} written into overlay {overlay_path}. "
-        "Overlay is mounted automatically on every ldsc.py call (permanent "
-        "across sessions as long as the overlay file exists)."
-    )
-    return True
-
-
-def _singularity_patch_sandbox(runner, sif: str, parse_path: str, patched_tmp: str, rebuild: bool) -> bool:
-    """
-    Singularity sandbox strategy.
-
-    1. Convert the SIF to a writable sandbox directory (once).
-    2. Copy the patched ``parse.py`` into the sandbox.
-    3a. If ``rebuild=False``: update ``runner.config["singularity_image"]``
-        to point at the sandbox directory so all subsequent ``singularity exec``
-        calls use it directly.
-    3b. If ``rebuild=True``: rebuild a new SIF from the sandbox, back up the
-        original SIF, and update ``runner.config["singularity_image"]`` to the
-        new SIF.
-    """
-    sandbox_path = runner.config.get(
-        "singularity_sandbox_path",
-        str(Path(sif).with_suffix("")) + ".sandbox",
-    )
-
-    if not Path(sandbox_path).exists():
-        logger.info(f"Converting {sif} to writable sandbox at {sandbox_path} ...")
-        result = subprocess.run(
-            ["singularity", "build", "--sandbox", sandbox_path, sif],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.warning("sandbox build failed without root; retrying with --fakeroot")
-            result = subprocess.run(
-                ["singularity", "build", "--fakeroot", "--sandbox", sandbox_path, sif],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                logger.error(f"singularity build --sandbox failed: {result.stderr}")
-                return False
-
-    sandbox_parse = Path(sandbox_path) / parse_path.lstrip("/")
-    sandbox_parse.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(patched_tmp, str(sandbox_parse))
-    logger.info(f"Patched {sandbox_parse}")
-
-    if not rebuild:
-        runner.config["singularity_image"] = sandbox_path
-        logger.info(
-            f"Runner updated: singularity_image → {sandbox_path}. "
-            "All subsequent ldsc.py calls will use the patched sandbox."
-        )
-        return True
-    else:
-        new_sif = str(Path(sif).with_suffix("")) + ".patched.sif"
-        backup_sif = sif + ".bak.sif"
-        logger.info(f"Rebuilding SIF from sandbox: {sandbox_path} → {new_sif} ...")
-        result = subprocess.run(
-            ["singularity", "build", new_sif, sandbox_path],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            result = subprocess.run(
-                ["singularity", "build", "--fakeroot", new_sif, sandbox_path],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                logger.error(f"singularity build from sandbox failed: {result.stderr}")
-                return False
-
-        shutil.move(sif, backup_sif)
-        shutil.move(new_sif, sif)
-        runner.config["singularity_image"] = sif
-        logger.info(
-            f"Rebuilt SIF: {sif}  (original backed up as {backup_sif}). "
-            "The patch is permanently baked into the image."
-        )
-        return True
-
-
-def check_and_patch_ldsc_parse_bug(runner) -> dict:
-    """
-    Check whether the LDSC installation has the pandas column-sort bug and patch it.
-
-    See ldsc issue `#342 <https://github.com/bulik/ldsc/issues/342>`_ /
-    PR `#341 <https://github.com/bulik/ldsc/pull/341>`_.
-
-    The bug: ``pd.concat`` in ``ldscore/parse.py`` alphabetically re-sorts
-    annotation columns after ``pd.concat`` across chromosomes in ``ldscore/parse.py``
-    (line ~147), causing ``_check_variance()`` to raise an ``IndexError``
-    during ``--h2 --overlap-annot``.
-
-    The fix (PR #341): reindex the concatenated DataFrame to the column order
-    of the first chromosome file: ``pd.concat(chr_ld)[chr_ld[0].columns]``.
-
-    Works for **local**, **Docker** and **Singularity** execution modes.
-
-    **Configuration**: add ``parse_script`` to your runner config so cellink
-    knows exactly where ``parse.py`` lives, especially for containerised setups:
-
-    .. code-block:: python
-
-        runner = configure_ldsc_runner(
-            config_dict={
-                "execution_mode": "singularity",
-                "singularity_image": "/path/to/ldsc.sif",
-                "ldsc_command": "ldsc.py",
-                "parse_script": "/ldsc/ldscore/parse.py",  # ← explicit path
-            }
-        )
-
-    If ``parse_script`` is omitted, cellink tries to auto-discover the path
-    from ``PATH`` (works for local installs; may fail for containers).
-
-    Behaviour by mode
-    -----------------
-    - **local**: patches ``parse.py`` on disk and backs up the original as
-      ``parse.py.bak``.
-    - **docker**: patches the file inside the image via ``docker cp`` +
-      ``docker commit``.  The image is updated in-place and the patch survives
-      container restarts.
-    - **singularity**: SIF images are read-only, so cellink writes the patched
-      ``parse.py`` to a host-side shadow directory (default:
-      ``~/.cellink/ldsc_patch/ldscore/``) and injects
-      ``PYTHONPATH=<shadow>:$PYTHONPATH`` into every subsequent ``ldsc.py``
-      call.  Set ``ldsc_patch_shadow_dir`` in the runner config to override
-      the shadow location.
-
-    Parameters
-    ----------
-    runner
-        A configured ``LDSCRunner`` instance.
-
-    Returns
-    -------
-    dict with keys:
-        ``"status"``     : ``"already_patched"``, ``"patched"``,
-                           ``"patch_failed"`` or ``"not_found"``
-        ``"mode"``       : ``"local"``, ``"docker"`` or ``"singularity"``
-        ``"parse_path"`` : resolved path to ``parse.py`` (or None)
-        ``"detail"``     : human-readable explanation
-    """
-    mode = runner.config.get("execution_mode", "local")
-    parse_path = _get_parse_py_path(runner)
-    source = _read_parse_py_via_runner(runner)
-
-    if source is None:
-        return {
-            "status": "not_found",
-            "mode": mode,
-            "parse_path": parse_path,
-            "detail": (
-                "Could not read ldscore/parse.py. "
-                "Add parse_script to your runner config with the explicit path, "
-                "e.g. '/ldsc/ldscore/parse.py' for Singularity/Docker."
-            ),
-        }
-
-    if _PARSE_PY_PATCH_MARKER in source:
-        return {
-            "status": "already_patched",
-            "mode": mode,
-            "parse_path": parse_path,
-            "detail": "parse.py already patched (chr_ld[0].columns reindex present), no action needed.",
-        }
-
-    patched = source
-    applied = False
-    for old, new in _PARSE_PY_BUGGY_PATTERNS:
-        if old in patched:
-            patched = patched.replace(old, new)
-            applied = True
-
-    if not applied:
-        return {
-            "status": "patch_failed",
-            "mode": mode,
-            "parse_path": parse_path,
-            "detail": (
-                "Found parse.py but could not locate the expected pd.concat "
-                "call. The installed LDSC version may differ. "
-                "Apply the fix from https://github.com/bulik/ldsc/pull/341 manually."
-            ),
-        }
-
-    success = _write_parse_py_via_runner(runner, patched)
-    if success:
-        return {
-            "status": "patched",
-            "mode": mode,
-            "parse_path": parse_path,
-            "detail": (
-                f"Applied chr_ld[0].columns reindex fix to {parse_path} " f"(ldsc issue #342 / PR #341) via {mode}."
-            ),
-        }
-    return {
-        "status": "patch_failed",
-        "mode": mode,
-        "parse_path": parse_path,
-        "detail": (
-            "Found and modified parse.py source but could not write it back. "
-            "Check file permissions (local) or container access (Docker/Singularity)."
-        ),
-    }
 
 
 def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:

@@ -293,7 +293,25 @@ def run_seismic_torch(
         raise ValueError(
             f"MAGMA file must have columns '{magma_gene_col}' and '{magma_z_col}'; " f"found {list(magma_df.columns)}"
         )
+
+    magma_df[magma_gene_col] = magma_df[magma_gene_col].astype(str)
+    dup_magma_genes = magma_df[magma_gene_col][magma_df[magma_gene_col].duplicated()].unique()
+    if len(dup_magma_genes) > 0:
+        raise ValueError(
+            f"MAGMA file has {len(dup_magma_genes)} duplicated '{magma_gene_col}' value(s) "
+            f"(e.g. {list(dup_magma_genes[:5])}). Deduplicate the MAGMA file before calling "
+            "run_seismic_torch, a duplicated gene ID makes `.loc[shared_genes]` return more rows "
+            "than expected, corrupting the row-alignment between expression scores and MAGMA z-scores."
+        )
     magma_df = magma_df.set_index(magma_gene_col)
+
+    if scores_df.index.duplicated().any():
+        dup_expr_genes = scores_df.index[scores_df.index.duplicated()].unique().tolist()
+        raise ValueError(
+            f"adata.var_names has {len(dup_expr_genes)} duplicated value(s) (e.g. {dup_expr_genes[:5]}). "
+            "Call adata.var_names_make_unique() (or deduplicate genes yourself) before calling "
+            "run_seismic_torch, for the same row-alignment reason as duplicated MAGMA gene IDs."
+        )
 
     shared_genes = scores_df.index.intersection(magma_df.index)
     if len(shared_genes) < 200:
@@ -306,8 +324,29 @@ def run_seismic_torch(
     scores_aligned = scores_df.loc[shared_genes]
     magma_aligned = magma_df.loc[shared_genes]
 
-    Zt = torch.tensor(magma_aligned[magma_z_col].values, dtype=torch.float32, device=device)
-    G = torch.tensor(scores_aligned.values.astype(np.float32), dtype=torch.float32, device=device)
+    nan_in_z = magma_aligned[magma_z_col].isna()
+    nan_in_scores = scores_aligned.isna().any(axis=1)
+    nan_mask = nan_in_z.to_numpy() | nan_in_scores.to_numpy()
+    if nan_mask.any():
+        n_dropped = int(nan_mask.sum())
+        logger.warning(
+            f"run_seismic_torch: dropping {n_dropped} / {len(shared_genes)} genes with a NaN z-score "
+            "or specificity score before regression (a NaN specificity score typically means a gene "
+            "had zero within-cell-type expression variance for every cell type it appears "
+            "significantly expressed in). Without this, a single NaN silently propagates through "
+            "RegressionNLL's shared sufficient statistics and NaNs out every cell type's p-value."
+        )
+        keep = ~nan_mask
+        scores_aligned = scores_aligned.loc[keep]
+        magma_aligned = magma_aligned.loc[keep]
+        if len(scores_aligned) < 200:
+            raise ValueError(
+                f"Only {len(scores_aligned)} genes remain after dropping NaN z-scores/specificity "
+                "scores (below the 200-gene minimum). Check input data quality."
+            )
+
+    Zt = torch.tensor(magma_aligned[magma_z_col].to_numpy(), dtype=torch.float32, device=device)
+    G = torch.tensor(scores_aligned.to_numpy().astype(np.float32), dtype=torch.float32, device=device)
 
     logger.info("run_seismic_torch: running per-cell-type association test")
     reg = RegressionNLL(Zt)

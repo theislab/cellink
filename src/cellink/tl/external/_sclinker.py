@@ -98,27 +98,8 @@ def compute_celltype_programs(
     adata.uns[de_key] = adata_filtered.uns[de_key]
 
     results = _extract_de_matrices(adata, de_key, label_col=celltype_col)
+    results, _ = _maybe_remap_ensg_to_hgnc(results, adata, context="compute_celltype_programs")
     genescores = _compute_genescores(results["score"])
-
-    if genescores.index.str.startswith("ENSG").mean() > 0.5 and "gene_name" in adata.var.columns:
-        gene_name_map = adata.var["gene_name"].dropna().to_dict()
-        for key in list(results.keys()):
-            results[key].index = results[key].index.map(lambda g: gene_name_map.get(g, g))
-        genescores = results["score"].copy()
-        genescores = _compute_genescores(genescores)
-        logger.info(
-            "Mapped var_names from ENSG IDs to HGNC gene names using adata.var['gene_name']. "
-            "This is required for matching against Roadmap/ABC TargetGene columns."
-        )
-    elif genescores.index.str.startswith("ENSG").mean() > 0.5:
-        logger.warning(
-            "var_names appear to be ENSG IDs but no 'gene_name' column found in adata.var. "
-            "The Roadmap/ABC TargetGene column uses HGNC gene names, so annotation will "
-            "produce empty results unless var_names are HGNC symbols. "
-            "Add HGNC names to adata.var['gene_name'] before calling this function, "
-            "or ensure adata.var_names are already HGNC symbols."
-        )
-
     results["genescores"] = genescores
 
     if save and out_dir is not None:
@@ -368,7 +349,11 @@ def compute_nmf_programs(
         X_t = torch.tensor(X, dtype=torch.float32, device=_device)
         model_t = TorchNMF(X_t.shape, rank=n_components).to(_device)
         model_t.fit(X_t, beta=2, max_iter=200, tol=1e-4)
-        W_arr = model_t.H.T.detach().cpu().numpy()  # (n_cells,    n_components)
+        # torchnmf's NMF(Vshape=(M, K), rank) convention means that for
+        # X.shape=(n_cells, n_features), model.H.shape is already (n_cells, rank) and
+        # model.W.shape is already (n_features, rank), so neither needs a transpose.
+        # Note the naming is swapped relative to the W_arr/H_arr convention used below.
+        W_arr = model_t.H.detach().cpu().numpy()  # (n_cells,    n_components)
         H_arr = model_t.W.detach().cpu().numpy()  # (n_features, n_components)
         del X_t, model_t
 
@@ -392,6 +377,9 @@ def compute_nmf_programs(
     W = pd.DataFrame(W_arr, index=adata.obs_names, columns=[f"NMF_{i}" for i in range(n_components)])
     H = pd.DataFrame(H_arr, index=adata.var_names, columns=[f"NMF_{i}" for i in range(n_components)])
     corr = _compute_nmf_gene_correlations(X, W_arr, adata.var_names, W.columns)
+
+    gene_frames, _ = _maybe_remap_ensg_to_hgnc({"H": H, "corr": corr}, adata, context="compute_nmf_programs")
+    H, corr = gene_frames["H"], gene_frames["corr"]
 
     if save and out_dir is not None:
         out_dir = Path(out_dir)
@@ -498,6 +486,11 @@ def compute_joint_nmf_programs(
     Hh_df = pd.DataFrame(jnmf.Hh.T, index=common_genes, columns=h_cols)
     Hd_df = pd.DataFrame(jnmf.Hd.T, index=common_genes, columns=d_cols)
 
+    gene_frames, _ = _maybe_remap_ensg_to_hgnc(
+        {"Hh": Hh_df, "Hd": Hd_df}, adata_healthy, context="compute_joint_nmf_programs"
+    )
+    Hh_df, Hd_df = gene_frames["Hh"], gene_frames["Hd"]
+
     results = {
         "Wh": Wh_df,
         "Wd": Wd_df,
@@ -516,6 +509,51 @@ def compute_joint_nmf_programs(
             df.to_csv(out_dir / f"{prefix}_{key}.csv")
 
     return results
+
+
+def _maybe_remap_ensg_to_hgnc(
+    frames: dict[str, pd.DataFrame], adata: AnnData, *, context: str = ""
+) -> tuple[dict[str, pd.DataFrame], bool]:
+    """
+    Remap a set of gene-indexed DataFrames from ENSG IDs to HGNC symbols.
+
+    All ``frames`` must share the same (gene) index. If that index is
+    majority ENSG IDs, remaps every frame's index via ``adata.var['gene_name']``
+    and returns the remapped frames. This is required for matching gene
+    programs against the Roadmap/ABC ``TargetGene`` columns, which use HGNC
+    symbols, not Ensembl IDs. Without it, ``genescores_to_abc_road_bedgraph``
+    and ``genescores_to_annotations`` produce all-zero annotations.
+
+    If the index is majority ENSG but no ``gene_name`` column exists, warns
+    and returns ``frames`` unchanged (nothing to remap with).
+
+    Returns
+    -------
+    (frames, remapped) : the (possibly remapped) frames, and whether a remap
+        was actually performed.
+    """
+    any_index = next(iter(frames.values())).index
+    if any_index.str.startswith("ENSG").mean() <= 0.5:
+        return frames, False
+
+    where = f" ({context})" if context else ""
+    if "gene_name" not in adata.var.columns:
+        logger.warning(
+            f"var_names appear to be ENSG IDs but no 'gene_name' column found in adata.var{where}. "
+            "The Roadmap/ABC TargetGene column uses HGNC gene names, so annotation will "
+            "produce empty results unless var_names are HGNC symbols. "
+            "Add HGNC names to adata.var['gene_name'] before calling this function, "
+            "or ensure adata.var_names are already HGNC symbols."
+        )
+        return frames, False
+
+    gene_name_map = adata.var["gene_name"].dropna().to_dict()
+    remapped = {key: df.set_axis(df.index.map(lambda g: gene_name_map.get(g, g)), axis=0) for key, df in frames.items()}
+    logger.info(
+        f"Mapped var_names from ENSG IDs to HGNC gene names using adata.var['gene_name']{where}. "
+        "This is required for matching against Roadmap/ABC TargetGene columns."
+    )
+    return remapped, True
 
 
 def _get_dense(adata: AnnData, layer: str | None) -> np.ndarray:

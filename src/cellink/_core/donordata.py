@@ -22,6 +22,7 @@ from rich.table import Table
 from rich.text import Text
 
 from cellink._core.data_fields import DAnn
+from cellink._core.schema import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +49,11 @@ def _write_anndata_zarr_dense_x_chunked(
     """Write one AnnData to a Zarr group with `X` and any dense `layers` chunked sanely.
 
     `anndata.io.write_elem` picks its own chunk shape for a dense array
-    without regard to any chunking the input already has (confirmed: it
-    disregards a dask array's own `.chunks` entirely), which for a
-    genome-scale `X` (or a same-shaped dense layer, e.g. raw counts kept
-    alongside a normalized `X`) can pick a shape badly misaligned with how
-    the data is actually laid out on disk, making both the write and every
-    later read far slower than necessary. Writes everything except `X`
+    without regard to any chunking the input already has, including a dask
+    array's own `.chunks`. For a genome-scale `X` (or a same-shaped dense
+    layer, e.g. raw counts kept alongside a normalized `X`) that shape can be
+    badly misaligned with how the data is laid out on disk, making both the
+    write and every later read far slower than necessary. Writes everything except `X`
     and any dense layers first (via a cheap, correctly-shaped zero-nnz
     sparse placeholder for `X`, and by omitting dense layers entirely from
     this first pass), then writes each dense array separately with an
@@ -187,7 +187,8 @@ class DonorData:
                 _write_anndata_zarr_dense_x_chunked(f, key, modality, zarr_path, chunks=key_chunks)
             else:
                 write_elem(f, key, modality)
-        f.attrs["encoding-type"] = "donordata"
+        f.attrs["encoding-type"] = DONORDATA_ENCODING_TYPE
+        f.attrs["encoding-version"] = DONORDATA_ENCODING_VERSION
 
         f.attrs["donor_id"] = self.donor_id
         f.attrs["var_dims_to_sync"] = self._var_dims_to_sync

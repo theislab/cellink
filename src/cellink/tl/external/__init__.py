@@ -14,6 +14,7 @@ from ._ldsc import (
     estimate_heritability,
     estimate_ld_scores_from_bimfile,
     estimate_ld_scores_from_donor_data,
+    filter_sumstats_by_merge_alleles,
     make_annot_from_bimfile,
     make_annot_from_donor_data,
     munge_sumstats,
@@ -55,8 +56,8 @@ from ._sclinker import (
     compute_nmf_programs,
 )
 from ._sclinker_utils import (
+    SCLINKER_ENHANCER_LINKS_GENOME_BUILD,
     bedgraph_to_snp_annotation,
-    check_and_patch_ldsc_parse_bug,
     compute_escore,
     compute_ld_scores_for_sclinker,
     download_sclinker_enhancer_links,
@@ -115,6 +116,7 @@ __all__ = [
     "make_annot_from_bimfile",
     "make_annot_from_donor_data",
     "munge_sumstats",
+    "filter_sumstats_by_merge_alleles",
     ###
     "genesets_dir_to_entrez_gmt",
     "load_ensembl_to_entrez_map",
@@ -147,7 +149,7 @@ __all__ = [
     "load_roadmap_links",
     "load_sclinker_heritability_results",
     "run_sclinker_heritability",
-    "check_and_patch_ldsc_parse_bug",
+    "SCLINKER_ENHANCER_LINKS_GENOME_BUILD",
     ###
     "JointNMFWrapper",
     ###

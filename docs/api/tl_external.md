@@ -59,6 +59,7 @@ SAIGE-QTL). See each tool's own documentation for installation instructions.
 
    tl.external.configure_ldsc_runner
    tl.external.munge_sumstats
+   tl.external.filter_sumstats_by_merge_alleles
    tl.external.make_annot_from_bimfile
    tl.external.make_annot_from_donor_data
    tl.external.estimate_ld_scores_from_bimfile
@@ -125,7 +126,6 @@ SAIGE-QTL). See each tool's own documentation for installation instructions.
    tl.external.genescores_to_100kb_bedgraph
    tl.external.genescores_to_annotations
    tl.external.bedgraph_to_snp_annotation
-   tl.external.check_and_patch_ldsc_parse_bug
 ```
 
 ### scDRS and seismic (GWAS x single-cell disease relevance)

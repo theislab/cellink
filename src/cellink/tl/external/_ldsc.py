@@ -1,9 +1,12 @@
 import logging
 import os
+import shutil
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
+import polars as pl
 import yaml
 
 from cellink._core import DonorData
@@ -27,64 +30,15 @@ class LDSCRunner(BaseToolRunner):
         Command name / path for ``make_annot.py``.
     munge_command : str
         Command name / path for ``munge_sumstats.py``.
-    parse_script : str, optional
-        **Explicit path to** ``ldscore/parse.py`` **inside the container or
-        local install.**  Setting this is strongly recommended for Docker /
-        Singularity setups where auto-discovery via ``PATH`` is unreliable.
-
-        Examples::
-
-            # Singularity (common default layout)
-            "parse_script": "/ldsc/ldscore/parse.py"
-
-            # Docker (zijingliu/ldsc image)
-            "parse_script": "/ldsc/ldscore/parse.py"
-
-            # Local conda env
-            "parse_script": "/opt/conda/envs/ldsc/lib/python3.8/site-packages/ldsc/ldscore/parse.py"
-
-        Used by :func:`~cellink.tl.external._sldsc_utils.check_and_patch_ldsc_parse_bug`
-        to locate and patch the pandas column-sort bug (ldsc issue #342).
     docker_image : str, optional
         Docker image name (required when ``execution_mode="docker"``).
     singularity_image : str, optional
         Path to Singularity SIF image (required when
         ``execution_mode="singularity"``).
-    singularity_patch_strategy : str, optional
-        How to apply the parse.py bug fix for Singularity images.
-        One of:
-
-        ``"overlay"`` *(default)*
-            Creates a persistent ext3 overlay image at
-            ``singularity_overlay_path`` and mounts it read-only on every
-            ``ldsc.py`` call.  No root required; HPC-friendly.
-        ``"sandbox"``
-            Converts the SIF to a writable sandbox directory once; uses the
-            sandbox for all subsequent calls.  No rebuild needed.
-        ``"rebuild"``
-            Converts to sandbox, patches, rebuilds a new SIF.  Original SIF
-            is backed up as ``<sif>.bak.sif``.  Requires build privileges or
-            ``--fakeroot``.
-
-    singularity_overlay_path : str, optional
-        Path for the ext3 overlay image (``"overlay"`` strategy).
-        Defaults to ``~/.cellink/ldsc_overlay.img``.
-    singularity_overlay_size_mb : int, optional
-        Size in MB for a newly created overlay image. Default 256.
-    singularity_sandbox_path : str, optional
-        Path for the sandbox directory (``"sandbox"`` / ``"rebuild"``
-        strategies). Defaults to ``<sif_path>.sandbox/``.
     """
 
     def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
         required_fields = ["execution_mode", "ldsc_command", "make_annot_command", "munge_command"]
-        # Flags whose argument is a path/prefix that doesn't exist as a
-        # literal file at command-construction time (either it's an output
-        # not yet created, or a PLINK/LDSC-style prefix like "foo." that
-        # only has suffixed files like "foo.1.l2.ldscore.gz" on disk).
-        # _rewrite_paths_in_command's os.path.exists() check can't recognize
-        # these as paths needing container-mount translation, so they must
-        # be listed explicitly.
         prefix_tokens = ["--annot-file", "--out", "--bfile", "--ref-ld-chr", "--w-ld-chr", "--frqfile-chr"]
         super().__init__(config_path, config_dict, required_fields, prefix_tokens)
 
@@ -101,11 +55,6 @@ class LDSCRunner(BaseToolRunner):
             "ldsc_command": "ldsc.py",
             "make_annot_command": "make_annot.py",
             "munge_command": "munge_sumstats.py",
-            "parse_script": "ldscore/parse.py",
-            "singularity_patch_strategy": "overlay",
-            "singularity_overlay_path": None,
-            "singularity_overlay_size_mb": 256,
-            "singularity_sandbox_path": None,
         }
 
     @property
@@ -124,10 +73,6 @@ class LDSCRunner(BaseToolRunner):
     def execution_mode(self) -> str:
         return self.config["execution_mode"]
 
-    @property
-    def parse_script(self) -> str | None:
-        return self.config.get("parse_script")
-
 
 _ldsc_runner = None
 
@@ -143,6 +88,277 @@ def get_ldsc_runner() -> LDSCRunner:
     if _ldsc_runner is None:
         _ldsc_runner = LDSCRunner()
     return _ldsc_runner
+
+
+def _ensure_out_prefix_dir(out_prefix: str) -> None:
+    """Create out_prefix's parent directory if it doesn't exist yet.
+
+    Every ldsc.py/munge_sumstats.py/make_annot.py call writes to `{out_prefix}...`
+    and fails with an IOError (or, for singularity/docker, a permission error
+    surfaced from inside the container) if that directory doesn't exist. cellink
+    builds the container command itself, so it creates the directory upfront.
+    """
+    parent = os.path.dirname(os.path.abspath(out_prefix))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+
+def _sniff_delimiter(sumstats_file: str) -> str:
+    """
+    Detect the field delimiter of a sumstats file from its header line.
+
+    Prefers an explicit single-character delimiter (tab, comma, semicolon)
+    over a whitespace-regex fallback, because only an explicit delimiter can
+    represent an empty field (two delimiters with nothing between them).
+    Whitespace-splitting collapses consecutive separators.
+    """
+    import csv
+    import gzip
+
+    opener = gzip.open if str(sumstats_file).endswith(".gz") else open
+    with opener(sumstats_file, "rt") as f:
+        header = f.readline()
+
+    try:
+        dialect = csv.Sniffer().sniff(header, delimiters="\t,; ")
+        if dialect.delimiter in ("\t", ",", ";"):
+            return dialect.delimiter
+    except csv.Error:
+        pass
+    return r"\s+"
+
+
+def _drop_allna_columns(sumstats_file: str, sanitized_path: str, chunksize: int) -> str:
+    """
+    Write a copy of ``sumstats_file`` with any 100%-missing columns dropped.
+
+    Streams the file in chunks (never holds the whole file in memory) to
+    find columns that are entirely NaN/empty, then streams it again to write
+    a tab-separated copy without them. 
+    """
+    sep = _sniff_delimiter(sumstats_file)
+
+    has_value: pd.Series | None = None
+    reader = pd.read_csv(sumstats_file, sep=sep, engine="python" if sep == r"\s+" else "c", chunksize=chunksize)
+    for chunk in reader:
+        chunk_has_value = chunk.notna().any(axis=0)
+        has_value = chunk_has_value if has_value is None else (has_value | chunk_has_value)
+
+    if has_value is None:
+        raise ValueError(f"'{sumstats_file}' contains no data rows.")
+
+    allna_cols = [c for c in has_value.index if not has_value[c]]
+    if not allna_cols:
+        return sumstats_file
+
+    logger.warning(
+        f"munge_sumstats: dropping {len(allna_cols)} all-missing column(s) {allna_cols} from "
+        f"'{sumstats_file}' before munging. munge_sumstats.py's blanket dropna(how='any') "
+        "would otherwise drop every row because of these, zeroing out the entire result "
+        f"('No objects to concatenate'). Writing sanitized copy to '{sanitized_path}'. "
+        "Pass drop_allna_columns=False to disable."
+    )
+
+    first = True
+    reader = pd.read_csv(sumstats_file, sep=sep, engine="python" if sep == r"\s+" else "c", chunksize=chunksize)
+    for chunk in reader:
+        chunk.drop(columns=allna_cols).to_csv(sanitized_path, sep="\t", index=False, mode="w" if first else "a", header=first)
+        first = False
+
+    return sanitized_path
+
+
+def _validate_sumstats_pre_munge(
+    sumstats_file: str,
+    p_col: str | None,
+    snp_col: str | None,
+    merge_alleles: str | None,
+    sample_rows: int = 200_000,
+) -> None:
+    """
+    Pre-flight checks on the input file before invoking the container.
+
+    Raises with a specific message for two input problems that munge_sumstats.py
+    itself either "succeeds" through with corrupted output or reports opaquely:
+
+    - a p-value column that is actually -log10(p) (the standard output format of
+      REGENIE step 2, which has no untransformed p-value column at all)
+    - a SNP-ID column that is not rsIDs while --merge-alleles is requested against
+      an rsID-keyed reference (e.g. a UKB/GWAS-Catalog-style chr:pos:ref:alt-only
+      file), which otherwise fails with a bare "ValueError: No objects to
+      concatenate"
+
+    Also logs upfront counts of indels and duplicate-SNP-ID (multiallelic) rows,
+    which munge_sumstats.py folds into generic QC counters ("variants that were
+    not SNPs or were strand-ambiguous", "SNPs with duplicated rs numbers").
+    """
+    sep = _sniff_delimiter(sumstats_file)
+    df = pd.read_csv(sumstats_file, sep=sep, engine="python" if sep == r"\s+" else "c", nrows=sample_rows)
+
+    resolved_p_col = p_col if p_col in df.columns else next((c for c in df.columns if c.upper() == "P"), None)
+    if resolved_p_col is not None:
+        p_vals = pd.to_numeric(df[resolved_p_col], errors="coerce").dropna()
+        if len(p_vals) > 0 and (p_vals > 1).mean() > 0.5:
+            raise ValueError(
+                f"'{resolved_p_col}' does not look like a p-value column: {(p_vals > 1).mean():.0%} of "
+                f"sampled values are > 1 (e.g. {p_vals[p_vals > 1].iloc[0]!r}). munge_sumstats.py's "
+                "own filter_pvals just checks 0 < P <= 1 and only logs a buried one-line warning rather "
+                "than raising, so it would proceed and drop nearly every SNP. This is the standard "
+                "shape of a -log10(p) column (e.g. REGENIE step 2's LOG10P, which has no untransformed "
+                "p-value column at all). Transform it first with `df[col] = 10 ** -df[col]`, or point "
+                "p_col at an untransformed p-value column."
+            )
+
+    resolved_snp_col = snp_col if snp_col in df.columns else next((c for c in df.columns if c.upper() == "SNP"), None)
+    if resolved_snp_col is not None:
+        snp_vals = df[resolved_snp_col].dropna().astype(str)
+        if len(snp_vals) > 0:
+            looks_like_rsid = snp_vals.str.match(r"^rs\d+$")
+            rsid_frac = looks_like_rsid.mean()
+            if merge_alleles is not None and rsid_frac < 0.5:
+                raise ValueError(
+                    f"--merge-alleles was requested against '{merge_alleles}' (an rsID-keyed reference), "
+                    f"but only {rsid_frac:.0%} of sampled values in '{resolved_snp_col}' look like "
+                    f"rsIDs (e.g. {snp_vals.iloc[0]!r}). munge_sumstats.py's own error for this is "
+                    "an opaque 'ValueError: No objects to concatenate' with no indication the actual cause "
+                    "is an ID-scheme mismatch. If this file only has chr:pos(:ref:alt)-style variant IDs "
+                    "(common for UKB/GWAS-Catalog-format files with no rsID column), you need to look up "
+                    "rsIDs for these variants first (e.g. against the reference panel's own bim file by "
+                    "position) before merge_alleles can work, or omit merge_alleles and accept the "
+                    "reduced strand-ambiguous-SNP filtering."
+                )
+            has_chr_prefix = snp_vals.str.contains(r"^chr", case=False, regex=True)
+            if has_chr_prefix.any() and not has_chr_prefix.all():
+                logger.warning(
+                    f"munge_sumstats: '{resolved_snp_col}' mixes 'chr'-prefixed and bare IDs "
+                    f"({has_chr_prefix.mean():.0%} prefixed in the sampled rows); these will not match "
+                    "each other or a differently-conventioned reference panel. Normalize to one "
+                    "convention before munging."
+                )
+            allele_cols = [c for c in df.columns if c.upper() in ("A1", "A2")]
+            n_indel = 0
+            if allele_cols:
+                allele_lens = pd.concat([df[c].dropna().astype(str).str.len() for c in allele_cols])
+                n_indel = int((allele_lens > 1).sum())
+            n_dup = int(snp_vals.duplicated().sum())
+            if n_indel or n_dup:
+                logger.info(
+                    f"munge_sumstats pre-flight: sampled {len(df)} rows from '{sumstats_file}', found "
+                    f"~{n_indel} row(s) with a multi-character allele (indel) and {n_dup} duplicated "
+                    f"'{resolved_snp_col}' value(s) (likely multiallelic sites). munge_sumstats.py "
+                    "folds indels into its generic 'variants that were not SNPs or were strand-ambiguous' "
+                    "count and keeps only one row per duplicated ID (`drop_duplicates(keep='first')`, "
+                    "not by significance); these numbers are not broken out separately in its own log."
+                )
+
+
+_MATCH_ALLELES = frozenset(
+    {
+        "ACAC", "ACCA", "ACGT", "ACTG", "AGAG", "AGCT", "AGGA", "AGTC",
+        "CAAC", "CACA", "CAGT", "CATG", "CTAG", "CTCT", "CTGA", "CTTC",
+        "GAAG", "GACT", "GAGA", "GATC", "GTAC", "GTCA", "GTGT", "GTTG",
+        "TCAG", "TCCT", "TCGA", "TCTC", "TGAC", "TGCA", "TGGT", "TGTG",
+    }
+)  
+
+
+def _resolve_col(col: str | None, header_cols: list[str], default_upper: str) -> str:
+    if col is not None and col in header_cols:
+        return col
+    return next(c for c in header_cols if c.upper() == default_upper)
+
+
+def filter_sumstats_by_merge_alleles(
+    sumstats_file: str,
+    merge_alleles: str,
+    out_path: str,
+    snp_col: str | None = None,
+    a1_col: str | None = None,
+    a2_col: str | None = None,
+) -> str:
+    """
+    Fast, native equivalent of ``munge_sumstats.py --merge-alleles``.
+
+    Filters ``sumstats_file`` down to exactly the rows
+    ``munge_sumstats.py --merge-alleles`` keeps: SNPs present in
+    ``merge_alleles`` (a reference file with columns ``SNP``, ``A1``, ``A2``)
+    whose (A1, A2) allele pair has a valid, non-strand-ambiguous
+    correspondence to the reference's pair. Replicates ldsc 1.0.1's
+    ``allele_merge`` logic using the same 32-entry valid-pair table
+    (:data:`_MATCH_ALLELES`), so running :func:`munge_sumstats` (with
+    ``merge_alleles=None``) on this function's output yields the same final SNP
+    set as ``munge_sumstats(merge_alleles=...)`` on the original file in
+    seconds.
+
+    Parameters
+    ----------
+    sumstats_file : str
+        Path to the sumstats file (raw or already partially processed).
+    merge_alleles : str
+        Path to a reference file with columns ``SNP``, ``A1``, ``A2`` (e.g.
+        from :func:`cellink.resources.get_1000genomes_merge_alleles`).
+    out_path : str
+        Where to write the filtered file (plain tab-separated text, every
+        original column preserved, values unmodified, including A1/A2 case,
+        which ``munge_sumstats.py`` uppercases itself downstream).
+    snp_col, a1_col, a2_col : str, optional
+        Column names in ``sumstats_file`` if not ldsc's defaults (``SNP``,
+        ``A1``, ``A2``, resolved case-insensitively).
+
+    Returns
+    -------
+    str
+        ``out_path``.
+    """
+    sep = _sniff_delimiter(sumstats_file)
+    ref_sep = _sniff_delimiter(merge_alleles)
+
+    if sep == r"\s+" or ref_sep == r"\s+":
+        ref = pd.read_csv(merge_alleles, sep=ref_sep, engine="python" if ref_sep == r"\s+" else "c")
+        ref["__ma_ma__"] = (ref["A1"].astype(str).str.upper() + ref["A2"].astype(str).str.upper())
+        ref = ref[["SNP", "__ma_ma__"]]
+
+        header_cols = list(pd.read_csv(sumstats_file, sep=sep, engine="python" if sep == r"\s+" else "c", nrows=0).columns)
+        resolved_snp = _resolve_col(snp_col, header_cols, "SNP")
+        resolved_a1 = _resolve_col(a1_col, header_cols, "A1")
+        resolved_a2 = _resolve_col(a2_col, header_cols, "A2")
+
+        first = True
+        for chunk in pd.read_csv(sumstats_file, sep=sep, engine="python" if sep == r"\s+" else "c", chunksize=1_000_000):
+            merged = chunk.merge(ref, left_on=resolved_snp, right_on="SNP", how="inner", suffixes=("", "_ref"))
+            key = (
+                merged[resolved_a1].astype(str).str.upper()
+                + merged[resolved_a2].astype(str).str.upper()
+                + merged["__ma_ma__"]
+            )
+            keep = merged[key.isin(_MATCH_ALLELES)][header_cols]
+            keep.to_csv(out_path, sep="\t", index=False, mode="w" if first else "a", header=first)
+            first = False
+        return out_path
+
+    header_cols = pl.scan_csv(sumstats_file, separator=sep, n_rows=0).collect_schema().names()
+    resolved_snp = _resolve_col(snp_col, header_cols, "SNP")
+    resolved_a1 = _resolve_col(a1_col, header_cols, "A1")
+    resolved_a2 = _resolve_col(a2_col, header_cols, "A2")
+
+    ref = pl.scan_csv(merge_alleles, separator=ref_sep).select(
+        pl.col("SNP").alias("__ma_snp__"),
+        (pl.col("A1").str.to_uppercase() + pl.col("A2").str.to_uppercase()).alias("__ma_ma__"),
+    )
+    (
+        pl.scan_csv(sumstats_file, separator=sep, infer_schema_length=0)
+        .join(ref, left_on=resolved_snp, right_on="__ma_snp__", how="inner")
+        .filter(
+            (
+                pl.col(resolved_a1).str.to_uppercase()
+                + pl.col(resolved_a2).str.to_uppercase()
+                + pl.col("__ma_ma__")
+            ).is_in(list(_MATCH_ALLELES))
+        )
+        .select(header_cols)
+        .sink_csv(out_path, separator="\t")
+    )
+    return out_path
 
 
 def munge_sumstats(
@@ -163,6 +379,8 @@ def munge_sumstats(
     info_col: str | None = None,
     run: bool = True,
     runner: LDSCRunner | None = None,
+    drop_allna_columns: bool = True,
+    _allna_chunksize: int = 1_000_000,
     **kwargs,
 ) -> str | None:
     """
@@ -184,10 +402,21 @@ def munge_sumstats(
         this will be used to verify it. If there's no sample size column, this will
         be added to all SNPs.
     merge_alleles : str, optional
-        Path to reference allele file (e.g., w_hm3.snplist) for aligning alleles
-        and removing strand-ambiguous SNPs. Recommended for downstream analysis.
+        Path to a reference allele file with columns ``SNP A1 A2`` (e.g. the
+        classic ``w_hm3.snplist``). This is a filter, not an alignment
+        step: ``munge_sumstats.py`` drops any SNP whose (A1, A2) pair
+        has no valid correspondence to the reference's pair (including
+        strand-ambiguous ones), but every SNP it keeps has its A1/A2/Z
+        taken verbatim from ``sumstats_file``.
+        cellink never invokes ldsc's own ``--merge-alleles`` flag. Passing ``merge_alleles`` here instead
+        runs :func:`filter_sumstats_by_merge_alleles` first (a from-scratch
+        reimplementation of the same filtering logic, keeping the identical
+        final SNP set), then calls plain ``munge_sumstats.py`` without the
+        flag on the result. 
     snplist : str, optional
-        Path to file with SNP IDs to keep. Only SNPs in this list will be retained.
+        Non-functional in the pinned ldsc version (1.0.1); passing it
+        raises ``ValueError``. Pass a 3-column file via ``merge_alleles``
+        instead.
     info_min : float, default 0.9
         Minimum INFO score for SNP inclusion. SNPs with INFO < info_min are removed.
     maf_min : float, default 0.01
@@ -212,6 +441,8 @@ def munge_sumstats(
         Name of the sample size column if non-standard (default: "N")
     info_col : str, optional
         Name of the INFO score column if non-standard (default: "INFO")
+    drop_allna_columns : bool, default True
+        Set to False to pass the file through unmodified.
     run : bool, default True
         Whether to execute the command or just return it
     runner : LDSCRunner, optional
@@ -278,24 +509,54 @@ def munge_sumstats(
     Notes
     -----
     - The function expects summary statistics files to follow standard GWAS format
-    - Strand-ambiguous SNPs (A/T or G/C) are removed when merge_alleles is used
+    - Strand-ambiguous SNPs (A/T or G/C) are always removed, with or without merge_alleles.
+      merge_alleles adds an *additional* reference-correspondence filter on top of this;
+      it is not what enables strand-ambiguous filtering in the first place
     - The output file will be gzipped and named {out_prefix}.sumstats.gz
-    - It's highly recommended to use merge_alleles with a reference panel (e.g., HapMap3)
-      to ensure proper allele alignment
+    - merge_alleles only *filters out* SNPs with no valid allele correspondence to the
+      reference; it does not rewrite/align the alleles or flip signs of the SNPs it keeps
+      (see the merge_alleles parameter above). Using it reduces false strand-ambiguous
+      hits but does not by itself guarantee two munged files are in consistent orientation
+    - merge_alleles never invokes ldsc's own --merge-alleles flag; see the merge_alleles
+      parameter above for what cellink does instead
     - For binary traits, signed_sumstats should typically be ("OR", 1) or ("BETA", 0)
     - For quantitative traits, signed_sumstats is typically ("BETA", 0) or ("Z", 0)
     """
+    if snplist is not None:
+        raise ValueError(
+            "`snplist` does not do a lenient SNP-ID-only filter: munge_sumstats.py (ldsc 1.0.1) has "
+            "no standalone '--merge' flag, only '--merge-alleles'. Passing '--merge <file>' on the "
+            "command line is resolved by argparse as an abbreviation of '--merge-alleles', so this "
+            "parameter would inherit that flag's 3-column 'SNP A1 A2' requirement rather "
+            "than filtering by ID alone. Pass a 3-column file via `merge_alleles=` instead."
+        )
+
     if runner is None:
         runner = get_ldsc_runner()
+
+    _ensure_out_prefix_dir(out_prefix)
+
+    if drop_allna_columns:
+        sumstats_file = _drop_allna_columns(sumstats_file, f"{out_prefix}.sanitized_input.tsv", _allna_chunksize)
+
+    _validate_sumstats_pre_munge(
+        sumstats_file, p_col=p_col, snp_col=snp_col, merge_alleles=merge_alleles
+    )
+
+    if merge_alleles is not None:
+        sumstats_file = filter_sumstats_by_merge_alleles(
+            sumstats_file,
+            merge_alleles,
+            f"{out_prefix}.merge_alleles_filtered.tsv",
+            snp_col=snp_col,
+            a1_col=a1_col,
+            a2_col=a2_col,
+        )
 
     cmd = f"{runner.munge_command} --sumstats {sumstats_file} --out {out_prefix}"
 
     if n_samples is not None:
         cmd += f" --N {n_samples}"
-    if merge_alleles is not None:
-        cmd += f" --merge-alleles {merge_alleles}"
-    if snplist is not None:
-        cmd += f" --merge {snplist}"
     if info_min != 0.9:
         cmd += f" --info-min {info_min}"
     if maf_min != 0.01:
@@ -357,6 +618,8 @@ def _run_ldsc_estimate_ld_scores(
     """Estimate LD Scores from genotype data."""
     if runner is None:
         runner = get_ldsc_runner()
+
+    _ensure_out_prefix_dir(out_prefix)
 
     cmd = f"{runner.ldsc_command} --bfile {bfile_prefix} --l2 --out {out_prefix}"
 
@@ -583,6 +846,107 @@ def estimate_ld_scores_from_donor_data(
     return results
 
 
+def _read_M_line(path: str) -> list[float]:
+    with open(path) as f:
+        return [float(z) for z in f.readline().split()]
+
+
+def _combine_one_chr_prefix(
+    chr_prefix: str,
+    out_prefix: str,
+    num_chr: int,
+    combine_annot: bool,
+    combine_frq: bool,
+    combine_ldscore: bool = True,
+) -> None:
+    """
+    Combine one chromosome-split LD score prefix into a single non-chr prefix.
+    """
+    _ensure_out_prefix_dir(out_prefix)
+
+    if combine_ldscore:
+        ld_frames = [pd.read_csv(f"{chr_prefix}{i}.l2.ldscore.gz", sep=r"\s+") for i in range(1, num_chr + 1)]
+        ld_combined = pd.concat(ld_frames)[ld_frames[0].columns]
+        ld_combined.to_csv(f"{out_prefix}.l2.ldscore.gz", sep="\t", index=False, compression="gzip")
+
+        for suffix in [".l2.M", ".l2.M_5_50"]:
+            if not os.path.isfile(f"{chr_prefix}1{suffix}"):
+                continue
+            total = None
+            for i in range(1, num_chr + 1):
+                values = _read_M_line(f"{chr_prefix}{i}{suffix}")
+                total = values if total is None else [a + b for a, b in zip(total, values)]
+            with open(f"{out_prefix}{suffix}", "w") as f:
+                f.write("\t".join(str(v) for v in total) + "\n")
+
+    if combine_annot:
+        annot_frames = [pd.read_csv(f"{chr_prefix}{i}.annot.gz", sep=r"\s+") for i in range(1, num_chr + 1)]
+        annot_combined = pd.concat(annot_frames)[annot_frames[0].columns]
+        annot_combined.to_csv(f"{out_prefix}.annot.gz", sep="\t", index=False, compression="gzip")
+
+    if combine_frq:
+        frq_frames = [pd.read_csv(f"{chr_prefix}{i}.frq", sep=r"\s+") for i in range(1, num_chr + 1)]
+        frq_combined = pd.concat(frq_frames)[frq_frames[0].columns]
+        frq_combined.to_csv(f"{out_prefix}.frq", sep="\t", index=False)
+
+
+def combine_chr_ld_scores(
+    chr_prefix: str,
+    out_dir: str,
+    num_chr: int = 22,
+    combine_annot: bool = False,
+    combine_frq: bool = False,
+    combine_ldscore: bool = True,
+) -> str:
+    """
+    Combine chromosome-split LDSC LD score files into single non-chr-split files.
+
+    Parameters
+    ----------
+    chr_prefix : str
+        Prefix(es) as passed to --ref-ld-chr / --w-ld-chr / --frqfile-chr.
+        May be a single prefix or multiple comma-separated prefixes (as used
+        with --overlap-annot to combine a baseline panel with a custom
+        annotation, e.g. "baselineLD.,my_annotation.").
+    out_dir : str
+        Directory to write the combined files into. Each comma-separated
+        input prefix gets its own combined output file, named after the
+        last path component of that prefix.
+    num_chr : int, default 22
+        Number of chromosomes the input is split across.
+    combine_annot : bool, default False
+        Also combine the matching .annot.gz files (needed for --overlap-annot).
+    combine_frq : bool, default False
+        Also combine the matching .frq files (needed for --overlap-annot's
+        --frqfile / --frqfile-chr).
+    combine_ldscore : bool, default True
+        Combine the .l2.ldscore.gz (+ .l2.M/.l2.M_5_50 if present) files.
+        Set False when ``chr_prefix`` is a frqfile_chr prefix: allele-frequency
+        files have no .l2.ldscore.gz companion, so combining it would try to
+        read a file that does not exist for that prefix.
+
+    Returns
+    -------
+    str
+        The new, comma-separated (if the input was) non-chr prefix string,
+        ready to pass to --ref-ld / --w-ld / --frqfile.
+
+    Examples
+    --------
+    >>> combined = combine_chr_ld_scores("baselineLD.,my_annot.", out_dir="combined_ld", combine_annot=True)
+    >>> combined
+    'combined_ld/baselineLD,combined_ld/my_annot'
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    combined_prefixes = []
+    for one_prefix in chr_prefix.split(","):
+        name = Path(one_prefix.rstrip(".")).name or "ld"
+        out_prefix = os.path.join(out_dir, name)
+        _combine_one_chr_prefix(one_prefix, out_prefix, num_chr, combine_annot, combine_frq, combine_ldscore)
+        combined_prefixes.append(out_prefix)
+    return ",".join(combined_prefixes)
+
+
 def _run_ldsc_heritability(
     sumstats_file: str,
     ref_ld_chr: str,
@@ -590,6 +954,8 @@ def _run_ldsc_heritability(
     out_prefix: str,
     overlap_annot: bool = False,
     frqfile_chr: str | None = None,
+    combine_chromosomes: bool = False,
+    num_chr: int = 22,
     not_m_5_50: bool = False,
     print_coefficients: bool = False,
     print_delete_vals: bool = False,
@@ -605,17 +971,30 @@ def _run_ldsc_heritability(
     if runner is None:
         runner = get_ldsc_runner()
 
-    cmd = (
-        f"{runner.ldsc_command} --h2 {sumstats_file} --ref-ld-chr {ref_ld_chr} --w-ld-chr {w_ld_chr} --out {out_prefix}"
-    )
+    _ensure_out_prefix_dir(out_prefix)
+
+    ref_ld_flag, w_ld_flag, frqfile_flag = "--ref-ld-chr", "--w-ld-chr", "--frqfile-chr"
+    if combine_chromosomes:
+        combined_dir = f"{out_prefix}_combined_ld"
+        ref_ld_chr = combine_chr_ld_scores(
+            ref_ld_chr, combined_dir, num_chr=num_chr, combine_annot=overlap_annot
+        )
+        w_ld_chr = combine_chr_ld_scores(w_ld_chr, combined_dir, num_chr=num_chr)
+        if frqfile_chr is not None:
+            frqfile_chr = combine_chr_ld_scores(
+                frqfile_chr, combined_dir, num_chr=num_chr, combine_frq=True, combine_ldscore=False
+            )
+        ref_ld_flag, w_ld_flag, frqfile_flag = "--ref-ld", "--w-ld", "--frqfile"
+
+    cmd = f"{runner.ldsc_command} --h2 {sumstats_file} {ref_ld_flag} {ref_ld_chr} {w_ld_flag} {w_ld_chr} --out {out_prefix}"
 
     if overlap_annot:
         cmd += " --overlap-annot"
         if frqfile_chr is None:
-            logger.warning("--overlap-annot requires --frqfile-chr")
+            logger.warning(f"--overlap-annot requires {frqfile_flag}")
 
     if frqfile_chr is not None:
-        cmd += f" --frqfile-chr {frqfile_chr}"
+        cmd += f" {frqfile_flag} {frqfile_chr}"
 
     if not_m_5_50:
         cmd += " --not-M-5-50"
@@ -664,6 +1043,8 @@ def estimate_heritability(
     out_prefix: str,
     overlap_annot: bool = False,
     frqfile_chr: str | None = None,
+    combine_chromosomes: bool = False,
+    num_chr: int = 22,
     not_m_5_50: bool = False,
     print_coefficients: bool = False,
     print_delete_vals: bool = False,
@@ -695,6 +1076,12 @@ def estimate_heritability(
         Use overlapping annotation model
     frqfile_chr : str, optional
         Prefix for allele frequency files (required with overlap_annot)
+    combine_chromosomes : bool, default False
+        Combine the per-chromosome ref_ld_chr/w_ld_chr/frqfile_chr files into
+        single non-chr-split files ourselves.
+    num_chr : int, default 22
+        Number of chromosomes ref_ld_chr/w_ld_chr/frqfile_chr are split across.
+        Only used when combine_chromosomes=True.
     not_m_5_50 : bool, default False
         Don't restrict to common SNPs for estimating h2
     print_coefficients : bool, default False
@@ -752,6 +1139,8 @@ def estimate_heritability(
         out_prefix=out_prefix,
         overlap_annot=overlap_annot,
         frqfile_chr=frqfile_chr,
+        combine_chromosomes=combine_chromosomes,
+        num_chr=num_chr,
         not_m_5_50=not_m_5_50,
         print_coefficients=print_coefficients,
         print_delete_vals=print_delete_vals,
@@ -795,6 +1184,8 @@ def _run_ldsc_genetic_correlation(
     """Estimate genetic correlation using LD Score regression."""
     if runner is None:
         runner = get_ldsc_runner()
+
+    _ensure_out_prefix_dir(out_prefix)
 
     sumstats_str = ",".join(sumstats_files)
     cmd = (
@@ -1000,6 +1391,8 @@ def _run_ldsc_make_annot(
     if gene_set_file is None and bed_file is None:
         raise ValueError("Either gene_set_file or bed_file must be provided")
 
+    _ensure_out_prefix_dir(annot_file)
+
     cmd = f"{runner.make_annot_command} --bimfile {bimfile} --annot-file {annot_file}"
 
     if gene_set_file is not None:
@@ -1060,6 +1453,16 @@ def _expand_annot_to_full_format(bimfile: str, annot_file: str) -> None:
     logger.info("Expanded annotation to full format: %s", annot_file)
 
 
+def _normalize_chr_label(chrom: str) -> str:
+    """
+    Normalize a single chromosome label for cross-file comparison.
+    """
+    label = str(chrom).strip().upper()
+    if label.startswith("CHR"):
+        label = label[3:]
+    return {"23": "X", "24": "Y", "25": "X", "26": "MT", "M": "MT"}.get(label, label)
+
+
 def make_annot_from_bimfile(
     bimfile: str,
     annot_file: str,
@@ -1072,6 +1475,8 @@ def make_annot_from_bimfile(
     score_agg: Literal["max", "sum", "mean"] = "max",
     gene_coord_file: str | None = None,
     windowsize: int = 100_000,
+    gene_coord_genome_build: str | None = None,
+    bim_genome_build: str | None = None,
     **kwargs,
 ) -> dict[str, Any]:
     """
@@ -1079,8 +1484,8 @@ def make_annot_from_bimfile(
 
     Pass ``scores`` for a **continuous** annotation (each SNP gets the aggregated
     per-gene score of overlapping gene windows). Omit ``scores`` and supply
-    ``gene_set_file`` or ``bed_file`` for a **binary** (0/1) annotation via LDSC's
-    ``make_annot.py``.
+    ``gene_set_file`` or ``bed_file`` for a **binary** (0/1, or an overlap count
+    under ``nomerge``) annotation, computed by calling the real ``make_annot.py``.
 
     Both modes write the same five-column format (CHR, BP, SNP, CM, ANNOT), so
     downstream calls are identical regardless of mode.
@@ -1107,10 +1512,22 @@ def make_annot_from_bimfile(
     score_agg : {"max", "sum", "mean"}, default "max"
         *Continuous mode.* Aggregation when multiple gene windows overlap a SNP.
     gene_coord_file : str, optional
-        Gene coordinate file. Required in continuous mode; optional in binary mode.
+        Gene coordinate file. Required in continuous mode; required in binary
+        gene-set mode (optional/unused in binary bed-file mode).
         Accepts headed (GENE/CHR/START/END) or headless 4-column format.
     windowsize : int, default 100_000
-        Flanking window in bp around each gene body.
+        Flanking window in bp around each gene body (gene-set binary mode and
+        continuous mode only; bed-file mode uses regions as given).
+    gene_coord_genome_build : str, optional
+        Genome build (e.g. ``"GRCh37"``, ``"GRCh38"``) of ``gene_coord_file`` /
+        ``bed_file``. If both this and ``bim_genome_build`` are given and
+        differ, raises instead of building a nonsense annotation. Neither is
+        required, but pass both: a GRCh38 gene-coordinate file intersected
+        against a GRCh37 1000G bim produces a non-empty, plausible-looking
+        annotation with the correct gene names matched but every coordinate
+        wrong, and that cannot be detected from the output alone.
+    bim_genome_build : str, optional
+        Genome build of ``bimfile``. See ``gene_coord_genome_build`` above.
     **kwargs
         *Binary mode.* Extra flags forwarded to ``make_annot.py``.
 
@@ -1143,6 +1560,24 @@ def make_annot_from_bimfile(
     ...     windowsize=100_000,
     ... )
     """
+    if gene_coord_genome_build is not None and bim_genome_build is not None:
+        if gene_coord_genome_build != bim_genome_build:
+            raise ValueError(
+                f"Genome build mismatch: gene_coord_file/bed_file is {gene_coord_genome_build!r} but "
+                f"bimfile is {bim_genome_build!r}. Intersecting gene/region coordinates from one build "
+                "against a bim file from another produces a wrong-but-plausible-looking "
+                "annotation (matched gene names, wrong positions) rather than an obvious error. Lift "
+                "one of them over to match the other before calling this function."
+            )
+    elif (gene_coord_file is not None or bed_file is not None) and (
+        gene_coord_genome_build is None or bim_genome_build is None
+    ):
+        logger.warning(
+            "make_annot_from_bimfile: gene_coord_genome_build/bim_genome_build were not both provided, "
+            "so no genome-build consistency check was performed. If gene_coord_file/bed_file and bimfile "
+            "are from different genome builds, this will silently produce a wrong annotation."
+        )
+
     if scores is not None:
         if gene_coord_file is None:
             raise ValueError("gene_coord_file is required for continuous annotations.")
@@ -1170,6 +1605,12 @@ def make_annot_from_bimfile(
             "n_nonzero_snps": n_nonzero,
             "n_genes_matched": n_matched,
         }
+
+    if gene_set_file is None and bed_file is None:
+        raise ValueError("Either scores, gene_set_file, or bed_file must be provided")
+
+    if gene_set_file is not None and gene_coord_file is None:
+        raise ValueError("gene_coord_file is required for binary gene-set annotations.")
 
     if runner is None:
         runner = get_ldsc_runner()
@@ -1306,6 +1747,29 @@ def make_annot_from_donor_data(
                 os.remove(fname)
                 logger.info("Cleaned up: %s", fname)
     return results
+
+
+def _colocate_annot_file(annot_file: str, out_prefix: str) -> str | None:
+    """
+    Ensure the .annot[.gz/.bz2] file is reachable at out_prefix, not just at annot_file.
+    """
+    marker = ".annot"
+    idx = annot_file.rfind(marker)
+    if idx == -1:
+        return None
+    suffix = annot_file[idx:]
+    target = out_prefix + suffix
+    if os.path.abspath(target) == os.path.abspath(annot_file):
+        return None
+    if os.path.isfile(target):
+        return None
+
+    target_dir = os.path.dirname(target)
+    if target_dir:
+        os.makedirs(target_dir, exist_ok=True)
+    shutil.copyfile(annot_file, target)
+    logger.info(f"Copied annotation file to {target} so --overlap-annot can find it alongside the LD scores")
+    return target
 
 
 def compute_ld_scores_with_annotations_from_bimfile(
@@ -1470,14 +1934,20 @@ def compute_ld_scores_with_annotations_from_bimfile(
         logger.info(f"Computing LD scores with annotations: {cmd}")
         runner.run_command(cmd, file_paths=file_paths, check=True)
 
+        colocated_annot = _colocate_annot_file(annot_file, out_prefix)
+
+        files_created = [
+            f"{out_prefix}.l2.ldscore.gz",
+            f"{out_prefix}.l2.M",
+            f"{out_prefix}.l2.M_5_50",
+            f"{out_prefix}.log",
+        ]
+        if colocated_annot is not None:
+            files_created.append(colocated_annot)
+
         return {
             "ld_scores_file": f"{out_prefix}.l2.ldscore.gz",
-            "files_created": [
-                f"{out_prefix}.l2.ldscore.gz",
-                f"{out_prefix}.l2.M",
-                f"{out_prefix}.l2.M_5_50",
-                f"{out_prefix}.log",
-            ],
+            "files_created": files_created,
         }
     else:
         return {"command": runner._build_container_command(cmd, file_paths)}
@@ -1866,10 +2336,10 @@ def _compute_continuous_annot_for_bimfile(
     Returns DataFrame with columns: CHR, BP, SNP, CM, ANNOT.
     """
     bim = pd.read_csv(bimfile, sep="\t", header=None, names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
-    chrom = str(bim["CHR"].iloc[0])
+    chrom = _normalize_chr_label(bim["CHR"].iloc[0])
     scores_idx = scores.copy()
     scores_idx.index = scores_idx.index.astype(str)
-    chr_genes = gene_coords[gene_coords["chr"].astype(str) == chrom].copy()
+    chr_genes = gene_coords[gene_coords["chr"].astype(str).map(_normalize_chr_label) == chrom].copy()
     chr_genes = chr_genes.merge(scores_idx.rename("score").to_frame(), left_on="gene", right_index=True, how="inner")
     chr_genes["win_start"] = chr_genes["start"] - windowsize
     chr_genes["win_end"] = chr_genes["end"] + windowsize

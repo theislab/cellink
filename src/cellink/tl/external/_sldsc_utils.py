@@ -23,9 +23,9 @@ def preprocess_for_sldsc(
     filter_protein_coding: bool = True,
     filter_expressed: bool = True,
     filter_mhc: bool = True,
-    mhc_chr: str = None,
-    mhc_start: int = None,
-    mhc_end: int = None,
+    mhc_chr: str = "6",
+    mhc_start: int = 25_000_000,
+    mhc_end: int = 34_000_000,
     fetch_annotation: bool = True,
     genome_build: Literal["GRCh37", "GRCh38"] = "GRCh37",
     gene_identifier_mode: str = "name",
@@ -62,11 +62,14 @@ def preprocess_for_sldsc(
     filter_mhc
         Whether to exclude genes in the MHC region (chr6:25-34Mb by default).
     mhc_chr
-        Chromosome containing MHC region (default: "6").
+        Chromosome containing the MHC region (default: ``"6"``).
     mhc_start
-        Start position of MHC region in base pairs.
+        Start position of the MHC region in base pairs (default: 25,000,000,
+        GRCh37 coordinates). Adjust if your annotation is on GRCh38, where
+        the equivalent region is shifted by a few hundred kb.
     mhc_end
-        End position of MHC region in base pairs.
+        End position of the MHC region in base pairs (default: 34,000,000,
+        GRCh37 coordinates; see ``mhc_start``).
     fetch_annotation
         Whether to fetch gene annotations from Ensembl BioMart.
         If False, expects existing annotation columns in adata.var.
@@ -173,7 +176,7 @@ def preprocess_for_sldsc(
     masks["unique"] = pd.Series(True, index=adata.var_names)
 
     if filter_mhc and all(c for c in [chr_col, start_col, end_col]):
-        in_mhc_chr = adata.var[chr_col] == str(mhc_chr)
+        in_mhc_chr = _normalize_chromosome(adata.var[chr_col]) == _normalize_chromosome(pd.Series([mhc_chr])).iloc[0]
         overlaps_mhc = in_mhc_chr & (adata.var[end_col] >= mhc_start) & (adata.var[start_col] <= mhc_end)
         masks["not_mhc"] = ~overlaps_mhc.fillna(False)
         logger.info(f"Non-MHC genes: {masks['not_mhc'].sum()}")

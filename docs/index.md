@@ -29,6 +29,7 @@
 
 tutorials/index.md
 api/index.md
+donordata_format_spec.md
 changelog.md
 contributing.md
 references.md
