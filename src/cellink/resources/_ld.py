@@ -1,3 +1,4 @@
+import logging
 import shutil
 import tarfile
 from pathlib import Path
@@ -5,6 +6,80 @@ from pathlib import Path
 import pandas as pd
 
 from cellink.resources._utils import _download_file, _load_config, get_data_home
+
+logger = logging.getLogger(__name__)
+
+
+_POPULATION_ANCESTRY_MATCH = {
+    "EUR": {"european"},
+    "EAS": {"east asian"},
+}
+
+
+def check_ancestry_match(
+    population: str,
+    gwas_ancestry: str | list[str] | None,
+    *,
+    on_mismatch: str = "warn",
+) -> None:
+    """
+    Warn (or raise) if a chosen 1000G reference-panel population doesn't
+    plausibly match a GWAS's actual sample ancestry.
+
+    None of ``get_1000genomes_ld_scores``/``_ld_weights``/``_plink_files``/
+    ``_frq`` validate this on their own; ``population`` is just a string used
+    to look up a download URL. Nothing else stops (or warns about) running an
+    East-Asian-ancestry GWAS's summary statistics against the EUR panel, which
+    biases LD-score regression and any S-LDSC/sc-linker heritability estimate
+    built on top of it.
+
+    Parameters
+    ----------
+    population
+        The 1000G panel population code being used (e.g. ``"EUR"``, ``"EAS"``).
+    gwas_ancestry
+        The GWAS's own declared sample ancestry/ancestries, if known. Pass ``None`` to
+        skip the check silently (there is nothing to compare against).
+    on_mismatch : ``"warn"`` | ``"error"`` | ``"ignore"``
+        What to do on a detected mismatch. Default ``"warn"`` rather than
+        ``"error"`` since ancestry categorization is inherently approximate
+        and some real analyses deliberately use a mismatched panel (e.g. for
+        a sensitivity check).
+    """
+    if gwas_ancestry is None or on_mismatch == "ignore":
+        return
+
+    ancestries = [gwas_ancestry] if isinstance(gwas_ancestry, str) else list(gwas_ancestry)
+    ancestries_norm = {a.strip().lower() for a in ancestries if a}
+    if not ancestries_norm:
+        return
+
+    matching_pops = {
+        pop for pop, accepted in _POPULATION_ANCESTRY_MATCH.items() if any(kw in a for a in ancestries_norm for kw in accepted)
+    }
+
+    if population in matching_pops:
+        return
+
+    if matching_pops:
+        suggestion = f"consider population={sorted(matching_pops)!r} instead"
+    else:
+        suggestion = (
+            "cellink does not ship a matching 1000G panel for this ancestry at all "
+            f"(only {sorted(_POPULATION_ANCESTRY_MATCH)} are available), so results from any panel "
+            "should be treated as approximate"
+        )
+
+    msg = (
+        f"Ancestry mismatch: population={population!r} was requested, but the GWAS's declared sample "
+        f"ancestry is {sorted(ancestries_norm)}, which does not match population={population!r}'s expected "
+        f"ancestry ({sorted(_POPULATION_ANCESTRY_MATCH.get(population, set()))}). Using a mismatched LD "
+        "reference panel biases LD-score regression and any heritability/enrichment estimate built on it; "
+        f"{suggestion}. Pass on_mismatch='ignore' if this is intentional."
+    )
+    if on_mismatch == "error":
+        raise ValueError(msg)
+    logger.warning(msg)
 
 
 def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = False) -> None:
@@ -57,6 +132,8 @@ def get_1000genomes_ld_scores(
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
+    gwas_ancestry: str | list[str] | None = None,
+    on_ancestry_mismatch: str = "warn",
 ) -> tuple[pd.DataFrame, pd.DataFrame, str] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes linkage disequilibrium (LD) scores.
@@ -77,6 +154,14 @@ def get_1000genomes_ld_scores(
         If True, returns the path to the extracted files and file prefix instead of DataFrames.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist locally.
+    gwas_ancestry : str or list of str, optional
+        The GWAS's own declared sample ancestry (e.g. from a GWAS Catalog
+        study's ``samples[].sample_ancestry_category``). If given, warns (or
+        raises, per ``on_ancestry_mismatch``) when it doesn't plausibly match
+        ``population``, see :func:`check_ancestry_match`. 
+    on_ancestry_mismatch : str, default="warn"
+        ``"warn"`` | ``"error"`` | ``"ignore"``, forwarded to
+        :func:`check_ancestry_match`.
 
     Returns
     -------
@@ -100,6 +185,7 @@ def get_1000genomes_ld_scores(
     ValueError
         If `population` is not one of the populations listed in the configuration.
     """
+    check_ancestry_match(population, gwas_ancestry, on_mismatch=on_ancestry_mismatch)
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_ld_scores_{population}"
     DATA.mkdir(exist_ok=True)
@@ -144,6 +230,8 @@ def get_1000genomes_ld_weights(
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
+    gwas_ancestry: str | list[str] | None = None,
+    on_ancestry_mismatch: str = "warn",
 ) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes LD weights.
@@ -164,6 +252,10 @@ def get_1000genomes_ld_weights(
         If True, returns the path to the extracted files and file prefix instead of a DataFrame.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist locally.
+    gwas_ancestry : str or list of str, optional
+        See :func:`get_1000genomes_ld_scores`.
+    on_ancestry_mismatch : str, default="warn"
+        See :func:`get_1000genomes_ld_scores`.
 
     Returns
     -------
@@ -184,6 +276,7 @@ def get_1000genomes_ld_weights(
     ValueError
         If `population` is not one of the populations listed in the configuration.
     """
+    check_ancestry_match(population, gwas_ancestry, on_mismatch=on_ancestry_mismatch)
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_ld_weights_{population}"
     DATA.mkdir(exist_ok=True)
@@ -192,7 +285,7 @@ def get_1000genomes_ld_weights(
     if population not in config["ld_weights"]:
         raise ValueError("population must be one of {'EUR', 'EAS'}")
 
-    prefix = config["ld_weights"]["prefix"]
+    prefix = config["ld_weights"][population]["prefix"]
     tgz_path = DATA / config["ld_weights"][population]["filename"]
 
     _download_file(config["ld_weights"][population]["url"], tgz_path, checksum=None)
@@ -212,7 +305,7 @@ def get_1000genomes_ld_weights(
 
     weights = pd.concat(weights, ignore_index=True)
 
-    return annot, weights
+    return weights
 
 
 def get_1000genomes_plink_files(
@@ -220,6 +313,8 @@ def get_1000genomes_plink_files(
     population: str = "EUR",
     data_home: str | Path | None = None,
     refresh: bool = False,
+    gwas_ancestry: str | list[str] | None = None,
+    on_ancestry_mismatch: str = "warn",
 ) -> Path:
     """Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
 
@@ -236,6 +331,10 @@ def get_1000genomes_plink_files(
         Root directory where data will be stored. Defaults to user-specific cache directory.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist locally.
+    gwas_ancestry : str or list of str, optional
+        See :func:`get_1000genomes_ld_scores`.
+    on_ancestry_mismatch : str, default="warn"
+        See :func:`get_1000genomes_ld_scores`.
 
     Returns
     -------
@@ -258,6 +357,7 @@ def get_1000genomes_plink_files(
     >>> # plink_dir / "1000G.EUR.QC.1.bim"
     >>> # plink_dir / "1000G.EUR.QC.1.fam"
     """
+    check_ancestry_match(population, gwas_ancestry, on_mismatch=on_ancestry_mismatch)
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_plink_{population}"
     DATA.mkdir(exist_ok=True)
@@ -266,7 +366,7 @@ def get_1000genomes_plink_files(
     if population not in config["plink_files"]:
         raise ValueError(f"population must be one of {list(config['plink_files'].keys())}")
 
-    prefix = config["plink_files"]["prefix"]
+    prefix = config["plink_files"][population]["prefix"]
     tgz_path = DATA / config["plink_files"][population]["filename"]
 
     _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None)
@@ -281,6 +381,8 @@ def get_1000genomes_frq(
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
+    gwas_ancestry: str | list[str] | None = None,
+    on_ancestry_mismatch: str = "warn",
 ) -> tuple[Path, str]:
     """
     Download and extract 1000 Genomes allele frequency files.
@@ -302,6 +404,10 @@ def get_1000genomes_frq(
         files are passed as a prefix to ldsc.py rather than loaded into memory.
     refresh : bool, default=False
         If True, re-downloads and re-extracts files even if they already exist.
+    gwas_ancestry : str or list of str, optional
+        See :func:`get_1000genomes_ld_scores`.
+    on_ancestry_mismatch : str, default="warn"
+        See :func:`get_1000genomes_ld_scores`.
 
     Returns
     -------
@@ -323,6 +429,7 @@ def get_1000genomes_frq(
     >>> frq_dir, frq_prefix = get_1000genomes_frq(population="EUR", return_path=True)
     >>> frqfile_chr = str(frq_dir / frq_prefix)  # passed as --frqfile-chr
     """
+    check_ancestry_match(population, gwas_ancestry, on_mismatch=on_ancestry_mismatch)
     data_home = get_data_home(data_home)
     DATA = data_home / f"1000genomes_frq_{population}"
     DATA.mkdir(exist_ok=True)
@@ -349,8 +456,7 @@ def get_1000genomes_hapmap3(
     Download the HapMap3 SNP list (no MHC region).
 
     Used as ``--print-snps`` when computing per-annotation LD scores to
-    restrict output to well-imputed HapMap3 SNPs, and as ``--merge-alleles``
-    during sumstats munging.
+    restrict output to well-imputed HapMap3 SNPs.
 
     Downloaded from Zenodo record 10515792 (``hm3_no_MHC.list.txt``).
 
@@ -381,6 +487,79 @@ def get_1000genomes_hapmap3(
     dest = DATA / config["hapmap3"]["filename"]
 
     _download_file(config["hapmap3"]["url"], dest, checksum=None)
+
+    return dest
+
+
+def get_1000genomes_merge_alleles(
+    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    population: str = "EUR",
+    data_home: str | Path | None = None,
+    refresh: bool = False,
+    chromosomes: list[int] | None = None,
+) -> Path:
+    """
+    Build a genuine 3-column ``SNP A1 A2`` file usable for ``--merge-alleles``.
+
+    ``munge_sumstats.py`` requires exactly three columns (``SNP A1 A2``).
+    Neither this package's own Zenodo bundle nor the classic ``w_hm3.snplist``
+    hosting location provides such a file (see
+    :func:`get_1000genomes_hapmap3`); both are single-column SNP-ID-only
+    lists. This function builds an equivalent from data cellink already
+    downloads: it restricts the 1000G ``.bim`` files
+    (:func:`get_1000genomes_plink_files`) to the HapMap3 SNP list
+    (:func:`get_1000genomes_hapmap3`) and writes their ``SNP``, ``A1``, ``A2``
+    columns, so it needs no download beyond what
+    ``get_1000genomes_plink_files``/``get_1000genomes_hapmap3`` already need.
+
+    Parameters
+    ----------
+    config_path : str or pathlib.Path
+        Path to YAML configuration file (used for both the plink files and
+        the HapMap3 list lookups).
+    population : str, default='EUR'
+        Population code for the underlying PLINK panel.
+    data_home : str or pathlib.Path, optional
+        Root directory where data will be stored.
+    refresh : bool, default=False
+        If True, re-downloads/rebuilds even if a cached file already exists.
+    chromosomes : list of int, optional
+        Chromosomes to include. Defaults to autosomes 1-22.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to a ``merge_alleles_{population}.snplist`` file with columns
+        ``SNP A1 A2``, suitable for ``munge_sumstats(merge_alleles=...)``.
+
+    Examples
+    --------
+    >>> merge_alleles = get_1000genomes_merge_alleles(population="EUR")
+    >>> munge_sumstats(sumstats_file=..., merge_alleles=str(merge_alleles), ...)
+    """
+    data_home = get_data_home(data_home)
+    dest = data_home / f"merge_alleles_{population}.snplist"
+
+    if dest.exists() and not refresh:
+        return dest
+
+    plink_dir, plink_prefix = get_1000genomes_plink_files(config_path=config_path, population=population, data_home=data_home)
+    hapmap3_path = get_1000genomes_hapmap3(config_path=config_path, data_home=data_home)
+    hapmap3_snps = set(pd.read_csv(hapmap3_path, header=None)[0])
+
+    chromosomes = chromosomes or list(range(1, 23))
+    frames = []
+    for chrom in chromosomes:
+        bim_path = Path(plink_dir) / f"{plink_prefix}{chrom}.bim"
+        if not bim_path.exists():
+            logger.warning(f"Skipping chromosome {chrom}: {bim_path} not found")
+            continue
+        bim = pd.read_csv(bim_path, sep=r"\s+", header=None, names=["CHR", "SNP", "CM", "BP", "A1", "A2"])
+        frames.append(bim.loc[bim["SNP"].isin(hapmap3_snps), ["SNP", "A1", "A2"]])
+
+    merged = pd.concat(frames, ignore_index=True).drop_duplicates(subset="SNP")
+    merged.to_csv(dest, sep="\t", index=False)
+    logger.info(f"Wrote {len(merged):,} SNP/A1/A2 rows to {dest} (from 1000G {population} bim + HapMap3 list)")
 
     return dest
 

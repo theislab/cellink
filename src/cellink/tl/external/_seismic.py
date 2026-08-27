@@ -15,10 +15,12 @@ def run_seismic(
     adata: AnnData,
     magma_file: str | Path,
     cell_type_col: str,
-    n_pcs: int = 50,
     species: Literal["human", "mouse"] = "human",
+    mouse_gene_id_type: Literal["symbol", "ensembl"] = "symbol",
     min_genes: int = 250,
     min_cells: int = 50,
+    magma_gene_col: str = "GENE",
+    min_shared_genes: int = 200,
     influential_genes: bool = False,
     influential_cell_types: list[str] | None = None,
     top_n_associations: int = 20,
@@ -42,14 +44,20 @@ def run_seismic(
         Path to MAGMA gene-level summary statistics file.
     cell_type_col : str
         Column name in adata.obs containing cell type annotations.
-    n_pcs : int, default=50
-        Number of principal components to compute if not already present.
     species : {'human', 'mouse'}, default='human'
         Species of the single-cell data.
+    mouse_gene_id_type : {'symbol', 'ensembl'}, default='symbol'
+        Only used when ``species='mouse'``. ID type of ``adata.var_names``.
     min_genes : int, default=250
         Minimum number of genes for cell filtering.
     min_cells : int, default=50
         Minimum number of cells for gene filtering.
+    magma_gene_col : str, default="GENE"
+        Name of the gene-ID column in ``magma_file`` (MAGMA ``.genes.out``
+        output uses ``"GENE"``). 
+    min_shared_genes : int, default=200
+        Minimum number of genes that must be shared between ``adata.var_names``
+        and the MAGMA gene column.
     influential_genes : bool, default=False
         Whether to compute influential gene analysis for significant cell type-trait pairs.
     influential_cell_types : list of str, optional
@@ -115,6 +123,54 @@ def run_seismic(
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
 
+    if species == "human":
+        magma_df_genes = pd.read_csv(magma_file, sep=r"\s+")
+        if magma_gene_col not in magma_df_genes.columns:
+            raise ValueError(f"MAGMA file must have a '{magma_gene_col}' column; found {list(magma_df_genes.columns)}")
+
+        magma_genes_str = magma_df_genes[magma_gene_col].astype(str)
+        shared_genes = adata.var_names.intersection(magma_genes_str)
+        if len(shared_genes) < min_shared_genes:
+            raise ValueError(
+                f"Only {len(shared_genes)} genes shared between expression data and MAGMA output. "
+                "Check that gene identifiers match (gene symbols vs Ensembl IDs)."
+            )
+        logger.info(f"{len(shared_genes)} genes shared with MAGMA output")
+    elif mouse_gene_id_type == "symbol":
+        var_names = pd.Index(adata.var_names).astype(str)
+        letter_names = var_names[var_names.str.contains("[A-Za-z]", regex=True)]
+        if len(letter_names) > 0:
+            frac_all_upper = (letter_names == letter_names.str.upper()).mean()
+            if frac_all_upper > 0.8:
+                raise ValueError(
+                    f"{frac_all_upper:.0%} of adata.var_names are ALL-UPPERCASE (e.g. "
+                    f"{letter_names[letter_names == letter_names.str.upper()][0]!r}), which is not "
+                    "the MGI mouse gene symbol convention (mixed/title case, e.g. 'Trp53', "
+                    "'Cd8a'). This looks like human-style casing on what should be mouse symbols "
+                    "(e.g. from uppercasing during preprocessing, or genuinely human var_names "
+                    "mislabeled as species='mouse'), which seismicGWAS::translate_gene_ids() "
+                    "fails to match without warning. Fix the casing to MGI mouse "
+                    "symbols, or pass mouse_gene_id_type='ensembl' if var_names are actually "
+                    "Ensembl IDs, before calling run_seismic."
+                )
+        logger.warning(
+            "species='mouse': beyond the all-uppercase-casing check above, the rest of the "
+            "gene-overlap check is deferred to seismicGWAS's internal translate_gene_ids() step "
+            "inside R, which is silent even on near-total mismatch (it only raises/warns if "
+            "overlap is exactly 0 genes). Verify overlap yourself (e.g. via the R script's "
+            "stdout, or by pre-translating var_names to human orthologs and calling with "
+            "species='human' instead)."
+        )
+    else:
+        logger.warning(
+            "species='mouse', mouse_gene_id_type='ensembl': the gene-overlap check is deferred "
+            "to seismicGWAS's internal translate_gene_ids() step inside R, which is silent "
+            "even on near-total mismatch (it only raises/warns "
+            "if overlap is exactly 0 genes). Verify overlap yourself (e.g. via the R script's "
+            "stdout, or by pre-translating var_names to human orthologs and calling with "
+            "species='human' instead)."
+        )
+
     logger.info("Exporting data for R")
 
     if issparse(adata.X):
@@ -163,7 +219,7 @@ sscore <- calc_specificity(sce, ct_label_col="{cell_type_col}")
 
 cat("Translating gene IDs...\\n")
 # Translate gene IDs if needed
-{"sscore_hsa <- translate_gene_ids(sscore, from='mmu_symbol')" if species == "mouse" else "sscore_hsa <- sscore"}
+{f"sscore_hsa <- translate_gene_ids(sscore, from='mmu_{mouse_gene_id_type}')" if species == "mouse" else "sscore_hsa <- sscore"}
 
 cat("Loading MAGMA results...\\n")
 # Load MAGMA results

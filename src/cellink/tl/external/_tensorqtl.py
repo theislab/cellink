@@ -579,7 +579,9 @@ def run_tensorqtl(
     warn_monomorphic : bool, default=True
         If True, warnings are issued for monomorphic variants.
     n_pcs : int, default=50
-        Number of principal components to compute from single-cell expression data if PCA not already present.
+        Number of principal components to compute from single-cell expression data, donor-aggregated
+        (mean) into dd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
+        additional_covariates; otherwise unused.
     encode_sex : bool, default=True
         If True, includes donor sex as a covariate.
     encode_age : bool, default=True
@@ -653,9 +655,12 @@ def run_tensorqtl(
                 "own CLI/subprocess interface, only via cellink's Python-API re-implementation of cis_susie."
             )
 
-    if "X_pca" not in dd.C.obsm:
-        logger.info("Calculating PCA.")
-        sc.pp.pca(dd.C, n_comps=n_pcs)
+    if additional_covariates and "X_pca" in additional_covariates:
+        if "X_pca" not in dd.C.obsm:
+            logger.info("Calculating PCA.")
+            sc.pp.pca(dd.C, n_comps=n_pcs)
+        if "X_pca" not in dd.G.obsm:
+            dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
 

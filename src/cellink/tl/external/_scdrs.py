@@ -41,6 +41,7 @@ def run_scdrs(
     knn_n_pcs: int = 20,
     min_genes: int = 250,
     min_cells: int = 50,
+    min_overlap_genes: int = 10,
     prefix: str = None,
     save_results: bool = True,
     return_adata: bool = False,
@@ -100,6 +101,10 @@ def run_scdrs(
         Minimum number of genes for cell filtering.
     min_cells : int, default=50
         Minimum number of cells for gene filtering.
+    min_overlap_genes : int, default=10
+        Minimum number of a trait's gene-set genes that must be found in
+        ``adata.var_names``. Checked for every trait, for both the ``gs_file``
+        and ``gene_sets`` input paths. 
     prefix : str, optional
         Prefix for output files. Default is "scdrs".
     save_results : bool, default=True
@@ -172,15 +177,17 @@ def run_scdrs(
     covariate_list = []
 
     if encode_sex and "sex" in adata.obs.columns:
-        sex_codes = adata.obs.loc[adata.obs_names, "sex"].astype("category").cat.codes
-        if sex_codes.nunique() > 1:
+        sex_raw = adata.obs.loc[adata.obs_names, "sex"]
+        sex_codes = sex_raw.astype("category").cat.codes.astype(float)
+        sex_codes[sex_raw.isna()] = np.nan
+        if sex_codes.dropna().nunique() > 1:
             covariate_list.append(pd.DataFrame(sex_codes, columns=["sex"], index=adata.obs_names))
 
     if encode_age and "age" in adata.obs.columns:
         age_values = adata.obs.loc[adata.obs_names, "age"].values.astype(float)
-        age_std = age_values.std()
+        age_std = np.nanstd(age_values)
         if age_std > 0 and np.isfinite(age_std):
-            age_values = (age_values - age_values.mean()) / age_std
+            age_values = (age_values - np.nanmean(age_values)) / age_std
             covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=adata.obs_names))
 
     if additional_covariates:
@@ -201,7 +208,6 @@ def run_scdrs(
             gs_file,
             src_species=src_species,
             dst_species="human",
-            to_intersect=adata.var_names,
         )
         if trait_name is not None:
             dict_gs = {trait_name: dict_gs[trait_name]}
@@ -210,10 +216,25 @@ def run_scdrs(
 
     logger.info(f"Computing scDRS scores for {len(dict_gs)} trait(s)")
     dict_df_score = {}
+    var_names_set = set(adata.var_names)
 
     for trait in dict_gs:
         logger.info(f"Processing {trait}")
         gene_list, gene_weights = dict_gs[trait]
+
+        n_overlap = len(var_names_set.intersection(gene_list))
+        overlap_frac = n_overlap / len(gene_list) if len(gene_list) else 0.0
+        if n_overlap < min_overlap_genes:
+            raise ValueError(
+                f"Trait '{trait}': only {n_overlap} / {len(gene_list)} ({overlap_frac:.1%}) gene-set genes "
+                f"found in adata.var_names. This is the signature of a gene-ID scheme mismatch (e.g. Ensembl "
+                "IDs in the gene set vs HGNC symbols in adata.var_names, or vice versa, or a stale Ensembl-ID "
+                "version suffix) rather than a genuinely small/inactive gene set. Raising rather than "
+                "proceeding, since scDRS's own scoring would otherwise run on a near-empty gene set "
+                "and produce a plausible-looking but meaningless null result. "
+                f"Lower min_overlap_genes if this overlap is genuinely expected."
+            )
+        logger.info(f"Trait '{trait}': {n_overlap} / {len(gene_list)} ({overlap_frac:.1%}) gene-set genes found in adata.var_names")
 
         df_score = scdrs.score_cell(
             data=adata,

@@ -308,7 +308,8 @@ def run_saigeqtl(
     analysis_type : {'single_variant', 'set_based'}, default='single_variant'
         Type of analysis in Step 2
     n_pcs : int, default=50
-        Number of PCs to compute
+        Number of PCs to compute into dd.C.obsm["X_pca"]. Only computed when "X_pca" is itself
+        listed in cell_covariates; otherwise unused.
 
     Step 1 Parameters (Null Model Fitting)
     ---------------------------------------
@@ -557,7 +558,7 @@ def run_saigeqtl(
         steps = [1, 2, 3]
 
     if 1 in steps or 2 in steps:
-        if "X_pca" not in dd.C.obsm:
+        if cell_covariates and "X_pca" in cell_covariates and "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA")
             sc.pp.pca(dd.C, n_comps=n_pcs)
 

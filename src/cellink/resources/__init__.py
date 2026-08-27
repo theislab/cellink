@@ -10,10 +10,12 @@ from ._gwas_prs_qtl import (
     liftover_gwas_summary_stats,
 )
 from ._ld import (
+    check_ancestry_match,
     get_1000genomes_frq,
     get_1000genomes_hapmap3,
     get_1000genomes_ld_scores,
     get_1000genomes_ld_weights,
+    get_1000genomes_merge_alleles,
     get_1000genomes_plink_files,
     merge_1000g_plink_chromosomes,
 )

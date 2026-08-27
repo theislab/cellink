@@ -11,6 +11,7 @@ from mudata._core.io import _read_h5mu_mod
 from mudata._core.mudata import ModDict, MuData
 
 from cellink._core import DonorData
+from cellink._core.schema import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VERSION
 from cellink.io._pgen import lazy_anndata_zarr_callback
 
 warnings.filterwarnings(
@@ -107,6 +108,22 @@ def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
 
     def _read_anndata(group):
         return read_dispatched(group, callback=lazy_anndata_zarr_callback) if lazy else read_elem(group)
+
+    top_encoding_type = f.attrs.get("encoding-type")
+    if top_encoding_type is not None and top_encoding_type != DONORDATA_ENCODING_TYPE:
+        raise ValueError(
+            f"Expected encoding-type={DONORDATA_ENCODING_TYPE!r} at the top level of a DonorData "
+            f"file, found {top_encoding_type!r}; this file was not written by DonorData.write_h5_dd/"
+            "write_zarr_dd."
+        )
+    top_encoding_version = f.attrs.get("encoding-version")
+    if top_encoding_version is not None and top_encoding_version != DONORDATA_ENCODING_VERSION:
+        warnings.warn(
+            f"DonorData file has encoding-version={top_encoding_version!r}, this cellink reads "
+            f"encoding-version={DONORDATA_ENCODING_VERSION!r}; reading anyway, but downstream "
+            "behavior for older/newer schema versions is not guaranteed.",
+            stacklevel=2,
+        )
 
     if f["G"].attrs.get("encoding-type") == "MuData":
         G = _read_mudata(group=f["G"])

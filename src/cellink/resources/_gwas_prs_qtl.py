@@ -129,7 +129,7 @@ def get_gwas_catalog_study(accession_id: str, **params: Any) -> dict:
     dict
         JSON dictionary with study metadata.
     """
-    return _fetch(f"studies/{accession_id}", params=params, paginate=False)
+    return _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
 
 
 def get_gwas_catalog_study_summary_stats(

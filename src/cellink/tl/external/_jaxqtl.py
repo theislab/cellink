@@ -113,7 +113,9 @@ def run_jaxqtl(
     out : str, optional
         Output file prefix for jaxQTL results.
     n_pcs : int, default=50
-        Number of principal components to compute if not already present in `dd.C.obsm["X_pca"]`.
+        Number of principal components to compute from single-cell expression data, donor-aggregated
+        (mean) into dd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
+        additional_covariates; otherwise unused.
     add_covar : str, optional
         Path to file with additional covariates to include.
     covar_test : str, optional
@@ -219,9 +221,12 @@ def run_jaxqtl(
             "jaxqtl is required for `run_jaxqtl`. Please install it following the instructions on https://github.com/mancusolab/jaxqtl and ensure it is available in your system PATH."
         )
 
-    if "X_pca" not in dd.C.obsm:
-        logger.info("Calculating PCA.")
-        sc.pp.pca(dd.C, n_comps=n_pcs)
+    if additional_covariates and "X_pca" in additional_covariates:
+        if "X_pca" not in dd.C.obsm:
+            logger.info("Calculating PCA.")
+            sc.pp.pca(dd.C, n_comps=n_pcs)
+        if "X_pca" not in dd.G.obsm:
+            dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
     phenotype_df = dd.G.obsm["PB"].T

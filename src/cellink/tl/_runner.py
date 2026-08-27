@@ -133,16 +133,21 @@ class BaseToolRunner(ABC):
             for host_path, container_path in volumes.items():
                 bind_args.extend(["-B", f"{host_path}:{container_path}"])
 
-            # Inject overlay if the overlay patch strategy was used
-            overlay_args = []
-            if self.config.get("_ldsc_overlay_path"):
-                overlay_args = ["--overlay", f"{self.config['_ldsc_overlay_path']}:ro"]
             image = self.config.get("singularity_image", "")
-            cmd = ["singularity", "exec", *bind_args, *overlay_args, image, container_command]
+            cmd = ["singularity", "exec", *bind_args, image, container_command]
 
             return " ".join(cmd)
 
         return base_command
+
+    def _rewrite_one_path(self, path: str, volumes: dict[str, str]) -> str:
+        """Rewrite a single host path/prefix to its container-side equivalent, if covered by `volumes`."""
+        abs_path = os.path.abspath(path)
+        for host_path, container_path in volumes.items():
+            if abs_path.startswith(host_path):
+                rel = os.path.relpath(abs_path, host_path)
+                return os.path.join(container_path, rel).replace("\\", "/")
+        return path
 
     def _rewrite_paths_in_command(self, command: str, volumes: dict[str, str]) -> str:
         tokens = shlex.split(command)
@@ -150,15 +155,13 @@ class BaseToolRunner(ABC):
 
         for token_i, token in enumerate(tokens):
             new_token = token
+            after_prefix_token = token_i > 1 and tokens[token_i - 1] in self.prefix_tokens
 
-            if os.path.exists(token) or (token_i > 1 and tokens[token_i - 1] in self.prefix_tokens):
-                abs_path = os.path.abspath(token)
-
-                for host_path, container_path in volumes.items():
-                    if abs_path.startswith(host_path):
-                        rel = os.path.relpath(abs_path, host_path)
-                        new_token = os.path.join(container_path, rel).replace("\\", "/")
-                        break
+            if os.path.exists(token) or after_prefix_token:
+                if after_prefix_token and "," in token:
+                    new_token = ",".join(self._rewrite_one_path(part, volumes) for part in token.split(","))
+                else:
+                    new_token = self._rewrite_one_path(token, volumes)
 
             rewritten.append(new_token)
 
@@ -167,17 +170,6 @@ class BaseToolRunner(ABC):
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
-
-        For Singularity, three patch modes are handled transparently:
-
-        - **overlay**: if ``_ldsc_overlay_path`` is in config (set by
-          ``check_and_patch_ldsc_parse_bug`` with ``singularity_patch_strategy="overlay"``),
-          ``--overlay <path>:ro`` is injected into the ``singularity exec`` call
-          so the patched ``parse.py`` is always active.
-        - **sandbox / rebuild**: ``singularity_image`` is updated in the runner
-          config to point at the sandbox directory or rebuilt SIF, so
-          ``_build_container_command`` picks it up automatically; no special
-          handling needed here.
 
         Parameters
         ----------
