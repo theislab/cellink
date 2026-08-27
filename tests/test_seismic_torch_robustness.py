@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("torch", reason="run_seismic_torch tests need torch, install with `pip install cellink[seismic_torch]`")
+
 import numpy as np
 import pandas as pd
-import pytest
 import torch
 from anndata import AnnData
 from scipy.sparse import csr_matrix
 
-pytest.importorskip("torch", reason="run_seismic_torch tests need torch")
-
-from cellink.tl.external._seismic_torch import run_seismic_torch  # noqa: E402
+from cellink.tl.external._seismic_torch import run_seismic_torch
 
 
 def _make_adata(n_genes=300, n_cells=120, seed=0):
