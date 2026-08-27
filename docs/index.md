@@ -6,6 +6,7 @@
 :align: center
 :width: 360px
 :alt: cellink
+:class: dark-light
 ```
 
 ```{include} ../README.md
