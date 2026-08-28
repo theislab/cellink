@@ -12,9 +12,9 @@
 [![Test](https://github.com/theislab/cellink/actions/workflows/test.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/test.yaml)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
-# Single-cell Genetics Package (Cellink)
+# cellink: a framework for joint analysis of genotype and single-cell data
 
-Welcome to the official documentation for **cellink**: the toolkit designed to bridge the gap between single-cell data and individual-level genetic analysis.
+Welcome to the official documentation for **cellink**: the framework designed to bridge the gap between single-cell data and individual-level genetic analysis.
 
 ## Motivation
 
