@@ -2,13 +2,9 @@
 
 cellink requires Python >=3.11 (tested on 3.11-3.13).
 
-## PyPI
-
-The latest release is available on [PyPI](https://pypi.org/project/cellink/):
-
-```bash
-pip install cellink
-```
+cellink is not yet published on PyPI (the `cellink` name there belongs to an unrelated
+package; a future release will be published as `cellink-tools`). Until then, install
+directly from GitHub:
 
 ## Development version
 
@@ -21,9 +17,13 @@ pip install git+https://github.com/theislab/cellink.git@main
 ## Optional extras
 
 The core install covers `DonorData` construction, I/O, and the tools built directly on its
-dependencies. Most external-tool integrations under `cellink.tl.external` are opt-in extras,
-installed as `pip install cellink[extra-name]` (multiple extras can be combined, e.g.
-`pip install cellink[pgen,scooby]`):
+dependencies. Most external-tool integrations under `cellink.tl.external` are opt-in extras.
+Since there is no PyPI release yet, request them with the package's extras syntax appended
+directly to the git URL (multiple extras can be combined, e.g. `[pgen,scooby]`):
+
+```bash
+pip install "cellink[pgen,scooby] @ git+https://github.com/theislab/cellink.git@main"
+```
 
 | Extra | Enables |
 |---|---|
