@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "cellink"
+name = "cellink-tools"
 version = "0.0.1"
 description = "cellink enables genetic analyses on single-cell data"
 readme = "README.md"

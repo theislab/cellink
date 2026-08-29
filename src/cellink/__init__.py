@@ -5,4 +5,4 @@ from ._core import DonorData, DonorDataSchemaError, validate
 
 __all__ = ["DonorData", "pl", "pp", "tl", "io", "at", "ml", "resources", "validate", "DonorDataSchemaError"]
 
-__version__ = version("cellink")
+__version__ = version("cellink-tools")

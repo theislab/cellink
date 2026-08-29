@@ -850,3 +850,155 @@ def run_tensorqtl(
                 f.write(cmd + "\n")
         else:
             return cmd
+
+
+def run_dense_trans_scan(
+    dd: DonorData,
+    variant_id: str,
+    gene_of_interest: str | None = None,
+    n_pcs: int = 20,
+    window: int = 1_000_000,
+    maf_threshold: float = 0.05,
+    batch_size: int = 20000,
+    encode_sex: bool | None = None,
+    encode_age: bool = False,
+    additional_covariates: list[str] | None = None,
+    prefix: str | None = None,
+    use_python_api: bool = True,
+) -> pd.DataFrame:
+    """
+    Dense, unfiltered genome-wide trans-QTL scan of one fixed variant against every gene.
+
+    A thin, specific mode of ``run_tensorqtl``: subsets ``dd.G`` to exactly
+    one variant and calls ``run_tensorqtl(..., mode="trans", pval_threshold=1.0)``,
+    which bypasses TensorQTL's own sparse write-time filter (normally, trans
+    mode only keeps pairs below some p-value threshold). The result is the
+    full, unfiltered rank of every gene's association with that one variant,
+    useful for asking whether a candidate trans hit is a real standout or
+    one of many similarly-ranked near-ties.
+
+    Parameters
+    ----------
+    dd : DonorData
+        DonorData object containing single-cell gene expression (`dd.C`) and
+        donor-level genotype data (`dd.G`). Both are used as-is; any
+        celltype/expression-level filtering is the caller's responsibility.
+    variant_id : str
+        The single variant to test against every gene, matched exactly
+        against ``dd.G.var_names``.
+    gene_of_interest : str, optional
+        If given, logs that gene's rank and p-value in the returned scan
+        (or a warning if it's absent, e.g. excluded by ``window``).
+    n_pcs : int, default=20
+        Number of leading genotype PCs kept from ``dd.G.obsm["gPCs"]`` (if
+        present) when passed through as an additional covariate.
+    window : int, default=1_000_000
+        Genomic window (in base pairs) used to drop pairs where the variant
+        falls within a gene's own cis-window (``tensorqtl.trans.filter_cis``),
+        so real cis effects don't masquerade as "dense trans" hits.
+    maf_threshold : float, default=0.05
+        Minimum MAF for the target variant to be tested; lower this for a
+        real, low-frequency (but not vanishingly rare) variant that the
+        default excludes.
+    batch_size : int, default=20000
+        Number of phenotype-variant pairs processed per batch, passed
+        through to ``run_tensorqtl``.
+    encode_sex : bool, optional
+        If True, includes donor sex as a covariate (donors with missing sex
+        are dropped first, since PLINK export hard-casts sex to int32). If
+        None (default), auto-detected from whether ``dd.G.obs["sex"])`` has
+        any real signal.
+    encode_age : bool, default=False
+        If True, includes donor age as a covariate. Default False, matching
+        this scan's typical use as a discovery/ranking tool rather than a
+        fully covariate-adjusted association test.
+    additional_covariates : list of str, optional
+        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in
+        the model. If None (default), ``"gPCs"`` is used automatically when
+        present in ``dd.G.obsm``.
+    prefix : str, optional
+        File prefix for intermediate files. Only used when
+        ``use_python_api=False``; unused (no files are written) otherwise.
+    use_python_api : bool, default=True
+        If True (default), runs TensorQTL directly via its Python API
+        without exporting intermediate files or invoking a subprocess. If
+        False, requires ``prefix`` and falls back to the CLI-based workflow
+        (see ``run_tensorqtl``).
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per gene, columns as returned by ``run_tensorqtl(mode="trans")``
+        (``phenotype_id``, ``variant_id``, ``beta``, ``pval``, ...) plus
+        ``chrom``/``start``/``end`` (from ``dd.C.var``) and ``rank_by_pval``
+        (1 = lowest p-value), sorted by ascending p-value.
+
+    Raises
+    ------
+    ValueError
+        If ``variant_id`` does not match exactly one entry in ``dd.G.var_names``.
+    """
+    var_mask = np.asarray(dd.G.var_names == variant_id)
+    n_hits = int(var_mask.sum())
+    if n_hits != 1:
+        raise ValueError(f"expected exactly 1 match for variant_id={variant_id!r} in dd.G.var_names, found {n_hits}")
+
+    G_target = dd.G[:, var_mask].copy()
+    dd_scan = DonorData(G=G_target, C=dd.C, donor_id=dd.donor_id)
+
+    if encode_sex is None:
+        encode_sex = "sex" in dd_scan.G.obs.columns and dd_scan.G.obs["sex"].notna().any()
+    if encode_sex and "sex" in dd_scan.G.obs.columns and dd_scan.G.obs["sex"].isna().any():
+        n_before = dd_scan.G.n_obs
+        dd_scan = DonorData(
+            G=dd_scan.G[dd_scan.G.obs["sex"].notna()].copy(), C=dd_scan.C, donor_id=dd_scan.donor_id
+        )
+        logger.info(
+            f"run_dense_trans_scan: dropped {n_before - dd_scan.G.n_obs} donor(s) with missing sex "
+            "(needed for sex-covariate PLINK export)."
+        )
+
+    if "gPCs" in dd_scan.G.obsm:
+        dd_scan.G.obsm["gPCs"] = dd_scan.G.obsm["gPCs"][:, :n_pcs]
+    if additional_covariates is None:
+        additional_covariates = ["gPCs"] if "gPCs" in dd_scan.G.obsm else None
+
+    logger.info(
+        f"run_dense_trans_scan: dense trans scan of {variant_id!r} against {dd_scan.C.n_vars} genes "
+        f"({dd_scan.G.n_obs} donors); mode='trans', pval_threshold=1.0."
+    )
+    df = run_tensorqtl(
+        dd_scan,
+        mode="trans",
+        pval_threshold=1.0,
+        maf_threshold=maf_threshold,
+        batch_size=batch_size,
+        n_pcs=n_pcs,
+        window=window,
+        prefix=prefix,
+        encode_sex=encode_sex,
+        encode_age=encode_age,
+        additional_covariates=additional_covariates,
+        use_python_api=use_python_api,
+    )
+
+    gene_pos = dd_scan.C.var[["chrom", "start", "end"]].copy()
+    gene_pos.index.name = "phenotype_id"
+    df = df.merge(gene_pos, left_on="phenotype_id", right_index=True, how="left")
+    df = df.sort_values("pval").reset_index(drop=True)
+    df.insert(0, "rank_by_pval", np.arange(1, len(df) + 1))
+
+    if gene_of_interest is not None:
+        goi_row = df[df["phenotype_id"] == gene_of_interest]
+        if len(goi_row) == 1:
+            logger.info(
+                f"run_dense_trans_scan: {gene_of_interest} rank={int(goi_row['rank_by_pval'].iloc[0])}, "
+                f"pval={goi_row['pval'].iloc[0]:.6e} (of {len(df)} genes)."
+            )
+        else:
+            logger.warning(
+                f"run_dense_trans_scan: {gene_of_interest} not found in the scan output "
+                f"({len(goi_row)} rows); likely excluded by the cis-window filter or absent from dd.C."
+            )
+
+    return df
