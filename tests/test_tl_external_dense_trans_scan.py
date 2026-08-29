@@ -39,7 +39,7 @@ def test_run_dense_trans_scan_ranks_all_genes(dd, far_variant_id):
     assert list(df["rank_by_pval"]) == list(range(1, len(df) + 1))
     assert df["pval"].is_monotonic_increasing
     assert {"chrom", "start", "end"}.issubset(df.columns)
-    # a genuinely unlinked (far-away) variant shouldn't lose any gene to the cis-window filter
+    
     assert len(df) == dd.C.n_vars
 
 

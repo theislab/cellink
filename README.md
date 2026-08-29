@@ -42,11 +42,10 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 
 **cellink** offers a streamlined suite of tools for the entire analysis workflow, organized by task:
 
-**Variant preprocessing & QC**
-- [Variant preprocessing & annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html): quality control, annotation (VCF export/import), and selection of genetic variants.
-
 **Association testing**
-- [Pseudobulk eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html)
+- [eQTL analysis with jaxQTL or tensorQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html)
+- [eQTL analysis with SAIGE-QTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)
+- [Naive pseudobulk eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html)
 - [Rare variant association studies](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html)
 - [Clumping & pruning](https://cellink-docs.readthedocs.io/en/latest/tutorials/clumping_pruning.html)
 - [Colocalization analysis](https://cellink-docs.readthedocs.io/en/latest/tutorials/colocalization.html)
@@ -62,11 +61,10 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 **Deep learning & representation learning**
 - [LIVI: donor-level representation learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html)
 - [Scooby: single-cell-resolution sequence-to-coverage modeling & variant scoring](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html)
-- [Built-in dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html)
+- [Built-in dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html), including Multiple Instance Learning (MIL) over per-donor cell bags
 
-**Interoperability & data integration**
-- [eQTL analysis with jaxQTL or tensorQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html)
-- [eQTL analysis with SAIGE-QTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)
+**Other**
+- [Variant preprocessing & annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html): quality control, annotation (VCF export/import), and selection of genetic variants.
 - [Integrating `DonorData` with EHR data](https://cellink-docs.readthedocs.io/en/latest/tutorials/ehrdataset.html)
 
 ## Getting Started
