@@ -8,7 +8,6 @@ import pandas as pd
 import scanpy as sc
 import scipy.stats as st
 import torch
-import torch.distributions as td
 import torch.linalg as la
 import torch.nn as nn
 from anndata import AnnData
@@ -20,98 +19,202 @@ __all__ = ["SparseScore", "RegressionNLL", "run_seismic_torch"]
 
 
 class SparseScore(nn.Module):
-    """Compute Seismic cell-type specificity scores from a sparse expression matrix.
-
-    Parameters
-    ----------
-    E : torch.Tensor
-        ``[M, G]`` (cells x genes) expression matrix (log-normalised). Dense
-        or sparse; converted to a CSR sparse tensor internally so genes x
-        cells is never densified.
-    """
-
-    def __init__(self, E: torch.Tensor):
+    def __init__(self, E):
         super().__init__()
+        import scipy.sparse as sp_scipy
+
         E = E.to_sparse_csr()
+        device = E.device
+        M, G = E.shape
 
-        device, dtype = E.device, E.dtype
-        self.register_buffer("E_csr", E)
-        self.register_buffer("E2_csr", self._square_csr(E))
+        # Build transposed sparse matrices on CPU (avoids CUDA format-conversion
+        # buffers during every forward pass, which can be nnz * 12 bytes each).
+        # scipy CSR.T.tocsr() is efficient: it never materialises a dense matrix.
+        crow_np = E.crow_indices().cpu().numpy()
+        col_np = E.col_indices().cpu().numpy()
+        vals_f32 = E.values().cpu().float().numpy()  # float32 to halve GPU memory
+        vals_sq = vals_f32**2
 
-        I = torch.sparse_csr_tensor(
-            E.crow_indices(),
-            E.col_indices(),
-            torch.ones_like(E.values()),
-            size=E.shape,
-            device=device,
-            dtype=dtype,
-        )
-        self.register_buffer("I_csr", I)
+        E_sp = sp_scipy.csr_matrix((vals_f32, col_np, crow_np), shape=(M, G))
+        E2_sp = sp_scipy.csr_matrix((vals_sq, col_np, crow_np), shape=(M, G))
+        I_sp = sp_scipy.csr_matrix((np.ones(len(col_np), dtype=np.float32), col_np, crow_np), shape=(M, G))
 
-        self.register_buffer("Et", self.E_csr.transpose(0, 1))
-        self.register_buffer("Et2", self.E2_csr.transpose(0, 1))
-        self.register_buffer("It", self.I_csr.transpose(0, 1))
+        def _scipy_to_torch_csr_t(mat, dev):
+            """Transpose [M,G] scipy CSR → [G,M] torch CSR on *dev*."""
+            mat_t = mat.T.tocsr()
+            return torch.sparse_csr_tensor(
+                torch.from_numpy(mat_t.indptr.astype("int64")),
+                torch.from_numpy(mat_t.indices.astype("int64")),
+                torch.from_numpy(mat_t.data.astype(np.float32)),
+                size=(G, M),
+                dtype=torch.float32,
+            ).to(dev)
 
-    @staticmethod
-    def _square_csr(A):
-        return torch.sparse_csr_tensor(
-            A.crow_indices(),
-            A.col_indices(),
-            A.values().clone().pow_(2),
-            size=A.shape,
-            device=A.device,
-            dtype=A.dtype,
-        )
+        self.register_buffer("Et_csr", _scipy_to_torch_csr_t(E_sp, device))
+        self.register_buffer("Et2_csr", _scipy_to_torch_csr_t(E2_sp, device))
+        self.register_buffer("It_csr", _scipy_to_torch_csr_t(I_sp, device))
 
-    def forward(self, masks: torch.Tensor, return_all: bool = False, hacked: bool = False):
-        """Compute specificity scores.
+        with torch.no_grad():
+            ones = torch.ones(M, 1, dtype=torch.float32, device=device)
+            E_sum = torch.sparse.mm(self.Et_csr, ones)  # [G, 1]
+            E2_sum = torch.sparse.mm(self.Et2_csr, ones)  # [G, 1]
+        self.register_buffer("E_sum", E_sum)
+        self.register_buffer("E2_sum", E2_sum)
+        self._M = M
 
-        Parameters
-        ----------
-        masks : torch.Tensor
-            ``[M, C]`` binary cluster-membership matrix (cells x cell types).
-        return_all : bool
-            If True, also return the raw one-sided z-test probability and
-            the in-group expression fraction.
-
-        Returns
-        -------
-        torch.Tensor
-            ``[G, C]`` specificity scores (genes x cell types).
+    def forward_sparse(self, masks: torch.Tensor, return_all: bool = False):
         """
-        eps = 0.0
+        2-D forward that accepts a sparse mask [M, C] in any sparse layout.
 
-        n_in = masks.sum(0) + eps
-        n_out = (1 - masks).sum(0) + eps
+        Non-COO layouts (CSR/CSC/BSR/BSC) are converted to COO first, since the
+        index-scatter below needs explicit row/column indices.
 
-        w_in = masks / n_in.unsqueeze(0)
-        w_out = (1 - masks) / n_out.unsqueeze(0)
+        Memory savings vs forward():
+          - w_in is built by index-scatter (no .to_dense() on the input mask)
+          - mu_out / ex2_out are computed analytically from E_sum / E2_sum,
+            eliminating two sparse.mm calls and their backward Et_csr.T
+            format-conversion allocations (~6.8 GiB each on large datasets).
+          - It_csr @ w_in reuses the already-built w_in dense matrix.
+        """
+        eps = 1e-8
+        if masks.layout is not torch.sparse_coo:
+            masks = masks.to_sparse_coo()
+        masks = masks.coalesce()
+        if masks.dim() != 2:
+            raise ValueError(f"sparse masks must be 2D, got {tuple(masks.shape)}")
+        M, C = masks.shape
+        device = masks.device
 
-        mu_in = torch.sparse.mm(self.Et, w_in).T
-        mu_out = torch.sparse.mm(self.Et, w_out).T
-        ex2_in = torch.sparse.mm(self.Et2, w_in).T
-        ex2_out = torch.sparse.mm(self.Et2, w_out).T
+        idx = masks.indices()  # [2, nnz]
+        row_idx, col_idx = idx[0], idx[1]
+        vals = masks.values().to(torch.float32)
 
-        var_in = (ex2_in - mu_in**2) * (n_in[:, None] / (n_in[:, None] - 1.0 + eps))
-        var_out = (ex2_out - mu_out**2) * (n_out[:, None] / (n_out[:, None] - 1.0 + eps))
+        # n_in [C], n_out [C]
+        n_in = torch.zeros(C, device=device, dtype=torch.float32)
+        n_in.scatter_add_(0, col_idx, vals)
+        n_in = n_in + eps
+        n_out = M - n_in + eps  # (1-mask).sum(0) + eps, exact for any mask
+
+        # w_in [M, C] dense — built from sparse indices, never calls .to_dense()
+        w_in = torch.zeros(M, C, device=device, dtype=torch.float32)
+        w_in[row_idx, col_idx] = vals / n_in[col_idx]
+
+        # mu_in, ex2_in via sparse.mm — these carry gradients
+        mu_in = torch.sparse.mm(self.Et_csr, w_in).T  # [C, G]
+        ex2_in = torch.sparse.mm(self.Et2_csr, w_in).T  # [C, G]
+
+        # mu_out, ex2_out analytically from cached buffers — avoids 2 sparse.mm
+        mu_out = (self.E_sum.T - n_in[:, None] * mu_in) / n_out[:, None]  # [C, G]
+        ex2_out = (self.E2_sum.T - n_in[:, None] * ex2_in) / n_out[:, None]  # [C, G]
+
+        var_in = (ex2_in - mu_in**2).clamp_min(0.0) * (n_in[:, None] / (n_in[:, None] - 1.0 + eps))
+        var_out = (ex2_out - mu_out**2).clamp_min(0.0) * (n_out[:, None] / (n_out[:, None] - 1.0 + eps))
 
         denom = torch.sqrt(var_in / (n_in[:, None] + eps) + var_out / (n_out[:, None] + eps))
-        z = (mu_in - mu_out) / denom
-        p_torch = td.Normal(0, 1, validate_args=False).cdf(z)  # [C, G]
+        z = (mu_in - mu_out) / (denom + eps)
+        p_torch = torch.special.ndtr(z)  # [C, G]
 
-        Im = torch.sparse.mm(self.It, masks)  # [G, C]
-        r_in = (Im / (n_in.unsqueeze(0) + eps)).T  # [C, G]
+        # r_in = (It_csr @ mask / n_in).T = (It_csr @ w_in).T  (w_in = mask/n_in)
+        Im = torch.sparse.mm(self.It_csr, w_in)  # [G, C]
+        r_in = Im.T  # [C, G]
 
         pr = p_torch * r_in  # [C, G]
         pr_sum = pr.sum(0, keepdim=True)  # [1, G]
         valid = pr_sum > 0
 
         denom_safe = torch.where(valid, pr_sum, torch.ones_like(pr_sum))
-        hacked_t = pr.new_tensor(hacked, dtype=torch.bool)
-        s = torch.where(hacked_t, pr, pr / denom_safe)
-        s = s * valid.to(s.dtype)
+        s = torch.where(valid, pr / denom_safe, torch.zeros_like(pr))
 
         s = s.T  # [G, C]
+        if return_all:
+            return s, p_torch, r_in
+        return s
+
+    def forward(self, masks: torch.Tensor, return_all: bool = False):
+        if masks.layout is not torch.strided:
+            return self.forward_sparse(masks, return_all=return_all)
+
+        eps = 1e-8
+
+        if masks.dim() == 2:
+            masks = masks.to(torch.float32)
+            M_cells = masks.shape[0]
+            n_in_raw = masks.sum(0)
+            n_in = n_in_raw + eps
+            n_out = M_cells - n_in_raw + eps
+
+            w_in = masks / n_in.unsqueeze(0)
+
+            mu_in = torch.sparse.mm(self.Et_csr, w_in).T  # [C, G]
+            ex2_in = torch.sparse.mm(self.Et2_csr, w_in).T  # [C, G]
+
+            mu_out = (self.E_sum.T - n_in[:, None] * mu_in) / n_out[:, None]
+            ex2_out = (self.E2_sum.T - n_in[:, None] * ex2_in) / n_out[:, None]
+
+            var_in = (ex2_in - mu_in**2).clamp_min(0.0) * (n_in[:, None] / (n_in[:, None] - 1.0 + eps))
+            var_out = (ex2_out - mu_out**2).clamp_min(0.0) * (n_out[:, None] / (n_out[:, None] - 1.0 + eps))
+
+            denom = torch.sqrt(var_in / (n_in[:, None] + eps) + var_out / (n_out[:, None] + eps))
+            z = (mu_in - mu_out) / (denom + eps)
+            p_torch = torch.special.ndtr(z)  # [C, G]
+
+            Im = torch.sparse.mm(self.It_csr, masks)  # [G, C]
+            r_in = (Im / (n_in.unsqueeze(0) + eps)).T  # [C, G]
+
+            pr = p_torch * r_in  # [C, G]
+            pr_sum = pr.sum(0, keepdim=True)  # [1, G]
+            valid = pr_sum > 0  # [1, G] bool
+
+            denom_safe = torch.where(valid, pr_sum, torch.ones_like(pr_sum))  # [1, G]
+            s = torch.where(valid, pr / denom_safe, torch.zeros_like(pr))  # [C, G]
+
+            s = s.T  # [G, C]
+            if return_all:
+                return s, p_torch, r_in
+            return s
+
+        if masks.dim() != 3:
+            raise ValueError(f"masks must be 2D or 3D, got {tuple(masks.shape)}")
+
+        masks = masks.to(torch.float32)
+        M_cells, C, S = masks.shape
+
+        n_in_raw = masks.sum(0)  # [C, S]
+        n_in = n_in_raw + eps
+        n_out = M_cells - n_in_raw + eps
+
+        w_in = masks / n_in.unsqueeze(0)  # [M, C, S]
+        w_in_flat = w_in.reshape(M_cells, C * S)
+
+        mu_in = torch.sparse.mm(self.Et_csr, w_in_flat).T.reshape(C, S, -1)  # [C,S,G]
+        ex2_in = torch.sparse.mm(self.Et2_csr, w_in_flat).T.reshape(C, S, -1)
+
+        n_in_e = n_in[:, :, None]
+        n_out_e = n_out[:, :, None]
+        E_s = self.E_sum.squeeze(1)[None, None, :]  # [1,1,G]
+        E2_s = self.E2_sum.squeeze(1)[None, None, :]
+
+        mu_out = (E_s - n_in_e * mu_in) / n_out_e
+        ex2_out = (E2_s - n_in_e * ex2_in) / n_out_e
+
+        var_in = (ex2_in - mu_in**2).clamp_min(0.0) * (n_in_e / (n_in_e - 1.0 + eps))
+        var_out = (ex2_out - mu_out**2).clamp_min(0.0) * (n_out_e / (n_out_e - 1.0 + eps))
+
+        denom = torch.sqrt(var_in / (n_in_e + eps) + var_out / (n_out_e + eps))
+        z = (mu_in - mu_out) / (denom + eps)
+        p_torch = torch.special.ndtr(z)  # [C,S,G]
+
+        Im = torch.sparse.mm(self.It_csr, masks.reshape(M_cells, C * S)).reshape(-1, C, S)  # [G,C,S]
+        r_in = Im.permute(1, 2, 0) / (n_in_e + eps)  # [C,S,G]
+
+        pr = p_torch * r_in  # [C,S,G]
+        pr_sum = pr.sum(0, keepdim=True)  # [1,S,G]
+        valid = pr_sum > 0
+
+        denom_safe = torch.where(valid, pr_sum, torch.ones_like(pr_sum))
+        s = torch.where(valid, pr / denom_safe, torch.zeros_like(pr))
+
+        s = s.permute(2, 0, 1).contiguous()  # [G,C,S]
         if return_all:
             return s, p_torch, r_in
         return s
