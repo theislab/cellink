@@ -25,16 +25,16 @@ def test_compare_gene_pair_effects_keeps_only_celltypes_with_both_genes(tmp_path
         [
             (GENE_A, VARIANT, 0.3, 0.05, 1e-8),
             (GENE_B, VARIANT, -0.25, 0.06, 1e-6),
-            (GENE_A, "1:200:A:G", 0.1, 0.05, 0.2),  # different variant: irrelevant
+            (GENE_A, "1:200:A:G", 0.1, 0.05, 0.2), 
         ],
     )
-    # only GENE_A has a row at VARIANT here; celltype must be dropped entirely
+    
     _write_celltype_parquet(tmp_path, "ukb_european", "T_CD4_naive", [(GENE_A, VARIANT, 0.1, 0.02, 0.01)])
 
     res = compare_gene_pair_effects(tmp_path, VARIANT, GENE_A, GENE_B, cohort="ukb_european")
 
     assert list(res["celltype"].unique()) == ["NK_CD16"]
-    assert list(res["gene"]) == [GENE_A, GENE_B]  # gene_a first, then gene_b, per celltype
+    assert list(res["gene"]) == [GENE_A, GENE_B]  
     assert list(res.columns) == ["gene", "variant_id", "beta", "se", "pval", "celltype"]
 
 
