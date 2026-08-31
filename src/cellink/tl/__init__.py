@@ -10,5 +10,6 @@ from ._annotate_snps_genotype_data import (
 )
 from ._coloc import DEFAULT_PRIOR_VAR_CC, coloc_abf, coloc_susie
 from ._gene_pair_effects import compare_gene_pair_effects
+from ._pca_informed_prior import build_pca_informed_prior
 from ._rvat import beta_weighting, run_burden_test, run_skat_test
 from ._subset_region import subset_gene, subset_genomic_region
