@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 import pandera.pandas as pa
 from pandera.pandas import Column, DataFrameSchema
 
@@ -58,11 +59,14 @@ def validate(dd, check_var: bool = True, check_donor_alignment: bool = True) -> 
             raise DonorDataSchemaError(f"dd.G.var failed schema validation: {e}") from e
 
     if check_donor_alignment:
-        g_donors = _donor_ids(dd.G, dd.donor_id)
-        c_donors = _donor_ids(dd.C, dd.donor_id)
-        if len(g_donors) != len(c_donors):
+        g_donors = pd.unique(pd.Series(_donor_ids(dd.G, dd.donor_id)))
+        c_donors = pd.unique(pd.Series(_donor_ids(dd.C, dd.donor_id)))
+        if set(g_donors) != set(c_donors):
+            only_g = sorted(set(g_donors) - set(c_donors))
+            only_c = sorted(set(c_donors) - set(g_donors))
             raise DonorDataSchemaError(
-                f"dd.G and dd.C have different donor counts ({len(g_donors)} vs. {len(c_donors)}); "
+                f"dd.G and dd.C cover different donors ({len(g_donors)} vs. {len(c_donors)} "
+                f"unique); only in G: {only_g[:8]}, only in C: {only_c[:8]}. "
                 "DonorData's own construction should never allow this."
             )
         if list(g_donors) != list(c_donors):
@@ -76,10 +80,8 @@ def validate(dd, check_var: bool = True, check_donor_alignment: bool = True) -> 
 
 
 def _donor_ids(modality, donor_id: str):
-    from mudata import MuData
-
-    if isinstance(modality, MuData):
-        return modality.obs_names
+    """Donor identifiers for one side of a DonorData, one entry per row of that side.
+    """
     if donor_id in modality.obs.columns:
         return modality.obs[donor_id].to_numpy()
     return modality.obs_names

@@ -1024,7 +1024,7 @@ def genescores_to_100kb_bedgraph(
     return bedgraphs
 
 
-SCLINKER_ENHANCER_LINKS_GENOME_BUILD = "GRCh38"
+SCLINKER_ENHANCER_LINKS_GENOME_BUILD = "GRCh37"
 
 
 def _check_build_consistency(

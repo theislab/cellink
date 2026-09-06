@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- Fixed `SCLINKER_ENHANCER_LINKS_GENOME_BUILD`: the Broad sc-linker Roadmap/ABC
+  enhancer-gene links are GRCh37, not GRCh38. Declaring GRCh38 refused correct
+  GRCh37 setups and, worse, let a GRCh38 panel pass the build check while
+  intersecting hg19 enhancers against hg38 SNPs. Verified from the files: ABC
+  `TargetGeneTSS` matches hg19 exactly for BACH2/CTLA4/FOXP3, and the Roadmap
+  file's largest chr1 coordinate (249,240,000) exceeds GRCh38 chr1's length.
+- `resources.get_eqtl_catalog_credible_sets` and `resources.get_eqtl_catalog_lbf`,
+  exposing the eQTL Catalogue's SuSiE fine-mapping output (per-variant PIPs, and the
+  per-variant log Bayes factors that `tl.coloc_susie` needs for the QTL side -- there
+  was previously no way to obtain these through cellink)
+- `region=` on `resources.get_eqtl_catalog_dataset_associations`, performing a remote
+  tabix range query instead of downloading a whole dataset (a single dataset's
+  summary statistics are ~1.4 GB)
 - Basic tool, preprocessing and plotting functions
 - LIVI donor-level representation learning, sc-linker gene programs, scPRS, gsMap and
   MAGMA wrappers under `cellink.tl.external`, now documented in the API reference
@@ -28,6 +41,12 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 
+- Both eQTL Catalogue accessors were non-functional: `resources.get_eqtl_catalog_datasets`
+  and `resources.get_eqtl_catalog_dataset_associations` targeted the retired REST API at
+  `https://www.ebi.ac.uk/eqtl/api/v3`, which returns HTTP 410 for every endpoint and
+  version. Both are rewritten against the current FTP/tabix distribution
+  (https://www.ebi.ac.uk/eqtl/Data_access/). `max_pages` is still accepted but ignored
+  with a warning, since the dataset index is no longer paginated
 - `DonorData.copy()` built a genuinely new object but always copied `_G`/`_C`
   regardless of whether they were views, unlike its previous behavior; reverted to
   only copying `_G`/`_C` when they're actually views (mutating `self` and returning

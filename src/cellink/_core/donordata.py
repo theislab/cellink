@@ -194,7 +194,10 @@ class DonorData:
         f.attrs["var_dims_to_sync"] = self._var_dims_to_sync
 
         for key, value in self.uns.items():
-            f.create_dataset(f"uns/{key}", data=value)
+            try:
+                write_elem(f, f"uns/{key}", value)
+            except (TypeError, NotImplementedError):
+                f.create_dataset(f"uns/{key}", data=value)
 
     def write_h5_dd(self, path: str) -> None:
         """Write the DonorData object to the specified file path.

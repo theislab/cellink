@@ -167,10 +167,13 @@ def run_scdrs(
 
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
-        sc.pp.highly_variable_genes(adata, n_top_genes=2000)
-        adata = adata[:, adata.var.highly_variable]
-        sc.pp.scale(adata, max_value=10)
-        sc.tl.pca(adata, n_comps=n_pcs)
+        pca_view = adata.copy()
+        sc.pp.highly_variable_genes(pca_view, n_top_genes=2000)
+        pca_view = pca_view[:, pca_view.var.highly_variable].copy()
+        sc.pp.scale(pca_view, max_value=10)
+        sc.tl.pca(pca_view, n_comps=n_pcs)
+        adata.obsm["X_pca"] = pca_view.obsm["X_pca"]
+        del pca_view
 
     adata.X = adata.layers["counts"]
 

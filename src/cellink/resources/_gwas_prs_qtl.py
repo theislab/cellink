@@ -1,5 +1,9 @@
+import io
 import logging
 import re
+import shutil
+import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -8,7 +12,7 @@ from urllib.request import urlretrieve
 import pandas as pd
 import requests
 
-from cellink.resources._utils import _cache_df, _to_dataframe, get_data_home
+from cellink.resources._utils import _cache_df, _download_file, _to_dataframe, get_data_home
 
 
 def _normalize_build(genome_build: str) -> str:
@@ -45,7 +49,20 @@ logging.basicConfig(level=logging.INFO)
 
 GWAS_API_BASE = "https://www.ebi.ac.uk/gwas/rest/api/v2"
 PGS_API_BASE = "https://www.pgscatalog.org/rest"
-EQTL_API_BASE = "https://www.ebi.ac.uk/eqtl/api/v3"
+EQTL_FTP_BASE = "https://ftp.ebi.ac.uk/pub/databases/spot/eQTL"
+EQTL_TABIX_PATHS_URL = (
+    "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/"
+    "master/tabix/tabix_ftp_paths.tsv"
+)
+EQTL_SUMSTATS_COLUMNS = (
+    "molecular_trait_id", "chromosome", "position", "ref", "alt", "variant", "ma_samples",
+    "maf", "pvalue", "beta", "se", "type", "ac", "an", "r2", "molecular_trait_object_id",
+    "gene_id", "median_tpm", "rsid",
+)
+EQTL_CREDIBLE_SET_COLUMNS = (
+    "molecular_trait_id", "gene_id", "cs_id", "variant", "rsid", "cs_size", "pip",
+    "pvalue", "beta", "se", "z", "cs_min_r2", "region",
+)
 
 
 def _fetch(
@@ -71,28 +88,37 @@ def _fetch(
         If the endpoint supports pagination, returns a list of results aggregated across pages.
         Otherwise, returns the raw JSON response as a dictionary.
     """
-    results = []
+    results: list = []
     page = 0
-    while url:
-        logging.info(f"Fetching {url}")
-        r = requests.get(url, params=params)
+    next_url: str | None = url
+    next_params = params
+
+    while next_url:
+        logging.info(f"Fetching {next_url}")
+        r = requests.get(next_url, params=next_params)
         r.raise_for_status()
         data = r.json()
 
+        page_items: list | None = None
         if "_embedded" in data:
-            for v in data["_embedded"].values():
-                results.extend(v)
+            page_items = [item for v in data["_embedded"].values() for item in v]
         elif "results" in data:
-            results.extend(data["results"])
-        else:
+            page_items = data["results"]
+
+        if page_items is None:
+            if results:
+                logging.debug(f"No collection payload on page {page}; returning {len(results)} collected items.")
+                break
             return data
 
-        if "_links" in data:
-            url = data.get("_links", {}).get("next", {}).get("href") if paginate else None
-        elif "next" in data:
-            url = data["next"] if paginate else None
-        else:
-            url = None
+        results.extend(page_items)
+
+        if not paginate:
+            break
+
+        links = data.get("_links") or {}
+        next_url = (links.get("next") or {}).get("href") or None if links else data.get("next") or None
+        next_params = None
 
         page += 1
         if max_pages and page >= max_pages:
@@ -608,35 +634,154 @@ def get_pgs_catalog_score_file(
     return df
 
 
+def _eqtl_https(url: str) -> str:
+    """Rewrite an eQTL Catalogue ``ftp://`` path to its ``https://`` equivalent.
+
+    The catalogue's metadata table publishes ``ftp://ftp.ebi.ac.uk/...`` URLs, but the
+    same tree is served over HTTPS with byte-range support, which is what htslib needs
+    for remote tabix queries (and what works from behind proxies that block FTP).
+    """
+    if url.startswith("ftp://"):
+        return "https://" + url[len("ftp://") :]
+    return url
+
+
+def _eqtl_tabix_query(url: str, regions: Sequence[str], columns: Sequence[str]) -> pd.DataFrame:
+    """Run a remote tabix range query against a bgzipped eQTL Catalogue file.
+
+    A single dataset's ``.all.tsv.gz`` is ~1.4 GB, so region-restricted access is the
+    only practical way to read it; the catalogue ships a ``.tbi`` alongside every
+    sumstats file for exactly this purpose.
+
+    Parameters
+    ----------
+    url : str
+        HTTPS URL of the bgzipped, tabix-indexed file.
+    regions : sequence of str
+        Regions in tabix syntax, e.g. ``["6:89900000-90300000"]``. Note the catalogue
+        indexes chromosomes **without** a ``chr`` prefix.
+    columns : sequence of str
+        Column names to apply; the catalogue's files carry a header line that is *not*
+        marked as a comment, so it is absent from the tabix index and cannot be
+        recovered with ``tabix -H``.
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    if shutil.which("tabix") is None:
+        raise RuntimeError(
+            "The `tabix` executable is required for region-restricted eQTL Catalogue queries "
+            "but was not found on $PATH. Install htslib (e.g. `conda install -c bioconda htslib`), "
+            "or call this function without `region=` to download the whole dataset instead."
+        )
+
+    frames: list[pd.DataFrame] = []
+    for region in regions:
+        cmd = ["tabix", url, region]
+        logging.info(f"tabix {url} {region}")
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"tabix failed for region {region!r}: {proc.stderr.strip()[:500]}")
+        if not proc.stdout.strip():
+            logging.warning(f"No eQTL Catalogue records returned for region {region!r}.")
+            continue
+        frames.append(pd.read_csv(io.StringIO(proc.stdout), sep="\t", header=None, names=list(columns)))
+
+    if not frames:
+        return pd.DataFrame(columns=list(columns))
+    return pd.concat(frames, ignore_index=True)
+
+
 def get_eqtl_catalog_datasets(
-    data_home: str | Path | None = None, max_pages: int | None = None, refresh: bool = False, **params: Any
+    data_home: str | Path | None = None,
+    max_pages: int | None = None,
+    refresh: bool = False,
+    **params: Any,
 ) -> pd.DataFrame:
     """
-    Retrieve eQTL catalog datasets and cache locally.
+    Retrieve the eQTL Catalogue dataset index and cache locally.
+
+    Returns one row per dataset (a study x sample-group x quantification-method
+    combination), including the FTP paths of its summary statistics, SuSiE credible
+    sets and log-Bayes-factor files.
 
     Parameters
     ----------
     data_home : str or Path, optional
         Directory to store cached files. Defaults to user data directory.
     max_pages : int, optional
-        Maximum number of API pages to fetch.
+        Ignored. Retained only so that code written against the retired REST API keeps
+        working; the index is now a single file with no pagination.
     refresh : bool, default=False
-        If True, ignore cached data and fetch fresh data.
+        If True, ignore cached data and re-download the index.
     **params
-        Additional query parameters to filter datasets.
+        Row filters applied to the returned table, as ``column=value`` (or
+        ``column=[v1, v2]`` for a membership test). Useful columns are
+        ``study_label``, ``tissue_label``, ``condition_label``, ``quant_method``,
+        ``dataset_id`` and ``study_id``. String comparisons are case-insensitive.
 
     Returns
     -------
     pd.DataFrame
-        DataFrame containing eQTL catalog datasets metadata.
+        Columns: ``study_id``, ``dataset_id``, ``study_label``, ``sample_group``,
+        ``tissue_id``, ``tissue_label``, ``condition_label``, ``sample_size``,
+        ``quant_method``, ``ftp_path``, ``ftp_cs_path``, ``ftp_lbf_path``.
+
+    Examples
+    --------
+    >>> import cellink as cl
+    >>> tregs = cl.resources.get_eqtl_catalog_datasets(quant_method="ge", tissue_label="Treg memory")
+    >>> tregs[["dataset_id", "study_label", "sample_size"]]
     """
+    if max_pages is not None:
+        logging.warning(
+            "`max_pages` is ignored: the eQTL Catalogue REST API was retired and the dataset "
+            "index is now a single unpaginated file."
+        )
+
     data_home = get_data_home(data_home)
-    return _cache_df(
-        data_home,
-        "eqtl_datasets.parquet",
-        refresh,
-        lambda: _to_dataframe(_fetch(f"{EQTL_API_BASE}/datasets", params=params, max_pages=max_pages)),
-    )
+
+    def _fetch_index() -> pd.DataFrame:
+        logging.info(f"Fetching eQTL Catalogue dataset index from {EQTL_TABIX_PATHS_URL}")
+        return pd.read_csv(EQTL_TABIX_PATHS_URL, sep="\t")
+
+    df = _cache_df(data_home, "eqtl_datasets.parquet", refresh, _fetch_index)
+
+    for key, value in params.items():
+        if key not in df.columns:
+            raise KeyError(f"'{key}' is not a column of the eQTL Catalogue index. Available: {list(df.columns)}")
+        col = df[key]
+        if isinstance(value, (list, tuple, set)):
+            wanted = {str(v).casefold() for v in value}
+            df = df[col.astype(str).str.casefold().isin(wanted)]
+        else:
+            df = df[col.astype(str).str.casefold() == str(value).casefold()]
+
+    return df.reset_index(drop=True)
+
+
+def _resolve_eqtl_dataset_path(
+    dataset_id: str,
+    path_column: str,
+    data_home: str | Path | None,
+    refresh: bool,
+) -> str:
+    """Look up one dataset's file URL in the catalogue index."""
+    index = get_eqtl_catalog_datasets(data_home=data_home, refresh=refresh)
+    hit = index[index["dataset_id"] == dataset_id]
+    if hit.empty:
+        raise KeyError(
+            f"dataset_id '{dataset_id}' is not in the eQTL Catalogue index. "
+            "List available datasets with `cellink.resources.get_eqtl_catalog_datasets()`."
+        )
+    url = hit.iloc[0][path_column]
+    if not isinstance(url, str) or not url or url.upper() == "NA":
+        raise ValueError(
+            f"dataset '{dataset_id}' has no '{path_column}' entry "
+            "(not every dataset has SuSiE fine-mapping results)."
+        )
+    return _eqtl_https(url)
 
 
 def get_eqtl_catalog_dataset_associations(
@@ -644,43 +789,185 @@ def get_eqtl_catalog_dataset_associations(
     data_home: str | Path | None = None,
     refresh: bool = False,
     return_path: bool = False,
+    region: str | Sequence[str] | None = None,
     **params: Any,
 ) -> pd.DataFrame | Path:
     """
-    Retrieve associations for a specific eQTL catalog dataset and cache locally.
+    Retrieve cis-QTL summary statistics for one eQTL Catalogue dataset.
 
     Parameters
     ----------
     dataset_id : str
-        eQTL catalog dataset ID (e.g., "QTD000319").
+        eQTL Catalogue dataset ID (e.g., ``"QTD000625"``, OneK1K Treg memory).
     data_home : str or Path, optional
         Directory to store cached files. Defaults to user data directory.
     refresh : bool, default=False
-        If True, ignore cached data and fetch fresh data.
+        If True, ignore cached data and re-fetch.
     return_path : bool, default=False
-        If True, return the local cached file path instead of reading it into a DataFrame.
+        If True, return the local cached file path instead of a DataFrame. Only
+        meaningful for a whole-dataset download (``region=None``).
+    region : str or sequence of str, optional
+        One or more regions in tabix syntax (``"6:89900000-90300000"``), fetched with a
+        remote range query instead of downloading the file. **Chromosomes are named
+        without a ``chr`` prefix** and coordinates are GRCh38. Strongly recommended:
+        a single dataset's full summary statistics are ~1.4 GB.
     **params
-        Additional query parameters to pass to the API.
+        Post-hoc row filters applied to the result as ``column=value``, e.g.
+        ``gene_id="ENSG00000112182"`` (BACH2) or ``rsid="rs72928038"``.
 
     Returns
     -------
     pd.DataFrame or Path
-        DataFrame of eQTL associations, or Path to the cached parquet file if `return_path=True`.
+        Summary statistics, or the cached file path when ``return_path=True``.
+
+    Notes
+    -----
+    The eQTL Catalogue REST API this function previously used
+    (``https://www.ebi.ac.uk/eqtl/api/v3``) was retired and now returns HTTP 410 for
+    every endpoint and version. Access is via the FTP/tabix distribution described at
+    https://www.ebi.ac.uk/eqtl/Data_access/.
+
+    Examples
+    --------
+    >>> import cellink as cl
+    >>> # cis-eQTLs at the BACH2 locus in OneK1K memory Tregs
+    >>> df = cl.resources.get_eqtl_catalog_dataset_associations(
+    ...     "QTD000625", region="6:89900000-90300000"
+    ... )
+    >>> df.nsmallest(5, "pvalue")[["rsid", "gene_id", "pvalue", "beta"]]
     """
     data_home = get_data_home(data_home)
-    dest = data_home / f"{dataset_id}_eqtl_associations.parquet"
+    url = _resolve_eqtl_dataset_path(dataset_id, "ftp_path", data_home, refresh)
 
-    if dest.exists() and not refresh:
-        return dest if return_path else pd.read_parquet(dest)
+    if region is not None:
+        regions = [region] if isinstance(region, str) else list(region)
+        df = _eqtl_tabix_query(url, regions, EQTL_SUMSTATS_COLUMNS)
+        if return_path:
+            dest = data_home / f"{dataset_id}_eqtl_associations_{'_'.join(regions).replace(':', '-')}.parquet"
+            df.to_parquet(dest, index=False)
+            return dest
+    else:
+        dest = data_home / f"{dataset_id}.all.tsv.gz"
+        if not dest.exists() or refresh:
+            logging.warning(
+                f"Downloading the complete summary statistics for {dataset_id} (~1 GB or more). "
+                "Pass `region=` for a remote tabix range query instead."
+            )
+            _download_file(url, dest)
+        if return_path:
+            return dest
+        df = pd.read_csv(dest, sep="\t")
 
-    data = _fetch(f"{EQTL_API_BASE}/datasets/{dataset_id}/associations", params=params)
-    df = _to_dataframe(data)
-    df.to_parquet(dest)
+    for key, value in params.items():
+        if key not in df.columns:
+            raise KeyError(f"'{key}' is not a column of the summary statistics. Available: {list(df.columns)}")
+        if isinstance(value, (list, tuple, set)):
+            df = df[df[key].isin(list(value))]
+        else:
+            df = df[df[key] == value]
 
+    return df.reset_index(drop=True)
+
+
+def get_eqtl_catalog_credible_sets(
+    dataset_id: str,
+    data_home: str | Path | None = None,
+    refresh: bool = False,
+    return_path: bool = False,
+    **params: Any,
+) -> pd.DataFrame | Path:
+    """
+    Retrieve SuSiE fine-mapped credible sets for one eQTL Catalogue dataset.
+
+    These are the per-variant posterior inclusion probabilities used to define causal
+    variants (e.g. the ``PIP >= 0.9`` threshold adopted for variant-effect benchmarks in
+    the Borzoi and scooby papers), and are the natural input to a colocalization
+    analysis against a GWAS.
+
+    Parameters
+    ----------
+    dataset_id : str
+        eQTL Catalogue dataset ID (e.g., ``"QTD000625"``).
+    data_home : str or Path, optional
+        Directory to store cached files. Defaults to user data directory.
+    refresh : bool, default=False
+        If True, ignore cached data and re-download.
+    return_path : bool, default=False
+        If True, return the local cached file path instead of a DataFrame.
+    **params
+        Row filters applied to the result as ``column=value``, e.g. ``gene_id=...``.
+
+    Returns
+    -------
+    pd.DataFrame or Path
+        Columns: ``molecular_trait_id``, ``gene_id``, ``cs_id``, ``variant``, ``rsid``,
+        ``cs_size``, ``pip``, ``pvalue``, ``beta``, ``se``, ``z``, ``cs_min_r2``,
+        ``region``.
+
+    Examples
+    --------
+    >>> import cellink as cl
+    >>> cs = cl.resources.get_eqtl_catalog_credible_sets("QTD000625")
+    >>> cs[cs.pip >= 0.9].head()
+    """
+    data_home = get_data_home(data_home)
+    url = _resolve_eqtl_dataset_path(dataset_id, "ftp_cs_path", data_home, refresh)
+    dest = data_home / f"{dataset_id}.credible_sets.tsv.gz"
+    if not dest.exists() or refresh:
+        _download_file(url, dest)
     if return_path:
         return dest
 
-    return df
+    df = pd.read_csv(dest, sep="\t")
+    for key, value in params.items():
+        if key not in df.columns:
+            raise KeyError(f"'{key}' is not a column of the credible sets. Available: {list(df.columns)}")
+        if isinstance(value, (list, tuple, set)):
+            df = df[df[key].isin(list(value))]
+        else:
+            df = df[df[key] == value]
+    return df.reset_index(drop=True)
+
+
+def get_eqtl_catalog_lbf(
+    dataset_id: str,
+    data_home: str | Path | None = None,
+    refresh: bool = False,
+    return_path: bool = False,
+) -> pd.DataFrame | Path:
+    """
+    Retrieve per-variant SuSiE log Bayes factors for one eQTL Catalogue dataset.
+
+    This is the input :func:`cellink.tl.coloc_susie` expects for the QTL side of a
+    SuSiE-based colocalization (one column of log Bayes factors per SuSiE component
+    ``L1..L10``), as opposed to the single-causal-variant approximation used by
+    :func:`cellink.tl.coloc_abf`.
+
+    Parameters
+    ----------
+    dataset_id : str
+        eQTL Catalogue dataset ID (e.g., ``"QTD000625"``).
+    data_home : str or Path, optional
+        Directory to store cached files. Defaults to user data directory.
+    refresh : bool, default=False
+        If True, ignore cached data and re-download.
+    return_path : bool, default=False
+        If True, return the local cached file path instead of a DataFrame. Recommended:
+        these files are ~100 MB compressed and cover every fine-mapped region in the
+        dataset, so reading a whole one into memory is usually not what you want.
+
+    Returns
+    -------
+    pd.DataFrame or Path
+    """
+    data_home = get_data_home(data_home)
+    url = _resolve_eqtl_dataset_path(dataset_id, "ftp_lbf_path", data_home, refresh)
+    dest = data_home / f"{dataset_id}.lbf_variable.txt.gz"
+    if not dest.exists() or refresh:
+        _download_file(url, dest)
+    if return_path:
+        return dest
+    return pd.read_csv(dest, sep="\t")
 
 
 if __name__ == "__main__":
@@ -708,7 +995,12 @@ if __name__ == "__main__":
 
     pgs_score_file = get_pgs_catalog_score_file("PGS000043")
 
-    eqtl_datasets = get_eqtl_catalog_datasets()
+    eqtl_datasets = get_eqtl_catalog_datasets(quant_method="ge")
     print(eqtl_datasets.head())
 
-    eqtl_dataset = get_eqtl_catalog_dataset_associations("QTD000319")
+    # Region-restricted query: cis-eQTLs at the BACH2 locus in OneK1K memory Tregs.
+    eqtl_dataset = get_eqtl_catalog_dataset_associations("QTD000625", region="6:89900000-90300000")
+    print(eqtl_dataset.nsmallest(5, "pvalue"))
+
+    credible_sets = get_eqtl_catalog_credible_sets("QTD000625")
+    print(credible_sets[credible_sets.pip >= 0.9].head())
