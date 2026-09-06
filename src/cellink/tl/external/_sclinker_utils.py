@@ -540,11 +540,12 @@ def _query_biomart_and_write_gene_coords(data_dir: Path, genome_build: str = "GR
     genome_build
         ``"GRCh37"`` (default) or ``"GRCh38"``. Selects the matching Ensembl
         BioMart archive host so coordinates land on the build you actually
-        intend to intersect against The sc-linker enhancer-gene link files downloaded by
-        :func:`download_sclinker_enhancer_links` (Roadmap + ABC) are on
-        GRCh38, so pass ``genome_build="GRCh38"`` here (and to the LD/bim
-        panel used downstream) if you intend to keep everything on GRCh38
-        instead of lifting the enhancer links over to GRCh37.
+        intend to intersect against. The sc-linker enhancer-gene link files
+        downloaded by :func:`download_sclinker_enhancer_links` (Roadmap + ABC)
+        are on **GRCh37** -- see :data:`SCLINKER_ENHANCER_LINKS_GENOME_BUILD` --
+        so the default keeps everything on one build. Pass
+        ``genome_build="GRCh38"`` only if you lift the enhancer links over
+        first, and match the LD/bim panel used downstream.
 
     Requires ``pybiomart`` (``pip install pybiomart``).
     """
