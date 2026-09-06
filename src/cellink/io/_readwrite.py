@@ -55,7 +55,7 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
             mods = ModDict()
             gmods = group[k]
             for m in gmods.keys():
-                ad = _read_h5mu_mod(gmods[m], None, True)
+                ad = _read_h5mu_mod(gmods[m], None, False)
                 mods[m] = ad
 
             mod_order = None
@@ -71,7 +71,11 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     if "axis" in group.attrs:
         d["axis"] = group.attrs["axis"]
 
-    mu = MuData._init_from_dict_(**d)
+    if hasattr(MuData, "_init_from_dict_"):
+        mu = MuData._init_from_dict_(**d)          # mudata < 0.4
+    else:
+        d["data"] = d.pop("mod", ModDict())        # mudata >= 0.4
+        mu = MuData(**d)
     return mu
 
 
@@ -146,7 +150,11 @@ def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
     uns_group = f.get("uns")
     if uns_group:
         for key in uns_group:
-            uns[key] = uns_group[key][()]
+            node = uns_group[key]
+            try:
+                uns[key] = read_elem(node)
+            except Exception:
+                uns[key] = node[()] if hasattr(node, "shape") else node
 
     dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns)
 

@@ -79,8 +79,9 @@ def test_genescores_to_100kb_bedgraph_propagates_genome_build():
     assert bg.attrs.get("genome_build") == "GRCh37"
 
 
-def test_sclinker_enhancer_links_build_is_grch38():
-    assert SCLINKER_ENHANCER_LINKS_GENOME_BUILD == "GRCh38"
+def test_sclinker_enhancer_links_build_is_grch37():
+    """The Roadmap + ABC enhancer-gene links are distributed on GRCh37."""
+    assert SCLINKER_ENHANCER_LINKS_GENOME_BUILD == "GRCh37"
 
 
 def test_bedgraph_to_snp_annotation_end_to_end_build_mismatch(tmp_path):

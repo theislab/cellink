@@ -11,8 +11,10 @@
    resources.get_1000genomes_grch38
    resources.get_dummy_onek1k
    resources.get_onek1k
-   resources.get_eqtl_catalog_dataset_associations
    resources.get_eqtl_catalog_datasets
+   resources.get_eqtl_catalog_dataset_associations
+   resources.get_eqtl_catalog_credible_sets
+   resources.get_eqtl_catalog_lbf
    resources.get_gwas_catalog_studies
    resources.get_gwas_catalog_study
    resources.get_gwas_catalog_study_summary_stats

@@ -1,7 +1,9 @@
 from ._datasets import get_1000genomes, get_1000genomes_grch38, get_dummy_onek1k, get_onek1k
 from ._gwas_prs_qtl import (
+    get_eqtl_catalog_credible_sets,
     get_eqtl_catalog_dataset_associations,
     get_eqtl_catalog_datasets,
+    get_eqtl_catalog_lbf,
     get_gwas_catalog_studies,
     get_gwas_catalog_study,
     get_gwas_catalog_study_summary_stats,
