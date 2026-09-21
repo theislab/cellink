@@ -14,6 +14,8 @@
 
 # cellink: a framework for joint analysis of genotype and single-cell data
 
+## TODO: we need scEPS
+
 Single-cell profiles are indexed by cell; genotype data is indexed by donor. Keeping the two
 correctly paired through subsetting and filtering is easy to get wrong by hand, and each
 downstream genetics tool (PLINK, MAGMA, LDSC, TensorQTL, SAIGE-QTL, and more) expects its own
