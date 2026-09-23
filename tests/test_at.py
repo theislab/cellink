@@ -489,3 +489,24 @@ def test_gwas_accepts_dask_x():
     gwas_dense = GWAS(Y="pheno", data=dense_a)
     gwas_dense.test_association(dense_a)
     np.testing.assert_allclose(gwas_lazy.getPv(), gwas_dense.getPv())
+
+
+def test_gwas_rejects_cell_level_donordata():
+    """Cell-level Y against donor-level genotypes is pseudo-replication, so refuse it up front.
+
+    Regression: `test_association` read `dd.G.X` unconditionally, so a cell-level Y either
+    blew up on shapes or, when donor and cell counts coincided, paired rows incorrectly.
+    """
+    from cellink import DonorData
+    from cellink._core.dummy_data import sim_adata
+
+    dd = DonorData(G=sim_gdata(n_donors=20, n_snps=3), C=sim_adata(n_donors=20))
+    dd.C.obs["expr"] = np.random.default_rng(0).standard_normal(dd.C.n_obs)
+
+    with pytest.raises(ValueError, match="one row per donor"):
+        GWAS(Y="expr", data=dd, target_level="cell")
+
+    # the supported route: aggregate to donors
+    gwas = GWAS(Y="dmean(expr)", data=dd, target_level="donor")
+    gwas.test_association(dd)
+    assert gwas.getPv().shape == (dd.G.n_vars, 1)

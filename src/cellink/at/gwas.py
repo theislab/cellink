@@ -53,6 +53,14 @@ class GWAS:
                 * F has two dimensions (either a column vector to model intercept or a matrix with covariates)
                 * F has the same number of rows as Y
         """
+        if isinstance(data, DonorData) and target_level == "cell":
+            raise ValueError(
+                "GWAS reads variants from `dd.G.X`, which is one row per donor, so a cell-level "
+                "phenotype would pair each genotype with many cells and treat them as independent "
+                'observations. Aggregate the phenotype instead (Y="dmean(<gene>)", '
+                'target_level="donor"), or use StructLMM, which models the cell-level structure.'
+            )
+
         Y_df = fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False)
         # remember which observations the null is fitted on, so `test_association` can
         # verify that whatever it is handed lines up with them
