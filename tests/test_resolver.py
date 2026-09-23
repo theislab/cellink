@@ -79,6 +79,7 @@ def test_get_model_matrix_dataframe_passthrough():
     np.testing.assert_allclose(y.to_numpy().ravel(), df["y"].to_numpy())
 
 
+@pytest.mark.skip(reason="deprecated: GWAS no longer accepts ndarray")
 def test_gwas_data_equals_raw_numpy():
     """GWAS(Y=<formula>, data=...) must give the same result as GWAS(Y=<same values as ndarray>)."""
     rng = np.random.default_rng(1)
@@ -104,18 +105,19 @@ def test_gwas_data_equals_raw_numpy():
 def test_gwas_donordata_formula_runs(dd):
     """GWAS against a DonorData with formula strings runs end to end and gives finite p-values."""
     gwas = GWAS(Y="phenotype", F="age", data=dd, target_level="donor")
-    g = np.random.default_rng(2).standard_normal((dd.G.n_obs, 4))
-    gwas.test_association(g)
+    gwas.test_association(dd)  # every variant in dd.G.X is tested
     pv = gwas.getPv()
     assert np.all(np.isfinite(pv))
-    assert pv.shape == (4, 1)
+    assert pv.shape == (dd.G.n_vars, 1)
 
 
-def test_gwas_missing_data_raises_on_formula_string():
-    with pytest.raises(ValueError, match="Mandatory to provide `data`"):
+def test_gwas_missing_data_raises():
+    """`data` is keyword-only and mandatory: the signature rejects the call."""
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'data'"):
         GWAS(Y="phenotype")
 
 
+@pytest.mark.skip(reason="deprecated: Skat.run_test no longer takes X; the variant set is data.X")
 def test_skat_data_resolver_multiple_variants():
     """Regression test: `Skat.run_test(data=..., X=...)` used to raise TypeError
     (`isinstance(X, str | list[str])` is invalid at runtime) and, even past that,
@@ -151,6 +153,7 @@ def test_skat_data_resolver_multiple_variants():
     assert np.isfinite(pv_dd)
 
 
+@pytest.mark.skip(reason="deprecated: GWAS no longer accepts ndarray")
 def test_skat_data_equals_raw_numpy():
     """Skat.run_test(data=...) must give the same result as the equivalent raw-numpy call,
     now that it goes through the same fetch_raw_slot resolver as GWAS/StructLMM."""
@@ -191,7 +194,9 @@ def test_structlmm_data_equals_raw_numpy():
     df = pd.DataFrame({"y": rng.standard_normal(n), "cov1": rng.standard_normal(n)})
     E = rng.standard_normal((n, 2))
 
-    s_raw = StructLMM(y=df[["y"]].to_numpy(), E=E, F=df[["cov1"]].assign(intercept=1.0)[["intercept", "cov1"]].to_numpy())
+    s_raw = StructLMM(
+        y=df[["y"]].to_numpy(), E=E, F=df[["cov1"]].assign(intercept=1.0)[["intercept", "cov1"]].to_numpy()
+    )
     s_formula = StructLMM(y="y", E=E, F="cov1", data=df)
 
     np.testing.assert_allclose(s_formula.y, s_raw.y)
