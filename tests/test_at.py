@@ -282,3 +282,94 @@ def test_run_burden_test_resolves_from_anndata():
     assert len(rdf) == len(annotation_cols)
     assert np.all(np.isfinite(rdf["pv"])) and np.all((rdf["pv"] >= 0) & (rdf["pv"] <= 1))
     assert set(rdf.columns) >= {"burden_gene", "egene", "weight_col", "pv", "beta", "betaste", "lrt"}
+
+
+def _structlmm_donordata(seed=0, n_donors=40, n_snps=4):
+    """A DonorData with a cell-level phenotype and a cell-state factor to use as E."""
+    from cellink import DonorData
+    from cellink._core.dummy_data import sim_adata
+
+    rng = np.random.default_rng(seed)
+    dd = DonorData(G=sim_gdata(n_donors=n_donors, n_snps=n_snps), C=sim_adata(n_donors=n_donors))
+    dd.G.obs["sex"] = rng.integers(0, 2, dd.G.n_obs).astype(float)
+    dd.C.obs["expr"] = rng.standard_normal(dd.C.n_obs)
+    # `sim_adata` stores celltype as object dtype, so there are no empty levels here;
+    # with a real Categorical, call `.cat.remove_unused_categories()` first or the
+    # one-hot gains all-zero columns and E becomes singular
+    return dd
+
+
+def test_structlmm_cell_level_resolves_e_from_formula():
+    """E is a formula like any other slot: a one-hot of the cell state, resolved at cell level."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    dd = _structlmm_donordata()
+    slmm = StructLMM(y="expr", E="celltype - 1", F="crepeat(sex)", data=dd, target_level="cell")
+
+    assert slmm.y.shape == (dd.C.n_obs, 1)
+    assert slmm.E.shape[0] == dd.C.n_obs and slmm.E.shape[1] > 1  # one column per cell state
+    assert slmm.F.shape == (dd.C.n_obs, 2)  # intercept + crepeat(sex)
+
+    pvs = slmm.interaction_test(dd, exact=True)
+    assert pvs.shape == (dd.G.n_vars,)
+    assert np.all(np.isfinite(pvs)) and np.all((pvs >= 0) & (pvs <= 1))
+
+
+def test_structlmm_broadcasts_donor_variants_to_cells():
+    """Donor-level variants are expanded to cells exactly as `crepeat()` would."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+
+    from cellink.at.resolver import get_model_matrix
+    from cellink.at.structlmm import StructLMM
+
+    dd = _structlmm_donordata(seed=1)
+    slmm = StructLMM(y="expr", E="celltype - 1", data=dd, target_level="cell")
+
+    # what the class does internally, against what the resolver's crepeat produces
+    broadcast = slmm._variants(dd)
+    snp = dd.G.var_names[0]
+    dd.G.obs["v0"] = np.asarray(dd.G.X)[:, 0].astype(float)
+    by_crepeat = get_model_matrix(dd, "crepeat(v0) - 1", target_level="cell").to_numpy().ravel()
+
+    assert broadcast.shape == (dd.C.n_obs, dd.G.n_vars), f"expected cell rows for {snp}"
+    np.testing.assert_allclose(broadcast[:, 0], by_crepeat)
+
+
+def test_structlmm_donor_level_with_anndata():
+    """A plain AnnData needs no target_level, and E can be a donor covariate."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(2)
+    gdata = sim_gdata(n_donors=60, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    pvs = slmm.interaction_test(gdata, exact=True)
+    assert pvs.shape == (gdata.n_vars,)
+    assert np.all(np.isfinite(pvs))
+
+
+def test_structlmm_rejects_arrays():
+    """Arrays are no longer accepted, and the error says what to pass instead."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(3)
+    gdata = sim_gdata(n_donors=30, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    with pytest.raises(AssertionError, match="y must be a string"):
+        StructLMM(y=rng.standard_normal((30, 1)), E="env", data=gdata)
+    with pytest.raises(AssertionError, match="E must be a string"):
+        StructLMM(y="pheno", E=rng.standard_normal((30, 2)), data=gdata)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    with pytest.raises(TypeError, match="Wrap a derived matrix in an AnnData"):
+        slmm.interaction_test(rng.standard_normal((30, 3)))

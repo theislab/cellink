@@ -191,6 +191,7 @@ def test_skat_donordata_defaults_to_donor_level():
     assert np.isfinite(skat.run_test(Y="pheno", F="gpc1", data=dd))
 
 
+@pytest.mark.skip(reason="deprecated: StructLMM no longer accepts ndarray/DataFrame")
 def test_structlmm_data_equals_raw_numpy():
     rng = np.random.default_rng(3)
     n = 60
@@ -277,14 +278,15 @@ def test_skat_missing_limix_core_raises_helpful_error(monkeypatch):
         _skat_test(np.zeros(5), np.zeros((5, 1)))
 
 
-def test_structlmm_missing_limix_core_raises_helpful_error(monkeypatch):
-    rng = np.random.default_rng(5)
-    n = 30
-    s = StructLMM(y=rng.standard_normal((n, 1)), E=rng.standard_normal((n, 2)), F=rng.standard_normal((n, 1)))
+def test_structlmm_missing_limix_core_raises_helpful_error(monkeypatch, dd):
+    dd.G.obs["gpc1"] = np.random.default_rng(5).standard_normal(dd.G.n_obs)
+    s = StructLMM(y="phenotype", E="gpc1", F="age", data=dd, target_level="donor")
 
     _block_module(monkeypatch, "limix_core")
+    # exact=True keeps this on the limix-core path; the approximate path would fail on
+    # limix-lmm instead, which is neither installed nor declared in pyproject.toml
     with pytest.raises(ImportError, match="pip install limix-core"):
-        s.interaction_test(rng.standard_normal((n, 3)))
+        s.interaction_test(dd, exact=True)
 
 
 def test_base_model_run_smoke():
