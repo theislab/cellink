@@ -10,7 +10,7 @@ import scipy.linalg as la
 from tqdm import tqdm
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, to_numpy, variant_matrix
 from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
 if TYPE_CHECKING:
@@ -26,41 +26,49 @@ class StructLMM:
 
     def __init__(
         self,
-        y: np.ndarray | str,
-        E: np.ndarray,
-        F: np.ndarray | str | None = None,
+        y: str,
+        E: str,
+        F: str | None = None,
         verbose: bool = False,
         *,
-        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
+        data: DonorData | anndata.AnnData,
         target_level: Literal["donor", "cell"] | None = None,
     ) -> None:
-        """Initialize the OurStructLMM class.
+        """Initialize the StructLMM class.
 
         Parameters
         ----------
-        y : np.ndarray, or str
-            Phenotype data. Either a numpy array directly, or, when `data` is
-            provided, a formula string resolved against `data`.
-        E : np.ndarray
-            Covariance matrix of the variants. Always a raw numpy array
-            (not resolvable from `data`, since it isn't a plain obs/var column).
-        F : np.ndarray, or str, optional
-            Covariates data. If not specified, an intercept is assumed. Either
-            a numpy array directly, or, when `data` is provided, a formula
-            string resolved against `data` (with an intercept column kept).
+        y : str
+            Phenotype: a formula string or bare column name resolved against `data`.
+        E : str
+            Environment (context) design, resolved against `data` as an
+            ``(n_samples, n_environments)`` matrix -- not a covariance. A one-hot of a
+            cell state is ``"cell_state - 1"``; per-donor cell-type proportions are
+            ``"dmean(celltype) - 1"``. No intercept column is added, since a constant
+            environment carries no interaction.
+        F : str, optional
+            Covariates, resolved against `data` with an intercept column kept. If
+            omitted, an intercept-only mean model is used.
         verbose: bool, optional
-        data : DonorData, AnnData, or pandas.DataFrame, optional
-            Data container `y`/`F` are resolved against when either is given
-            as a string.
+            Show a progress bar over variants on the exact path.
+        data : DonorData or AnnData
+            Container `y`/`E`/`F` are resolved against.
         target_level : {"donor", "cell"}, optional
-            Required when `data` is a `DonorData` and `y`/`F` are formula
-            strings.
+            Level to resolve at. Required for a `DonorData`: unlike GWAS and Skat, a
+            GxE model is meaningful at either level (a cell-state `E` or a donor-level
+            one), so there is no sensible default to pick for you.
         """
-        if isinstance(y, str):
-            y = to_numpy(fetch_raw_slot(data, y, "y", target_level=target_level, add_intercept=False))
+        assert isinstance(data, anndata.AnnData | DonorData), "data must be an anndata.AnnData or a DonorData"
+        assert isinstance(y, str), "y must be a string"
+        assert isinstance(E, str), "E must be a string"
+
+        y_df = fetch_raw_slot(data, y, "y", target_level=target_level, add_intercept=False)
+        self._obs_index = None if y_df.attrs.get("has_dummy_index", False) else y_df.index
+        y = to_numpy(y_df)
+        E = to_numpy(fetch_raw_slot(data, E, "E", target_level=target_level, add_intercept=False))
         if F is None:
-            F = np.ones((np.asarray(y).shape[0], 1))
-        elif isinstance(F, str):
+            F = np.ones((y.shape[0], 1))
+        else:
             F = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
 
         # type casting
@@ -68,23 +76,53 @@ class StructLMM:
         E = ensure_float64_array(E)
         F = ensure_float64_array(F)
 
+        assert (
+            y.shape[0] == E.shape[0] == F.shape[0]
+        ), f"y, E and F must have the same number of rows, got {y.shape[0]}, {E.shape[0]}, {F.shape[0]}"
+
         self.y = y
         self.E = E
         self.F = F
 
+        self._data = data
+        self._target_level = target_level
         self.verbose = verbose
+
+    def _variants(self, data: DonorData | anndata.AnnData) -> np.ndarray:
+        """Pull the variant matrix out of `data`, aligned with the rows of `y`."""
+        G = variant_matrix(data)
+
+        row_index = data.G.obs_names if isinstance(data, DonorData) else data.obs_names
+        # A cell-level phenotype with donor-level variants: broadcast each donor's
+        # genotype to its cells, the same expansion `crepeat()` performs in a formula.
+        if isinstance(data, DonorData) and G.shape[0] == data.G.n_obs and self.y.shape[0] != G.shape[0]:
+            donor_ids = data.C.obs[data.donor_id]
+            if isinstance(donor_ids.dtype, pd.CategoricalDtype):
+                donor_ids = donor_ids.astype(donor_ids.cat.categories.dtype)
+            G = G[data.G.obs_names.get_indexer(donor_ids), :]
+            row_index = data.C.obs_names
+
+        G = align_to_index(G, row_index, self._obs_index)
+        if G.shape[0] != self.y.shape[0]:
+            raise ValueError(f"variants have {G.shape[0]} rows but y has {self.y.shape[0]}")
+        return G
 
     def interaction_test(
         self,
-        G: np.ndarray,
+        data: DonorData | anndata.AnnData,
         exact: bool = False,
     ) -> np.ndarray:
-        """Perform the interaction test for association between y and G.
+        """Test the genotype x environment interaction for every variant in `data`.
+
+        The variant set is `data.G.X` for a `DonorData` and `data.X` for an `AnnData`;
+        subset the object beforehand to test a region. When the phenotype is cell-level
+        and the variants are donor-level, each donor's genotype is broadcast to its
+        cells.
 
         Parameters
         ----------
-        G : np.ndarray
-            Genotype data.
+        data : DonorData or AnnData
+            Source of the variants to test.
         exact : bool, optional
             If True, perform the exact test. If False, perform the approximate test using GPs.
         """
@@ -94,8 +132,7 @@ class StructLMM:
         except ImportError as e:
             raise ImportError("StructLMM requires `limix-core`. Install it with:\n\n    pip install limix-core") from e
 
-        # type casting
-        G = ensure_float64_array(G)
+        G = self._variants(data)
 
         if exact or G.shape[1] == 1:
             if not exact:
