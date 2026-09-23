@@ -173,19 +173,22 @@ def test_skat_data_equals_raw_numpy():
 
 
 def test_skat_donordata_defaults_to_donor_level():
-    """Skat's variants are donor-level; a DonorData resolves against `.G` without target_level="donor"."""
+    """Skat's variants are donor-level; a DonorData resolves Y/F there without an explicit target_level."""
     pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
     from cellink.at.skat import Skat
 
     rng = np.random.default_rng(7)
-    snp_cols = [f"snp{i}" for i in range(5)]
     dd = DonorData(G=sim_gdata(), C=sim_adata())
     dd.G.obs["pheno"] = rng.standard_normal(dd.G.n_obs)
-    dd.G.obs[snp_cols] = rng.integers(0, 3, size=(dd.G.n_obs, 5)).astype(float)
+    # a donor-level covariate; note `cov1`-`cov3` already exist in C.obs, and a name
+    # present at both levels would be rejected by the resolver as ambiguous
+    dd.G.obs["gpc1"] = rng.standard_normal(dd.G.n_obs)
 
     skat = Skat(min_threshold=1)
-    pv = skat.run_test(data=dd, Y="pheno", X=" + ".join(snp_cols))
-    assert np.isfinite(pv)
+    # the level default has to be applied before Y/F are resolved, or the resolver
+    # raises "target_level must be 'donor' or 'cell'" on a DonorData
+    assert np.isfinite(skat.run_test(Y="pheno", data=dd))
+    assert np.isfinite(skat.run_test(Y="pheno", F="gpc1", data=dd))
 
 
 def test_structlmm_data_equals_raw_numpy():
