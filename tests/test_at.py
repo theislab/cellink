@@ -254,3 +254,31 @@ def test_skat_covariate_improves_power():
 
         assert adj < unadj, f"seed {seed}: adjusting should sharpen the signal ({unadj} -> {adj})"
         assert adj < 1e-8, f"seed {seed}: planted ve_g=0.2 should be strongly detected, got {adj}"
+
+
+def test_run_burden_test_resolves_from_anndata():
+    """`tl.run_burden_test` builds its GWAS from the genotype object and returns one row per annotation."""
+    import pandas as pd
+
+    from cellink.tl import run_burden_test
+
+    rng = np.random.default_rng(3)
+    N, S = 300, 20
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(rng.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+
+    annotation_cols = ["maf_beta", "tss_distance"]
+    gdata.varm["variant_annotation"] = pd.DataFrame(
+        rng.random((S, len(annotation_cols))), index=gdata.var_names, columns=annotation_cols
+    )
+
+    # phenotype and covariates live on the object the burdens are computed from
+    gdata.obs["pheno"] = rng.standard_normal(N)
+    gdata.obs["age"] = rng.standard_normal(N)
+
+    rdf = run_burden_test(gdata, "pheno", "age", gene="GENE1", annotation_cols=annotation_cols)
+
+    assert list(rdf["weight_col"]) == annotation_cols
+    assert len(rdf) == len(annotation_cols)
+    assert np.all(np.isfinite(rdf["pv"])) and np.all((rdf["pv"] >= 0) & (rdf["pv"] <= 1))
+    assert set(rdf.columns) >= {"burden_gene", "egene", "weight_col", "pv", "beta", "betaste", "lrt"}
