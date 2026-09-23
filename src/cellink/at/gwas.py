@@ -8,7 +8,7 @@ import scipy.linalg as la
 import scipy.stats as st
 
 from cellink._core import DonorData
-from cellink.at.base_model import align_to_index, fetch_raw_slot, observation_index, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, observation_index, to_numpy, variant_matrix
 from cellink.at.utils import ensure_float64_array
 
 __all__ = ["GWAS"]
@@ -121,15 +121,7 @@ class GWAS:
         data : DonorData | anndata.AnnData
             input data
         """
-        if not isinstance(data, anndata.AnnData | DonorData):
-            raise TypeError(
-                f"expected a DonorData or AnnData, got {type(data).__name__}. "
-                "Wrap a derived matrix in an AnnData before testing it."
-            )
-        G = data.G.X if isinstance(data, DonorData) else data.X
-        # type casting
-        G = ensure_float64_array(G)
-        G = align_to_index(G, observation_index(data), self._obs_index)
+        G = align_to_index(variant_matrix(data), observation_index(data), self._obs_index)
 
         # precompute products
         GY = np.dot(G.T, self.Y)

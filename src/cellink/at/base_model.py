@@ -4,13 +4,38 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Literal
 
+import anndata
 import numpy as np
 import pandas as pd
+import scipy.sparse
 
 from cellink.at.require import SlotRequirement
 from cellink.at.resolver import get_model_matrix
+from cellink.at.utils import ensure_float64_array
 
-__all__ = ["BaseModel", "align_to_index", "fetch_raw_slot", "observation_index", "to_numpy"]
+__all__ = ["BaseModel", "align_to_index", "fetch_raw_slot", "observation_index", "to_numpy", "variant_matrix"]
+
+
+def variant_matrix(data) -> np.ndarray:
+    """The dense ``(n_obs, n_variants)`` matrix an association test reads from `data`.
+
+    `.X` may be sparse (a supported AnnData representation) or dask-backed (what
+    `read_sgkit_zarr` produces), neither of which `np.asarray` can cast, so both are
+    materialised here rather than at each call site.
+    """
+    from cellink._core import DonorData
+
+    if not isinstance(data, anndata.AnnData | DonorData):
+        raise TypeError(
+            f"expected a DonorData or AnnData, got {type(data).__name__}. "
+            "Wrap a derived matrix in an AnnData before testing it."
+        )
+    X = data.G.X if isinstance(data, DonorData) else data.X
+    if scipy.sparse.issparse(X):
+        X = X.toarray()
+    elif hasattr(X, "compute"):  # dask, e.g. from read_sgkit_zarr
+        X = X.compute()
+    return ensure_float64_array(X)
 
 
 def observation_index(data) -> pd.Index | None:

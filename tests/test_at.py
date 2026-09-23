@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 
 import numpy as np
@@ -426,3 +427,65 @@ def test_structlmm_realigns_reordered_observations():
     shuffled = gdata[rng.permutation(gdata.obs_names)].copy()
     slmm = StructLMM(y="pheno", E="env", data=gdata)
     np.testing.assert_allclose(slmm.interaction_test(shuffled, exact=True), aligned, rtol=1e-10)
+
+
+def _sparse_and_dense_anndata(seed=0, n_donors=200, n_snps=6):
+    """The same genotypes as a sparse AnnData and a dense one."""
+    import pandas as pd
+    import scipy.sparse as sp
+    from anndata import AnnData
+
+    rng = np.random.default_rng(seed)
+    dense = np.asarray(rng.choice([0, 1, 2], size=(n_donors, n_snps), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+    obs = pd.DataFrame(
+        {"pheno": rng.standard_normal(n_donors), "env": rng.standard_normal(n_donors)},
+        index=[f"D{i}" for i in range(n_donors)],
+    )
+    var = pd.DataFrame(index=[f"snp{i}" for i in range(n_snps)])
+    return AnnData(X=sp.csr_matrix(dense), obs=obs, var=var), AnnData(X=dense, obs=obs.copy(), var=var)
+
+
+def test_models_accept_sparse_x():
+    """`.X` is commonly sparse; `np.asarray` cannot cast it, so it must be densified first.
+
+    Regression: all three models called `ensure_float64_array` straight on `.X` and died
+    with `ValueError: setting an array element with a sequence`.
+    """
+    sparse_a, dense_a = _sparse_and_dense_anndata()
+
+    gwas_sparse = GWAS(Y="pheno", data=sparse_a)
+    gwas_sparse.test_association(sparse_a)
+    gwas_dense = GWAS(Y="pheno", data=dense_a)
+    gwas_dense.test_association(dense_a)
+    np.testing.assert_allclose(gwas_sparse.getPv(), gwas_dense.getPv())
+
+    if importlib.util.find_spec("chiscore") is not None:
+        from cellink.at.skat import Skat
+
+        np.testing.assert_allclose(
+            Skat(min_threshold=1).run_test(Y="pheno", data=sparse_a),
+            Skat(min_threshold=1).run_test(Y="pheno", data=dense_a),
+        )
+
+    if importlib.util.find_spec("limix_core") is not None and importlib.util.find_spec("chiscore") is not None:
+        from cellink.at.structlmm import StructLMM
+
+        np.testing.assert_allclose(
+            StructLMM(y="pheno", E="env", data=sparse_a).interaction_test(sparse_a, exact=True),
+            StructLMM(y="pheno", E="env", data=dense_a).interaction_test(dense_a, exact=True),
+        )
+
+
+def test_gwas_accepts_dask_x():
+    """`read_sgkit_zarr` returns a dask-backed `.X`; it must be computed, not left lazy."""
+    da = pytest.importorskip("dask.array", reason="dask is a core dependency but guard anyway")
+    from anndata import AnnData
+
+    _, dense_a = _sparse_and_dense_anndata(seed=1)
+    lazy = AnnData(X=da.from_array(dense_a.X, chunks=(50, 3)), obs=dense_a.obs.copy(), var=dense_a.var)
+
+    gwas_lazy = GWAS(Y="pheno", data=lazy)
+    gwas_lazy.test_association(lazy)
+    gwas_dense = GWAS(Y="pheno", data=dense_a)
+    gwas_dense.test_association(dense_a)
+    np.testing.assert_allclose(gwas_lazy.getPv(), gwas_dense.getPv())

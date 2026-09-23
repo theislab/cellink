@@ -7,11 +7,10 @@ import anndata
 import numpy as np
 import pandas as pd
 import scipy.linalg as la
-import scipy.sparse
 from tqdm import tqdm
 
 from cellink._core import DonorData
-from cellink.at.base_model import align_to_index, fetch_raw_slot, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, to_numpy, variant_matrix
 from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
 if TYPE_CHECKING:
@@ -91,17 +90,7 @@ class StructLMM:
 
     def _variants(self, data: DonorData | anndata.AnnData) -> np.ndarray:
         """Pull the variant matrix out of `data`, aligned with the rows of `y`."""
-        if not isinstance(data, anndata.AnnData | DonorData):
-            raise TypeError(
-                f"expected a DonorData or AnnData, got {type(data).__name__}. "
-                "Wrap a derived matrix in an AnnData before testing it."
-            )
-        X = data.G.X if isinstance(data, DonorData) else data.X
-        if scipy.sparse.issparse(X):
-            X = X.toarray()
-        elif hasattr(X, "compute"):  # dask, e.g. from read_sgkit_zarr
-            X = X.compute()
-        G = ensure_float64_array(X)
+        G = variant_matrix(data)
 
         row_index = data.G.obs_names if isinstance(data, DonorData) else data.obs_names
         # A cell-level phenotype with donor-level variants: broadcast each donor's

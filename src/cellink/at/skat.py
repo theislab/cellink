@@ -8,7 +8,7 @@ import scipy
 import scipy.stats as st
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import fetch_raw_slot, to_numpy, variant_matrix
 from cellink.at.utils import (
     davies_pvalue,
     ensure_float64_array,
@@ -182,8 +182,7 @@ class Skat:
             F_arr = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
         F_arr = ensure_float64_array(F_arr)
 
-        X = data.G.X if isinstance(data, DonorData) else data.X
-        X_arr = ensure_float64_array(X)
+        X_arr = variant_matrix(data)
         return self._run_test(Y_arr, X_arr, F_arr)
 
     def _run_test(
