@@ -373,3 +373,56 @@ def test_structlmm_rejects_arrays():
     slmm = StructLMM(y="pheno", E="env", data=gdata)
     with pytest.raises(TypeError, match="Wrap a derived matrix in an AnnData"):
         slmm.interaction_test(rng.standard_normal((30, 3)))
+
+
+def test_gwas_realigns_reordered_observations():
+    """Observations in a different order must be realigned, not tested as-is.
+
+    Regression: `test_association` used `data.X` directly, so a view with the same
+    donors in a different order silently produced plausible but wrong statistics --
+    a true p=4e-15 association read as p=0.17.
+    """
+    rng = np.random.default_rng(0)
+    gdata = sim_gdata(n_donors=200, n_snps=4)
+    gdata.X = np.asarray(rng.choice([0, 1, 2], size=(200, 4)), dtype=np.float64)
+    gdata.obs["pheno"] = gdata.X[:, 0] * 0.8 + rng.standard_normal(200)
+
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(gdata)
+    aligned = np.ravel(gwas.getPv()).copy()
+    assert aligned[0] < 1e-8, "variant 0 is truly associated"
+
+    shuffled = gdata[rng.permutation(gdata.obs_names)].copy()
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(shuffled)
+    np.testing.assert_allclose(np.ravel(gwas.getPv()), aligned, rtol=1e-10)
+
+
+def test_gwas_rejects_mismatched_observations():
+    """A partially overlapping object is an error, not something to silently reindex."""
+    rng = np.random.default_rng(1)
+    gdata = sim_gdata(n_donors=60, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+
+    gwas = GWAS(Y="pheno", data=gdata)
+    with pytest.raises(ValueError, match="observations"):
+        gwas.test_association(gdata[gdata.obs_names[:30]].copy())
+
+
+def test_structlmm_realigns_reordered_observations():
+    """Same guarantee for StructLMM, whose variants may also be broadcast to cells."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(2)
+    gdata = sim_gdata(n_donors=80, n_snps=2)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    aligned = slmm.interaction_test(gdata, exact=True)
+
+    shuffled = gdata[rng.permutation(gdata.obs_names)].copy()
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    np.testing.assert_allclose(slmm.interaction_test(shuffled, exact=True), aligned, rtol=1e-10)

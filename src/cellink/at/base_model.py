@@ -10,7 +10,39 @@ import pandas as pd
 from cellink.at.require import SlotRequirement
 from cellink.at.resolver import get_model_matrix
 
-__all__ = ["BaseModel", "fetch_raw_slot", "to_numpy"]
+__all__ = ["BaseModel", "align_to_index", "fetch_raw_slot", "observation_index", "to_numpy"]
+
+
+def observation_index(data) -> pd.Index | None:
+    """The observation names of the axis a variant matrix is indexed by."""
+    from cellink._core import DonorData
+
+    if isinstance(data, DonorData):
+        return data.G.obs_names
+    return getattr(data, "obs_names", None)
+
+
+def align_to_index(values: np.ndarray, index, fitted_index, slot: str = "variants") -> np.ndarray:
+    """Reorder `values` so its rows match the observations the model was fitted on.
+
+    Same observations in a different order are reordered; anything else raises, since
+    testing a differently-populated matrix against the fitted null silently produces
+    plausible but wrong statistics.
+    """
+    if fitted_index is None or index is None:
+        if values.shape[0] != len(fitted_index or ()):
+            pass  # nothing to check against
+        return values
+    if index.equals(fitted_index):
+        return values
+    missing = fitted_index.difference(index)
+    if len(missing) or len(index) != len(fitted_index):
+        raise ValueError(
+            f"{slot} cover {len(index)} observations, but the model was fitted on "
+            f"{len(fitted_index)} ({len(missing)} of them missing, e.g. {list(missing[:3])}). "
+            "Subset both to the same observations before testing."
+        )
+    return values[index.get_indexer(fitted_index)]
 
 
 def to_numpy(raw) -> np.ndarray:

@@ -8,7 +8,7 @@ import scipy.linalg as la
 import scipy.stats as st
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, observation_index, to_numpy
 from cellink.at.utils import ensure_float64_array
 
 __all__ = ["GWAS"]
@@ -53,7 +53,11 @@ class GWAS:
                 * F has two dimensions (either a column vector to model intercept or a matrix with covariates)
                 * F has the same number of rows as Y
         """
-        Y = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
+        Y_df = fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False)
+        # remember which observations the null is fitted on, so `test_association` can
+        # verify that whatever it is handed lines up with them
+        self._obs_index = None if Y_df.attrs.get("has_dummy_index", False) else Y_df.index
+        Y = to_numpy(Y_df)
 
         if F is None:
             F = np.ones((Y.shape[0], 1))
@@ -117,9 +121,15 @@ class GWAS:
         data : DonorData | anndata.AnnData
             input data
         """
+        if not isinstance(data, anndata.AnnData | DonorData):
+            raise TypeError(
+                f"expected a DonorData or AnnData, got {type(data).__name__}. "
+                "Wrap a derived matrix in an AnnData before testing it."
+            )
         G = data.G.X if isinstance(data, DonorData) else data.X
         # type casting
         G = ensure_float64_array(G)
+        G = align_to_index(G, observation_index(data), self._obs_index)
 
         # precompute products
         GY = np.dot(G.T, self.Y)

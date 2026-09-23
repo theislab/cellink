@@ -11,7 +11,7 @@ import scipy.sparse
 from tqdm import tqdm
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, to_numpy
 from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
 if TYPE_CHECKING:
@@ -63,7 +63,9 @@ class StructLMM:
         assert isinstance(y, str), "y must be a string"
         assert isinstance(E, str), "E must be a string"
 
-        y = to_numpy(fetch_raw_slot(data, y, "y", target_level=target_level, add_intercept=False))
+        y_df = fetch_raw_slot(data, y, "y", target_level=target_level, add_intercept=False)
+        self._obs_index = None if y_df.attrs.get("has_dummy_index", False) else y_df.index
+        y = to_numpy(y_df)
         E = to_numpy(fetch_raw_slot(data, E, "E", target_level=target_level, add_intercept=False))
         if F is None:
             F = np.ones((y.shape[0], 1))
@@ -101,16 +103,20 @@ class StructLMM:
             X = X.compute()
         G = ensure_float64_array(X)
 
-        if G.shape[0] == self.y.shape[0]:
-            return G
+        row_index = data.G.obs_names if isinstance(data, DonorData) else data.obs_names
         # A cell-level phenotype with donor-level variants: broadcast each donor's
         # genotype to its cells, the same expansion `crepeat()` performs in a formula.
-        if isinstance(data, DonorData) and G.shape[0] == data.G.n_obs and self.y.shape[0] == data.C.n_obs:
+        if isinstance(data, DonorData) and G.shape[0] == data.G.n_obs and self.y.shape[0] != G.shape[0]:
             donor_ids = data.C.obs[data.donor_id]
             if isinstance(donor_ids.dtype, pd.CategoricalDtype):
                 donor_ids = donor_ids.astype(donor_ids.cat.categories.dtype)
-            return G[data.G.obs_names.get_indexer(donor_ids), :]
-        raise ValueError(f"variants have {G.shape[0]} rows but y has {self.y.shape[0]}")
+            G = G[data.G.obs_names.get_indexer(donor_ids), :]
+            row_index = data.C.obs_names
+
+        G = align_to_index(G, row_index, self._obs_index)
+        if G.shape[0] != self.y.shape[0]:
+            raise ValueError(f"variants have {G.shape[0]} rows but y has {self.y.shape[0]}")
+        return G
 
     def interaction_test(
         self,
