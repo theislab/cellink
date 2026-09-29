@@ -13,26 +13,30 @@
 # %% [markdown]
 # # Resolving association-test inputs from a `DonorData`
 #
-# `cellink.at.GWAS`, `cellink.at.Skat` and `cellink.at.StructLMM` take a `DonorData` or
-# an `AnnData` and nothing else. Every input is a formula string resolved against that
-# object, and the variants come from the object itself, so a region is chosen by
-# subsetting rather than by passing a matrix. Two function families cross the levels:
+# `cellink.at.GWAS`, `cellink.at.Skat` and `cellink.at.StructLMM` take a `DonorData` or an
+# `AnnData` and nothing else. Phenotype, covariates and environments are formula strings
+# evaluated against that object, and the variants are whatever the object holds, so you pick
+# a region by subsetting instead of passing a matrix around.
 #
-# - `crepeat(x)` broadcasts a **donor-level** value down to every cell of that donor.
-# - `dmean(x)`, `dfirst(x)`, `dmax(x)`, `dmedian(x)` aggregate a **cell-level** variable
-#   up to one value per donor.
+# Two families of functions move values between the donor and cell levels:
 #
-# The genotypes, donors and cell types below are real OneK1K; the expression is
-# simulated, so each test can be checked against a known ground truth.
+# - `crepeat(x)` copies a donor-level value to each of that donor's cells.
+# - `dmean(x)`, `dfirst(x)`, `dmax(x)` and `dmedian(x)` collapse a cell-level variable to
+#   one value per donor.
+#
+# We use real OneK1K genotypes, donors and cell types, and simulate the expression on top.
+# Because we know the true effects, we can check each test's answer.
 
 # %% [markdown]
 # ## Load
 #
-# `get_onek1k()` downloads ~17 GB and needs `PLINK` and `vcf2zarr` on `PATH`, so this
-# notebook is committed with its outputs (`nb_execution_mode = "off"` in `docs/conf.py`).
+# `get_onek1k()` downloads about 17 GB and needs `PLINK` and `vcf2zarr` on your `PATH`. The
+# docs build doesn't execute notebooks (`nb_execution_mode = "off"` in `docs/conf.py`), so
+# the outputs you see were saved from a local run.
 
 # %%
 import anndata as ad
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from liftover import get_lifter
@@ -44,22 +48,27 @@ from cellink.resources import get_onek1k
 rng = np.random.default_rng(0)
 dd = get_onek1k()
 
+# colours for the figures: B states in blue, everything else in grey
+B_COLOR, OTHER_COLOR, TRUTH_COLOR = "#2a78d6", "#a3a29c", "#eb6834"
+plt.rcParams.update({"axes.spines.top": False, "axes.spines.right": False, "axes.grid": False})
+
 # %% [markdown]
 # ## The variant
 #
-# `rs1574036` is the memory-B lead eSNP for *EAF2* in OneK1K (Yazar et al., *Science*
-# **376**, eabf3041, 2022): a gene expressed across all cell types but genetically
-# controlled in only two of the study's fourteen -- immature/naive B and memory B. That
-# "expressed everywhere, regulated in one lineage" shape is exactly the pattern
-# simulated below, which is why this variant and this window. Its real dosages are used;
-# the expression is invented, so nothing here reproduces the published result.
+# In OneK1K (Yazar et al., *Science* 376, eabf3041, 2022), `rs1574036` is the lead memory-B
+# eSNP for *EAF2*. The gene is expressed in every cell type, but the study found a genetic
+# effect on it in only two of its fourteen: immature/naive B and memory B. That's the
+# situation we simulate below, so it's a natural place to anchor the example. We use the
+# real dosages at this variant. The expression is made up, so don't expect to reproduce the
+# published numbers.
 #
-# ### Mind the genome build
+# ### Genome build
 #
-# The OneK1K VCF is **GRCh38** while the published eSNP tables are **GRCh37**, so a
-# published position finds nothing until it is lifted. Ignore the `pos_hg19` column
-# `get_onek1k()` adds -- it lifts coordinates that are already hg38 and lands ~281 kb
-# off. `variant_id` holds positions rather than rsIDs, so there is no rsID lookup.
+# The OneK1K VCF is on GRCh38 and the published eSNP tables are on GRCh37, so you have to
+# lift a published position before looking it up. Don't use the `pos_hg19` column that
+# `get_onek1k()` adds: it lifts coordinates that are already hg38 and ends up about 281 kb
+# away. `variant_id` holds positions, not rsIDs, so you can't look a variant up by rsID
+# either.
 
 # %%
 RS1574036_HG19 = 121_483_254  # rs1574036, as published
@@ -78,10 +87,11 @@ dd.G.obsm["gPCs"].columns = [f"gPC_{i}" for i in range(1, dd.G.obsm["gPCs"].shap
 # %% [markdown]
 # ## Cell types
 #
-# The expression half is Azimuth-annotated and carries none of the study's 14 labels, so
-# they are rebuilt here. `CD4_SOX4` and `CD8_S100B` are marker-defined and cannot be
-# recovered; the other twelve can. Check `dd.C.obs[label_col].value_counts()` first --
-# spellings differ between annotations.
+# The expression data comes with Azimuth labels, not the study's 14 cell types, so we map
+# one onto the other. Twelve of the fourteen can be rebuilt this way. `CD4_SOX4` and
+# `CD8_S100B` were defined by marker genes and have no Azimuth equivalent. Label spellings
+# vary between annotation versions, so look at `dd.C.obs[label_col].value_counts()` before
+# trusting the mapping.
 
 # %%
 label_col = "predicted.celltype.l2" if "predicted.celltype.l2" in dd.C.obs else "cell_type"
@@ -110,14 +120,16 @@ dd.C.obs["cell_state"].value_counts()
 # %% [markdown]
 # ## Simulate a phenotype
 #
-# Three genetic components, one per test:
+# The simulated expression has three genetic parts, one aimed at each test:
 #
-# 1. a **burden** over the *cis* window, the same slope in every cell type -- `GWAS`
-# 2. a **random genetic effect**, an independent draw per variant so signs cancel in a
-#    burden but still contribute variance across the set -- `Skat`
-# 3. a **genotype x cell-type** effect, drawn only in the B states -- `StructLMM`
+# 1. A burden over the *cis* window with the same slope in every cell type. `GWAS` should
+#    pick this up.
+# 2. A random effect with an independent draw per variant. The signs cancel in a burden, but
+#    the set as a whole still explains variance. That's what `Skat` looks for.
+# 3. A genotype-by-cell-type effect, drawn only in the two B states. This is the target for
+#    `StructLMM`.
 #
-# Each is a fraction of the cell-level variance; noise takes the remainder.
+# Each part explains a fixed share of the cell-level variance, and noise makes up the rest.
 
 # %%
 VE_BURDEN, VE_RANDOM, VE_INTERACTION = 0.10, 0.07, 0.03
@@ -148,10 +160,11 @@ X_std = (X_raw - X_raw.mean(axis=0)) / X_raw.std(axis=0)
 R = unit(X_std @ rng.normal(0, 1 / np.sqrt(X_raw.shape[1]), X_raw.shape[1]))
 
 # %% [markdown]
-# `gamma` is drawn over every state present, `"other"` included with zero: a state
-# missing from the index would make the `map()` below return `NaN`, and those cells
-# would silently have no phenotype. Noise takes the remainder of the **realised** slope,
-# since the burden contributes `(beta + gamma)^2` and the cross term does not cancel.
+# We draw `gamma` for every state that has cells, and set it to zero outside the B states,
+# `"other"` included. If a state were missing from the index, the `map()` below would
+# return `NaN` for its cells and they would quietly end up with no phenotype. The noise
+# variance is computed from the slope we actually drew: the burden contributes
+# `(beta + gamma)^2`, and the cross term doesn't cancel.
 
 # %%
 present = [s for s in dd.C.obs["cell_state"].cat.categories if (dd.C.obs["cell_state"] == s).any()]
@@ -172,21 +185,47 @@ dd.C.obs["sim_expr"] = (
     + np.sqrt(states.map(ve_noise).to_numpy()) * rng.normal(0, 1, dd.C.n_obs)
 )
 assert dd.C.obs["sim_expr"].notna().all(), "some cells have no simulated phenotype"
+print(f"realised gamma: {gamma[list(B_STATES)].round(3).to_dict()}")
+
+# %% [markdown]
+# Before running any test, here is what we simulated. Each point is one donor's mean
+# expression in that cell type, plotted against their burden. The grey line in the B panels
+# is the slope shared by all cell types. The gap between it and the blue fit is `gamma`.
+
+# %%
+pseudobulk = dd.C.obs.groupby([dd.donor_id, "cell_state"], observed=True)["sim_expr"].mean().unstack()
+donor_burden = dd.G.obs["burden"].reindex(pseudobulk.index.astype(str))
+
+fig, axes = plt.subplots(1, 3, figsize=(11, 3.4), sharex=True, sharey=True)
+for ax, state in zip(axes, ["CD4_NC", *B_STATES], strict=True):
+    x, y = donor_burden.to_numpy(), pseudobulk[state].to_numpy()
+    ok = np.isfinite(y)
+    color = B_COLOR if state in B_STATES else OTHER_COLOR
+    ax.scatter(x[ok], y[ok], s=8, alpha=0.35, color=color, linewidths=0)
+    grid = np.linspace(x.min(), x.max(), 2)
+    ax.plot(grid, np.polyval(np.polyfit(x[ok], y[ok], 1), grid), color=color, lw=2)
+    if state in B_STATES:
+        ax.plot(grid, EFFECT_SIGN * np.sqrt(VE_BURDEN) * grid, color=OTHER_COLOR, lw=2, ls="--")
+    ax.set_title(f"{state}  (true slope {slope[state]:+.2f})", fontsize=10)
+    ax.set_xlabel("cis burden (standardised)")
+axes[0].set_ylabel("donor mean sim_expr")
+fig.tight_layout()
 
 # %% [markdown]
 # ## The resolver on its own
 #
-# `get_model_matrix(data, formula, target_level=...)` is what every model's `data=` path
-# calls. `sex` and `age` are stored per cell even though they are donor attributes, so a
-# donor-level model has to collapse them; `@gPC[1:5]` expands to the first five PCs.
+# Every model's `data=` path calls `get_model_matrix(data, formula, target_level=...)`. You
+# can call it yourself to see what a formula turns into. `sex` and `age` are donor
+# attributes but they're stored on each cell, so a donor-level model has to collapse them
+# with `dfirst`. `@gPC[1:5]` expands to the first five genotype PCs.
 
 # %%
 get_model_matrix(dd, "dfirst(sex) + dfirst(age) + @gPC[1:5]", target_level="donor").head()
 
 # %% [markdown]
-# The other direction: the donor genotype broadcast to every cell and crossed with the
-# cell state. This is the formula the numpy interface could not express without tiling
-# the genotype by hand and keeping it in sync with every cell filter.
+# Going the other way, `crepeat` copies the donor genotype to every cell so it can be
+# crossed with the cell state. With the numpy interface you'd have to tile the genotype
+# yourself and keep it in sync with every cell filter.
 
 # %%
 get_model_matrix(dd, "crepeat(rs1574036) * cell_state", target_level="cell").columns.tolist()
@@ -194,19 +233,36 @@ get_model_matrix(dd, "crepeat(rs1574036) * cell_state", target_level="cell").col
 # %% [markdown]
 # ## `GWAS`: one test per cell type
 #
-# `dmean()` builds the pseudobulk phenotype inside the formula, over whatever cells the
-# object holds -- so subsetting to a cell type is what makes it a per-cell-type mean. A
-# derived vector such as the burden is not in `.X`, so it travels as its own `AnnData`.
+# `dmean()` builds the pseudobulk phenotype inside the formula from whatever cells the
+# object holds. Subset the object to one cell type and you get that cell type's mean. The
+# burden is a derived vector and doesn't live in `.X`, so we wrap it in its own `AnnData`.
+#
+# We only keep donors with at least 10 cells of the state, and only test states that still
+# have 100 donors after that. The figure shows where that cut falls.
 
 # %%
 MIN_CELLS, MIN_DONORS = 10, 100
 COVARIATES = "dfirst(sex) + dfirst(age) + @gPC[1:5]"
 counts = dd.C.obs.groupby([dd.donor_id, "cell_state"], observed=True).size().unstack(fill_value=0)
 
+n_eligible = (counts[cell_types] >= MIN_CELLS).sum().sort_values()
+fig, ax = plt.subplots(figsize=(6, 3.6))
+ax.barh(
+    n_eligible.index,
+    n_eligible.to_numpy(),
+    color=[B_COLOR if s in B_STATES else OTHER_COLOR for s in n_eligible.index],
+    height=0.7,
+)
+ax.axvline(MIN_DONORS, color="#52514e", lw=1, ls="--")
+ax.text(MIN_DONORS, 0, f"  {MIN_DONORS} donors", color="#52514e", fontsize=9, va="center")  # Plasma row, below the cut
+ax.set_xlabel(f"donors with at least {MIN_CELLS} cells")
+fig.tight_layout()
+
+# %%
 results, skipped = {}, {}
 for state in cell_types:
     donors = counts.index[counts[state] >= MIN_CELLS]
-    if len(donors) < MIN_DONORS:  # Plasma and DC lose most donors to the floor
+    if len(donors) < MIN_DONORS:
         skipped[state] = len(donors)
         continue
     dd_s = dd[:, :, dd.C.obs["cell_state"].eq(state).to_numpy(), :].copy()
@@ -216,26 +272,64 @@ for state in cell_types:
     gwas = GWAS(Y="dmean(sim_expr)", F=COVARIATES, data=dd_s, target_level="donor")
     gwas.test_association(tested)
 
-    pv = np.ravel(gwas.getPv())
-    results[state] = {"n_donors": dd_s.G.n_obs, "p_burden": pv[0], "p_lead_snp": pv[1]}
+    pv, beta, se = (np.ravel(a) for a in (gwas.getPv(), gwas.getBetaSNP(), gwas.getBetaSNPste()))
+    results[state] = {
+        "n_donors": dd_s.G.n_obs,
+        "beta_burden": beta[0],
+        "se_burden": se[0],
+        "p_burden": pv[0],
+        "p_lead_snp": pv[1],
+    }
 
 print(f"tested {len(results)} cell types; skipped {skipped}")
-pd.DataFrame(results).T
+gwas_res = pd.DataFrame(results).T
+gwas_res
 
 # %% [markdown]
-# The burden is significant in **every** cell type, because its slope is non-zero
-# everywhere -- which says nothing about cell-type specificity. Only the interaction
-# below does. `p_lead_snp` is the honest unknown: rs1574036 is one variant inside a
-# 100-variant burden, so how much signal it carries depends on real LD in the window.
-
-# %% [markdown]
-# ## `StructLMM`: genotype x cell type
+# The burden comes out significant in every cell type. That's expected, since its slope
+# isn't zero anywhere, and it's also why these p-values can't tell you whether the effect is
+# cell-type specific. The effect sizes are more informative. The T, NK and myeloid estimates
+# all land in the same place, and the two B states sit closer to zero, which is what a
+# positive `gamma` on a negative slope should do.
 #
-# `E` is a formula like any other slot, resolved with no intercept since a constant
-# environment carries no interaction. The burden is donor-level while the phenotype is
-# cell-level, so it is handed over as a `DonorData` and StructLMM broadcasts it. The
-# result is **one p-value per variant column**, not one per cell: cells are the rows, and
-# the whole 12-state `E` is tested as a single variance component.
+# Every estimate, B states included, comes out about 0.03 below its true slope. The offset
+# is the same in every cell type, so it comes from something shared rather than from the
+# interaction. The likely cause is the random component `R`: it's built from the same
+# variants as the burden, so in any one draw the two are slightly correlated.
+#
+# `p_lead_snp` depends on the real data. rs1574036 is one of the 100 variants in the burden,
+# so how strong it looks here depends on its LD with the others.
+
+# %%
+order = gwas_res.index[::-1]
+fig, ax = plt.subplots(figsize=(6, 4))
+y = np.arange(len(order))
+colors = [B_COLOR if s in B_STATES else OTHER_COLOR for s in order]
+ax.errorbar(
+    gwas_res.loc[order, "beta_burden"],
+    y,
+    xerr=1.96 * gwas_res.loc[order, "se_burden"].abs(),
+    fmt="none",
+    ecolor=colors,
+    elinewidth=2,
+)
+ax.scatter(gwas_res.loc[order, "beta_burden"], y, color=colors, s=40, zorder=3, label="estimated")
+ax.scatter(slope[order], y, marker="|", s=200, color=TRUTH_COLOR, zorder=4, label="true slope")
+ax.axvline(EFFECT_SIGN * np.sqrt(VE_BURDEN), color=OTHER_COLOR, lw=1, ls="--")
+ax.set_yticks(y, order)
+ax.set_xlabel("burden effect on donor mean (95% CI)")
+ax.legend(frameon=False, loc="lower right", fontsize=9)
+fig.tight_layout()
+
+# %% [markdown]
+# ## `StructLMM`: genotype by cell type
+#
+# `E` is a formula like the other inputs. We drop the intercept because a constant
+# environment can't carry an interaction. The phenotype is per cell and the burden is per
+# donor, so we pass the burden as a `DonorData` and StructLMM copies it to each cell.
+#
+# You get one p-value per variant column, not one per cell. The cells are the rows, and all
+# 12 columns of `E` are tested together as a single variance component.
 
 # %%
 MAX_CELLS_PER_DONOR = 5  # a cell-level model over 12 types x 982 donors is too much
@@ -267,11 +361,14 @@ p_all = slmm.interaction_test(burden_of(dd_i), exact=True)
 p_all
 
 # %% [markdown]
-# That number says the slope varies *somewhere*, not where. Drop the two states `gamma`
-# was drawn in and it should go flat: the tested variant's own persistent effect is
-# already a fixed effect in the null, so only the variation across `E` is left. Print the
-# realised `gamma` too -- it is one draw per B state, and below `|gamma| ~ 0.05` there is
-# nothing to find at this sample size.
+# A small p-value here means the slope differs between cell types, but it doesn't say which
+# ones. To find out, drop the two B states and test again. The variant's shared effect is
+# already a fixed effect in the null model, so with the B cells gone there should be nothing
+# left to detect.
+#
+# Keep the realised `gamma` printed above in mind. It's a single random draw per B state, and
+# if both draws land below about 0.05 in absolute value, this sample is too small to see the
+# interaction at all.
 
 # %%
 non_b = ~dd_i.C.obs["cell_state"].isin(B_STATES).to_numpy()
@@ -285,16 +382,17 @@ print(f"realised gamma: {gamma[list(B_STATES)].round(3).to_dict()}")
 print(f"all 12 states: {p_all.ravel()[0]:.2e}    without B_IN/B_Mem: {p_nb.ravel()[0]:.3g}")
 
 # %% [markdown]
-# Set `VE_INTERACTION = 0` and re-run: every marginal test above stays exactly as
-# significant while this interaction disappears. That is the difference between "this
-# gene has an eQTL" and "this gene has a *cell-type-specific* eQTL".
+# Try setting `VE_INTERACTION = 0` and running everything again. The marginal tests above
+# stay just as significant, and this interaction goes away. The first set of tests tells you
+# the gene has an eQTL. Only this one tells you the eQTL is cell-type specific.
 
 # %% [markdown]
 # ## `Skat`: the variant set
 #
-# The set is whatever is in the object, so the window is chosen by subsetting. `a=1, b=1`
-# gives flat weights, matching the unweighted burden; the default `a=1, b=25` is a
-# rare-variant weighting and wrong for a window of common variants.
+# `Skat` tests whatever variants are in the object, so you choose the window by subsetting.
+# `a=1, b=1` gives every variant the same weight, which matches our unweighted burden. The
+# default `a=1, b=25` upweights rare variants and is the wrong choice for a window of common
+# ones.
 
 # %%
 dd_b = dd[:, :, dd.C.obs["cell_state"].eq("B_Mem").to_numpy(), :].copy()
@@ -306,11 +404,12 @@ Skat(a=1, b=1, min_threshold=1).run_test(Y="dmean(sim_expr)", F="dfirst(sex) + d
 # %% [markdown]
 # ## Plain `AnnData`
 #
-# `target_level` exists only because a `DonorData` has two levels. A plain `AnnData` has
-# one, so it is omitted -- and the aggregation functions are rejected there, which is why
-# the donor-level frame is collapsed with `dmean`/`dfirst` first and handed over ready-made.
-# The phenotype here is its own: an effect from rs1574036 and nothing else, so the number
-# below rests on the variant rather than on its LD with the rest of the burden.
+# `target_level` is only needed because a `DonorData` has two levels. A plain `AnnData` has
+# one, so you leave it out. The aggregation functions aren't allowed there either, so we
+# build the donor-level table with `dmean`/`dfirst` first and pass it in ready to use.
+#
+# This example gets its own phenotype, driven by rs1574036 alone. That way the result
+# depends on the variant itself, not on its LD with the rest of the window.
 
 # %%
 VE_SNP = 0.05
@@ -326,15 +425,21 @@ gwas_adata.test_association(donor_adata)  # the variants are this object's `.X`
 gwas_adata.getPv()
 
 # %% [markdown]
-# ## Things that bite on real data
-#
-# - **Names must be unique.** A bare name is searched across `dd.G` and `dd.C`, in
-#   `obs`, `var`, `obsm`/`varm` and `X`; two matches raise `Key '...' is not unique`.
-# - **`crepeat` is for donor-level variables only.** `sex`/`age` live in `dd.C.obs`, so
-#   at cell level they are used directly -- `crepeat(sex)` raises there.
-# - **Subsetting cells changes the donor set.** `dd[:, :, cells, :]` re-intersects `G`
-#   against the donors still in `C`, so a donor with no cells left is removed, not left
-#   as `NaN`. Check `dd.G.n_obs` after a cell filter.
-# - **Genome build.** `dd.G.var["pos"]` is GRCh38; published tables are GRCh37.
-# - **Donors power these tests, not cells.** The phenotype is one number per donor no
-#   matter how many cells went into it.
+# Here is the same thing as a picture: donor expression split by rs1574036 dosage.
+
+# %%
+dosage = donor["rs1574036"].round().astype(int)
+groups = [donor.loc[dosage == k, "expr"].to_numpy() for k in sorted(dosage.unique())]
+
+fig, ax = plt.subplots(figsize=(4.5, 3.4))
+parts = ax.violinplot(groups, positions=range(len(groups)), showextrema=False, widths=0.8)
+for body in parts["bodies"]:
+    body.set_facecolor(B_COLOR)
+    body.set_alpha(0.3)
+ax.plot(range(len(groups)), [grp.mean() for grp in groups], "o-", color=B_COLOR, lw=2, ms=8)
+ax.set_xticks(
+    range(len(groups)), [f"{k}\n(n={len(grp)})" for k, grp in zip(sorted(dosage.unique()), groups, strict=True)]
+)
+ax.set_xlabel("rs1574036 dosage")
+ax.set_ylabel("simulated donor expression")
+fig.tight_layout()
