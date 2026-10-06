@@ -107,14 +107,14 @@ def run_jaxqtl(
     Parameters
     ----------
     dd : DonorData
-        Object containing donor-level genotype (`dd.G`) and cell-level expression data (`dd.C`).
+        Object containing donor-level genotype (`dd.D`) and cell-level expression data (`dd.C`).
     prefix : str, optional
         Prefix for temporary and output files. If not provided, defaults to "jaxqtl_temp".
     out : str, optional
         Output file prefix for jaxQTL results.
     n_pcs : int, default=50
         Number of principal components to compute from single-cell expression data, donor-aggregated
-        (mean) into dd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
+        (mean) into dd.D.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
         additional_covariates; otherwise unused.
     add_covar : str, optional
         Path to file with additional covariates to include.
@@ -171,11 +171,11 @@ def run_jaxqtl(
     verbose : bool, default=False
         If True, prints detailed logging from jaxQTL.
     encode_sex : bool, default=True
-        If True, adds sex as a categorical covariate using `dd.G.obs['sex']`.
+        If True, adds sex as a categorical covariate using `dd.D.obs['sex']`.
     encode_age : bool, default=True
-        If True, adds age as a numeric covariate from `dd.G.obs['age']`.
+        If True, adds age as a numeric covariate from `dd.D.obs['age']`.
     additional_covariates : list of str, optional
-        Additional covariates to extract from `dd.G.obs` or `dd.G.obsm` and include in the model.
+        Additional covariates to extract from `dd.D.obs` or `dd.D.obsm` and include in the model.
     dtype : str, default='float32'
         Data type for numerical covariate matrices.
     run : bool, default=True
@@ -225,11 +225,11 @@ def run_jaxqtl(
         if "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA.")
             sc.pp.pca(dd.C, n_comps=n_pcs)
-        if "X_pca" not in dd.G.obsm:
+        if "X_pca" not in dd.D.obsm:
             dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
-    phenotype_df = dd.G.obsm["PB"].T
+    phenotype_df = dd.D.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
 
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
@@ -244,22 +244,22 @@ def run_jaxqtl(
         covariate_list = []
 
         if encode_sex:
-            sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+            sex_codes = dd.D.obs["sex"].astype("category").cat.codes
             covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
         if encode_age:
-            age_values = dd.G.obs[["age"]].values.astype("int")
+            age_values = dd.D.obs[["age"]].values.astype("int")
             covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
         if additional_covariates:
             for cov in additional_covariates:
-                if cov in dd.G.obs.columns:
+                if cov in dd.D.obs.columns:
                     covariate_df = pd.DataFrame(
-                        dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
+                        dd.D.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
                     )
                     covariate_list.append(covariate_df)
-                elif cov in dd.G.obsm:
-                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                elif cov in dd.D.obsm:
+                    cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
                     if cov_matrix.ndim == 1:
                         covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                     else:
@@ -271,15 +271,15 @@ def run_jaxqtl(
                             )
                         )
                 else:
-                    raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                    raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
 
         covariates_df = pd.concat(covariate_list, axis=1)
         covariates_df.index.name = "iid"
         covariates_df.to_csv(f"{prefix}_donor_features.tsv", sep="\t")
-    # genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
+    # genotype_df = pd.DataFrame(dd.D.X.T, index=dd.D.var.index, columns=dd.D.obs.index)
 
     if not os.path.isfile(f"{prefix}.bed") or overwrite_plink_export:
-        to_plink(dd.G, prefix, **plink_export_kwargs)
+        to_plink(dd.D, prefix, **plink_export_kwargs)
 
     ###
 

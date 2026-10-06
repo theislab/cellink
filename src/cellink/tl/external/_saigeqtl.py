@@ -141,7 +141,7 @@ def make_group_file(
 
     if dd is not None:
         temp_prefix = f"{output_prefix}_temp"
-        to_plink(dd.G, temp_prefix, **plink_export_kwargs)
+        to_plink(dd.D, temp_prefix, **plink_export_kwargs)
         bed_file = f"{temp_prefix}.bed"
         bim_file = f"{temp_prefix}.bim"
         fam_file = f"{temp_prefix}.fam"
@@ -571,30 +571,30 @@ def run_saigeqtl(
         sample_cov_list = []
         sample_cov_names = []
 
-        if encode_sex and "sex" in dd.G.obs.columns:
-            sex_data = dd.G.obs["sex"].astype("category").cat.codes
-            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.G.obs.index))
+        if encode_sex and "sex" in dd.D.obs.columns:
+            sex_data = dd.D.obs["sex"].astype("category").cat.codes
+            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.D.obs.index))
             sample_cov_names.append("sex")
 
-        if encode_age and "age" in dd.G.obs.columns:
-            age_data = dd.G.obs["age"].values.astype(dtype)
-            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=dd.G.obs.index))
+        if encode_age and "age" in dd.D.obs.columns:
+            age_data = dd.D.obs["age"].values.astype(dtype)
+            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=dd.D.obs.index))
             sample_cov_names.append("age")
 
         if sample_covariates:
             for cov in sample_covariates:
-                if cov in dd.G.obs.columns:
-                    cov_data = dd.G.obs[[cov]].astype(dtype)
+                if cov in dd.D.obs.columns:
+                    cov_data = dd.D.obs[[cov]].astype(dtype)
                     sample_cov_list.append(cov_data)
                     sample_cov_names.append(cov)
-                elif cov in dd.G.obsm:
-                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                elif cov in dd.D.obsm:
+                    cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
                     if cov_matrix.ndim == 1:
-                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.G.obs.index))
+                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.D.obs.index))
                         sample_cov_names.append(cov)
                     else:
                         cov_df = pd.DataFrame(
-                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=dd.G.obs.index
+                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=dd.D.obs.index
                         )
                         sample_cov_list.append(cov_df)
                         sample_cov_names.extend([f"{cov}_{i}" for i in range(cov_matrix.shape[1])])
@@ -650,7 +650,7 @@ def run_saigeqtl(
         covar_cols = ",".join(all_cov_names) if all_cov_names else ""
         sample_covar_cols = ",".join(sample_cov_names) if sample_cov_names else ""
 
-        to_plink(dd.G, prefix, **plink_export_kwargs)
+        to_plink(dd.D, prefix, **plink_export_kwargs)
         fam = pd.read_csv(f"{prefix}.fam", delimiter="\t", header=None)
         fam.to_csv(f"{prefix}.fam", sep=" ", header=False, index=False)
         bim = pd.read_csv(f"{prefix}.bim", delimiter="\t", header=None)

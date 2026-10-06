@@ -43,14 +43,14 @@ from cellink.at import GWAS, StructLMM, get_model_matrix
 # `sim_gdata()` simulates a donor-level genotype `AnnData` (`.G`); `sim_adata()`
 # simulates a cell-level `AnnData` (`.C`), with the first few genes named
 # `G0`, `G1`, ... For this tutorial we add a donor-level phenotype and
-# covariate directly onto `dd.G.obs`.
+# covariate directly onto `dd.D.obs`.
 
 # %%
 rng = np.random.default_rng(0)
 
-dd = DonorData(G=sim_gdata(), C=sim_adata())
-dd.G.obs["age"] = rng.integers(20, 60, dd.G.n_obs).astype(float)
-dd.G.obs["phenotype"] = rng.standard_normal(dd.G.n_obs)
+dd = DonorData(D=sim_gdata(), C=sim_adata())
+dd.D.obs["age"] = rng.integers(20, 60, dd.D.n_obs).astype(float)
+dd.D.obs["phenotype"] = rng.standard_normal(dd.D.n_obs)
 dd
 
 # %% [markdown]
@@ -83,7 +83,7 @@ X_cell.head()
 
 # %%
 gwas = GWAS(Y="phenotype", F="age", data=dd, target_level="donor")
-G = rng.standard_normal((dd.G.n_obs, 5))  # 5 variants, one column each
+G = rng.standard_normal((dd.D.n_obs, 5))  # 5 variants, one column each
 gwas.test_association(G)
 gwas.getPv()
 
@@ -92,8 +92,8 @@ gwas.getPv()
 # original, numpy-only constructor:
 
 # %%
-Y_np = dd.G.obs[["phenotype"]].to_numpy()
-F_np = np.column_stack([np.ones(dd.G.n_obs), dd.G.obs["age"].to_numpy()])
+Y_np = dd.D.obs[["phenotype"]].to_numpy()
+F_np = np.column_stack([np.ones(dd.D.n_obs), dd.D.obs["age"].to_numpy()])
 gwas_np = GWAS(Y=Y_np, F=F_np)
 gwas_np.test_association(G)
 np.testing.assert_allclose(gwas.getPv(), gwas_np.getPv())

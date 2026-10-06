@@ -14,7 +14,7 @@ from cellink.tl.external._pc import calculate_pcs
 @pytest.fixture
 def dd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
-    return DonorData(G=gdata, C=adata)
+    return DonorData(D=gdata, C=adata)
 
 
 def test_calculate_pcs_command_construction(dd, tmp_path):

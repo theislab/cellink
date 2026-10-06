@@ -25,7 +25,7 @@ chrom = 22
 cis_window = 500_000
 # cell_type = "CD8 Naive"
 celltype_key = "predicted.celltype.l2"
-# pb_gex_key = f"PB_{cell_type}"  # pseudobulk expression in dd.G.obsm[key_added]
+# pb_gex_key = f"PB_{cell_type}"  # pseudobulk expression in dd.D.obsm[key_added]
 original_donor_col = "donor_id"
 min_percent_donors_expressed = 0.1
 do_debug = False
@@ -95,7 +95,7 @@ ensembl_gene_id_start_end_chr
 
 dd.C.var = dd.C.var.join(ensembl_gene_id_start_end_chr)
 dd.C.obs[DAnn.donor] = dd.C.obs[original_donor_col]
-dd.G.obsm["gPCs"] = dd.G.obsm["gPCs"][dd.G.obsm["gPCs"].columns[:n_gpcs]]
+dd.D.obsm["gPCs"] = dd.D.obsm["gPCs"][dd.D.obsm["gPCs"].columns[:n_gpcs]]
 
 sc.pp.normalize_total(dd.C)
 sc.pp.log1p(dd.C)
@@ -108,7 +108,7 @@ mdata.X = mdata.layers.pop("mean")
 sc.pp.highly_variable_genes(mdata, n_top_genes=batch_e_pcs_n_top_genes)
 sc.tl.pca(mdata, n_comps=n_epcs)
 
-dd.G.obsm["ePCs"] = mdata[dd.G.obs_names].obsm["X_pca"]
+dd.D.obsm["ePCs"] = mdata[dd.D.obs_names].obsm["X_pca"]
 
 #######
 for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])):  # tqdm(all_celltypes):
@@ -124,31 +124,31 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])):  # tqdm(all_celltypes)
     dd_celltype.aggregate(obs=["sex", "age"], func="first", add_to_obs=True)
     dd_celltype
 
-    print(f"{pb_gex_key} shape:", dd_celltype.G.obsm[pb_gex_key].shape)
+    print(f"{pb_gex_key} shape:", dd_celltype.D.obsm[pb_gex_key].shape)
     print("dd_celltype.shape:", dd_celltype.shape)
 
-    keep_genes = ((dd_celltype.G.obsm[pb_gex_key] > 0).mean(axis=0) >= min_percent_donors_expressed).values
+    keep_genes = ((dd_celltype.D.obsm[pb_gex_key] > 0).mean(axis=0) >= min_percent_donors_expressed).values
     dd_celltype = dd_celltype[..., keep_genes]
     print("after filtering")
-    print(f"{pb_gex_key} shape:", dd_celltype.G.obsm[pb_gex_key].shape)
+    print(f"{pb_gex_key} shape:", dd_celltype.D.obsm[pb_gex_key].shape)
     print("dd_celltype.shape:", dd_celltype.shape)
 
     for chrom in tqdm(list(range(1, 23))[::-1]):
         print(chrom)
-        # alternative to dd[:, dd.G.var.chrom == str(chrom), :, dd.C.var.chrom == str(chrom)]
+        # alternative to dd[:, dd.D.var.chrom == str(chrom), :, dd.C.var.chrom == str(chrom)]
         dd_chrom = dd_celltype.copy()
         dd_chrom = dd_chrom.sel(
-            G_var=dd_chrom.G.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)
+            D_var=dd_chrom.D.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)
         ).copy()
         dd_chrom
 
         vep_annotation_file = DATA / f"variant_annotation/variants_vep_annotated_chr{chrom}.txt"
 
-        cl.tl.add_vep_annos_to_gdata(vep_anno_file=vep_annotation_file, gdata=dd_chrom.G, dummy_consequence=True)
-        dd_chrom.G.uns["variant_annotation_vep"]
+        cl.tl.add_vep_annos_to_gdata(vep_anno_file=vep_annotation_file, gdata=dd_chrom.D, dummy_consequence=True)
+        dd_chrom.D.uns["variant_annotation_vep"]
 
         cl.tl.aggregate_annotations_for_varm(
-            dd_chrom.G, "variant_annotation_vep", agg_type="first", return_data=True
+            dd_chrom.D, "variant_annotation_vep", agg_type="first", return_data=True
         )  # TODO change agg type
 
         burden_agg_fct = "sum"
@@ -157,19 +157,19 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])):  # tqdm(all_celltypes)
 
         rare_maf_threshold = 0.05
 
-        dd_chrom = dd_chrom.sel(G_var=dd_chrom.G.var.maf < rare_maf_threshold).copy()
+        dd_chrom = dd_chrom.sel(D_var=dd_chrom.D.var.maf < rare_maf_threshold).copy()
         dd_chrom
 
-        dd_chrom.G.varm["variant_annotation"]["maf_beta"] = beta_weighting(dd_chrom.G.var["maf"])
+        dd_chrom.D.varm["variant_annotation"]["maf_beta"] = beta_weighting(dd_chrom.D.var["maf"])
 
         # This specifies covariates/fixed effects
         F = np.concatenate(
             [
                 np.ones((dd_chrom.shape[0], 1)),
-                dd_chrom.G.obs[["sex"]].values - 1,
-                dd_chrom.G.obs[["age"]].values,
-                dd_chrom.G.obsm["gPCs"].values,
-                dd_chrom.G.obsm["ePCs"],
+                dd_chrom.D.obs[["sex"]].values - 1,
+                dd_chrom.D.obs[["age"]].values,
+                dd_chrom.D.obsm["gPCs"].values,
+                dd_chrom.D.obsm["ePCs"],
             ],
             axis=1,
         )
@@ -178,23 +178,23 @@ for cell_type in tqdm(np.unique(dd.C.obs[celltype_key])):  # tqdm(all_celltypes)
         F = F.astype("float")
 
         results = []
-        if isinstance(dd_chrom.G.X, da.Array | ad._core.views.DaskArrayView):
-            if dd_chrom.G.is_view:
+        if isinstance(dd_chrom.D.X, da.Array | ad._core.views.DaskArrayView):
+            if dd_chrom.D.is_view:
                 dd_chrom._G = dd_chrom._G.copy()
-            dd_chrom.G.X = dd_chrom.G.X.compute()
+            dd_chrom.D.X = dd_chrom.D.X.compute()
 
         if do_debug:
             warnings.filterwarnings("ignore", category=RuntimeWarning)
 
         for gene, row in tqdm(dd_chrom.C.var.iterrows(), total=dd_chrom.shape[3]):
             Y = gaussianize(
-                dd_chrom.G.obsm[pb_gex_key][[gene]].values.astype("float")
+                dd_chrom.D.obsm[pb_gex_key][[gene]].values.astype("float")
                 + 1e-5 * np.random.randn(dd_chrom.shape[0], 1)
             )
 
             start = max(0, row.start - cis_window)
             end = row.end + cis_window
-            _G = dd_chrom.G[:, (dd_chrom.G.var.pos < end)]
+            _G = dd_chrom.D[:, (dd_chrom.D.var.pos < end)]
             _G = _G[:, (_G.var.pos > start)]
             _G = _G[:, (_G.X.std(0) != 0)]
             _G = _G.copy()

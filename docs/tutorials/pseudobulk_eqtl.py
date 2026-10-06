@@ -25,7 +25,7 @@ chrom = 22
 cis_window = 500_000
 # cell_type = "CD8 Naive"
 celltype_key = "predicted.celltype.l2"
-# pseudobulk expression in dd.G.obsm[key_added]
+# pseudobulk expression in dd.D.obsm[key_added]
 original_donor_col = "donor_id"
 min_percent_donors_expressed = 0.1
 do_debug = False
@@ -94,7 +94,7 @@ ensembl_gene_id_start_end_chr
 
 dd.C.var = dd.C.var.join(ensembl_gene_id_start_end_chr)
 dd.C.obs[DAnn.donor] = dd.C.obs[original_donor_col]
-dd.G.obsm["gPCs"] = dd.G.obsm["gPCs"][dd.G.obsm["gPCs"].columns[:n_gpcs]]
+dd.D.obsm["gPCs"] = dd.D.obsm["gPCs"][dd.D.obsm["gPCs"].columns[:n_gpcs]]
 
 # gene_mask = np.array((dd.C.X > 0).sum(axis=0) / dd.C.X.shape[0] >= 0.01)[0]
 # dd.C = dd.C[:, gene_mask]
@@ -109,7 +109,7 @@ mdata.X = mdata.layers.pop("mean")
 sc.pp.highly_variable_genes(mdata, n_top_genes=batch_e_pcs_n_top_genes)
 sc.tl.pca(mdata, n_comps=n_epcs)
 
-dd.G.obsm["ePCs"] = mdata[dd.G.obs_names].obsm["X_pca"]
+dd.D.obsm["ePCs"] = mdata[dd.D.obs_names].obsm["X_pca"]
 
 
 def run_pseudobulk_eqtl():
@@ -132,22 +132,22 @@ def run_pseudobulk_eqtl():
             dd_celltype.aggregate(obs=["sex", "age"], func="first", add_to_obs=True)
             dd_celltype
 
-            print(f"{pb_gex_key} shape:", dd_celltype.G.obsm[pb_gex_key].shape)
+            print(f"{pb_gex_key} shape:", dd_celltype.D.obsm[pb_gex_key].shape)
             print("dd_celltype.shape:", dd_celltype.shape)
 
-            keep_genes = ((dd_celltype.G.obsm[pb_gex_key] > 0).mean(axis=0) >= min_percent_donors_expressed).values
+            keep_genes = ((dd_celltype.D.obsm[pb_gex_key] > 0).mean(axis=0) >= min_percent_donors_expressed).values
             dd_celltype = dd_celltype[..., keep_genes]
             print("after filtering")
-            print(f"{pb_gex_key} shape:", dd_celltype.G.obsm[pb_gex_key].shape)
+            print(f"{pb_gex_key} shape:", dd_celltype.D.obsm[pb_gex_key].shape)
             print("dd_celltype.shape:", dd_celltype.shape)
 
             F = np.concatenate(
                 [
                     np.ones((dd_celltype.shape[0], 1)),
-                    dd_celltype.G.obs[["sex"]].astype("int").values - 1,
-                    dd_celltype.G.obs[["age"]].astype("int").values,
-                    dd_celltype.G.obsm["gPCs"].values,
-                    dd_celltype.G.obsm["ePCs"],
+                    dd_celltype.D.obs[["sex"]].astype("int").values - 1,
+                    dd_celltype.D.obs[["age"]].astype("int").values,
+                    dd_celltype.D.obsm["gPCs"].values,
+                    dd_celltype.D.obsm["ePCs"],
                 ],
                 axis=1,
             )
@@ -156,28 +156,28 @@ def run_pseudobulk_eqtl():
 
             for chrom in tqdm(list(range(1, 23))[::-1]):
                 print(chrom)
-                # alternative to dd[:, dd.G.var.chrom == str(chrom), :, dd.C.var.chrom == str(chrom)]
+                # alternative to dd[:, dd.D.var.chrom == str(chrom), :, dd.C.var.chrom == str(chrom)]
                 dd_chrom = dd_celltype.copy()
                 dd_chrom = dd_chrom.sel(
-                    G_var=dd_chrom.G.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)
+                    D_var=dd_chrom.D.var.chrom == str(chrom), C_var=dd_chrom.C.var.chrom == str(chrom)
                 ).copy()
                 dd_chrom
 
                 results = []
-                if isinstance(dd_chrom.G.X, da.Array | ad._core.views.DaskArrayView):
-                    if dd_chrom.G.is_view:
+                if isinstance(dd_chrom.D.X, da.Array | ad._core.views.DaskArrayView):
+                    if dd_chrom.D.is_view:
                         dd_chrom._G = dd_chrom._G.copy()  # TODO: discuss with SWEs
-                    dd_chrom.G.X = dd_chrom.G.X.compute()
+                    dd_chrom.D.X = dd_chrom.D.X.compute()
 
                 if do_debug:
                     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
                 for gene, row in tqdm(dd_chrom.C.var.iterrows(), total=dd_chrom.shape[3]):
-                    Y = gaussianize(dd_chrom.G.obsm[pb_gex_key][[gene]].values.astype(np.float64))
+                    Y = gaussianize(dd_chrom.D.obsm[pb_gex_key][[gene]].values.astype(np.float64))
 
                     start = max(0, row.start - cis_window)
                     end = row.end + cis_window
-                    _G = dd_chrom.G[:, (dd_chrom.G.var.pos < end)]
+                    _G = dd_chrom.D[:, (dd_chrom.D.var.pos < end)]
                     _G = _G[:, (_G.var.pos > start)]
                     _G = _G[:, (_G.X.std(0) != 0)]
                     G = _G.X.astype(np.float64)
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     dd.C = dd.C[dd.C.obs[celltype_key].isin(all_celltypes), :]
 
     results = load_data()
-    results = results.join(dd.G.var["id_hg19"], on="snp")
+    results = results.join(dd.D.var["id_hg19"], on="snp")
 
     """
     for index, row in tqdm(results.iterrows()):

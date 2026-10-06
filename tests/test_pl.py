@@ -82,7 +82,7 @@ def test_manhattan():
 
 
 def test_expression_by_genotype(tmp_path, adata, gdata):
-    dd = DonorData(G=gdata, C=adata).copy()
+    dd = DonorData(D=gdata, C=adata).copy()
     print(dd.C.obs)
     print(dd.C.var)
 

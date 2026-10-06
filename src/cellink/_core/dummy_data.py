@@ -4,7 +4,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from muon import MuData
+from mudata import MuData
 
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 

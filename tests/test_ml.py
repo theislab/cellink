@@ -21,10 +21,10 @@ def test_dataloader(adata, gdata):
     import pytorch_lightning as pl
     from torch.utils.data import DataLoader
 
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
 
-    dd.G.obs["donor_id"] = dd.G.obs.index
-    dd.G.obs["donor_labels"] = np.random.randint(2, size=len(dd.G.obs))
+    dd.D.obs["donor_id"] = dd.D.obs.index
+    dd.D.obs["donor_labels"] = np.random.randint(2, size=len(dd.D.obs))
     split_indices = [0, 1, 2]
     split_donors = None
     batch_size = 2
@@ -32,7 +32,7 @@ def test_dataloader(adata, gdata):
 
     dataset = MILDataset(
         dd,
-        cell_batch_key="rna:cov1",
+        cell_batch_key="cov1",
         split_donors=split_donors,
         split_indices=split_indices,
     )
@@ -44,7 +44,7 @@ def test_dataloader(adata, gdata):
         collate_fn=mil_collate_fn,
     )
 
-    model = DonorMILModel(n_input_donor=dd.G.n_vars, n_input_cell=dd.C.n_vars)
+    model = DonorMILModel(n_input_donor=dd.D.n_vars, n_input_cell=dd.C.n_vars)
 
     trainer = pl.Trainer(max_epochs=1)
 

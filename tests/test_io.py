@@ -62,26 +62,26 @@ def test_export(tmp_path):
 def test_read_h5_dd(tmp_path, adata, gdata):
     output_path = tmp_path / "donordata.dd.h5"
 
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     dd.write_h5_dd(str(output_path))
 
     dd_loaded = read_h5_dd(str(output_path))
 
     assert dd_loaded.C.shape == dd.C.shape
-    assert dd_loaded.G.shape == dd.G.shape
+    assert dd_loaded.D.shape == dd.D.shape
 
 
 @pytest.mark.slow
 def test_read_zarr_dd(tmp_path, adata, gdata):
     output_path = tmp_path / "donordata.dd.zarr"
 
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     dd.write_zarr_dd(str(output_path))
 
     dd_loaded = read_zarr_dd(str(output_path))
 
     assert dd_loaded.C.shape == dd.C.shape
-    assert dd_loaded.G.shape == dd.G.shape
+    assert dd_loaded.D.shape == dd.D.shape
 
 
 @pytest.mark.slow

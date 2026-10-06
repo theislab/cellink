@@ -15,7 +15,6 @@ colocalization
 scdrs_seismic
 gsmap
 single_cell_eqtl_saigeqtl
-ehrdataset
 run_dataloader
 cell_level_ldsc_analysis
 magma_analysis_tutorial

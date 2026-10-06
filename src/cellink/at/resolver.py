@@ -91,17 +91,17 @@ def get_model_matrix(
         required_vars = formula.required_variables - set(CUSTOM_TRANSFORMS.keys())
         fetched_data = {k: fetch_slot(dd, k) for k in required_vars}
 
-        cell_vars = {k: v for k, v in fetched_data.items() if len(v) == dd.C.n_obs}
-        donor_vars = {k: v for k, v in fetched_data.items() if len(v) == dd.G.n_obs}
+        cell_vars = {k: v for k, v in fetched_data.items() if len(v) == dd.n_cells}
+        donor_vars = {k: v for k, v in fetched_data.items() if len(v) == dd.n_donors}
         # A formula referencing only donor-level (or only cell-level) variables is
         # the common case, not an edge case: guard against pd.concat's "No
         # objects to concatenate" on an empty dict rather than crash on it.
         cell_df = pd.concat(cell_vars.values(), axis=1) if cell_vars else pd.DataFrame(index=dd.C.obs_names)
-        donor_df = pd.concat(donor_vars.values(), axis=1) if donor_vars else pd.DataFrame(index=dd.G.obs_names)
+        donor_df = pd.concat(donor_vars.values(), axis=1) if donor_vars else pd.DataFrame(index=dd.obs_names)
 
         rewritten_formula = formula_str
         if target_level == "donor":
-            final_df = pd.DataFrame(index=dd.G.obs_names)
+            final_df = pd.DataFrame(index=dd.obs_names)
             for agg_func_name, pd_method_name in DONOR_AGG_FUNCS.items():
                 for call in _find_custom_transforms(rewritten_formula, agg_func_name):
                     original_call_str, inner_formula = call["full"], call["inner"]
