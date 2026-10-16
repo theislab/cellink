@@ -4,15 +4,12 @@ from typing import Literal
 import anndata
 import numpy as np
 import numpy.linalg as la
-import pandas as pd
 import scipy
 import scipy.stats as st
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import fetch_raw_slot, to_numpy, variant_matrix
 from cellink.at.utils import (
-    ArrayLike,
-    DataContainer,
     davies_pvalue,
     ensure_float64_array,
     xgower_factor_,
@@ -145,43 +142,54 @@ class Skat:
 
     def run_test(
         self,
-        data: DataContainer = None,
-        Y: ArrayLike | str | None = None,
-        X: ArrayLike | str | None = None,
+        Y: str = None,
+        F: str | None = None,
+        *,
+        data: DonorData | anndata.AnnData,
         target_level: Literal["donor", "cell"] | None = None,
     ) -> float:
-        """Run SKAT test for association between Y and X.
+        """Run the SKAT test for association between `Y` and the variants in `data`.
 
-        Uses the same `data=`/formula-string resolver as `GWAS` and `StructLMM`
-        (see `cellink.at.get_model_matrix`): `Y`/`X` can be a formula string or
-        bare column name resolved against a `DonorData`, `AnnData`, or
-        `DataFrame` (e.g. `X="snp0 + snp1 + snp2"` for multiple variants).
+        The variant set is `data.G.X` for a `DonorData` and `data.X` for an
+        `AnnData`; subset the object beforehand to test a region.
+
+        Parameters
+        ----------
+        Y : str
+            Phenotype: a formula string or bare column name resolved against `data`.
+        F : str, optional
+            Covariates, resolved against `data` with an intercept column kept.
+            If omitted, an intercept-only null model is used.
+        data : DonorData or AnnData
+            Container `Y`/`F` are resolved against, and the source of the variants.
+        target_level : {"donor", "cell"}, optional
+            Level `Y`/`F` are resolved at. Defaults to "donor" for a `DonorData`,
+            since SKAT's variants are donor-level.
         """
-        # when data is None, Y and X must be provided as numpy arrays
-        if data is None:
-            assert isinstance(Y, np.ndarray), "If data is None, Y must be provided and be a numpy array"
-            assert isinstance(X, np.ndarray), "If data is None, X must be provided and be a numpy array"
-            return self._run_test(Y=Y, X=X)
-
-        assert isinstance(
-            data, pd.DataFrame | anndata.AnnData | DonorData
-        ), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
+        assert isinstance(data, anndata.AnnData | DonorData), "data must be an anndata.AnnData or a DonorData"
         assert isinstance(Y, str), "Y must be a string"
-        assert isinstance(X, str), "X must be a string"
 
         # Skat's variants are always donor-level; default to that for a DonorData
-        # rather than requiring every caller to pass target_level explicitly.
+        # rather than requiring every caller to pass target_level explicitly. This
+        # has to happen before Y/F are resolved, since the resolver needs the level.
         if isinstance(data, DonorData) and target_level is None:
             target_level = "donor"
 
         Y_arr = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
-        X_arr = to_numpy(fetch_raw_slot(data, X, "X", target_level=target_level, add_intercept=False))
-        return self._run_test(Y_arr, X_arr)
+        if F is None:
+            F_arr = np.ones((Y_arr.shape[0], 1))
+        else:
+            F_arr = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
+        F_arr = ensure_float64_array(F_arr)
+
+        X_arr = variant_matrix(data)
+        return self._run_test(Y_arr, X_arr, F_arr)
 
     def _run_test(
         self,
         Y: np.ndarray,
         X: np.ndarray,
+        F: np.ndarray,
     ) -> float:
         """
         Method to perform SKAT test.
@@ -195,6 +203,8 @@ class Skat:
         ----------
         Y : np.array
             Phenotype data
+        F : np.array
+            Covariates data
         X : np.array
             Genotype data
 
@@ -227,4 +237,4 @@ class Skat:
                 _weights = st.beta.pdf(maf, self.a, self.b)
                 _Xskat = (_Xskat - _Xskat.mean(0)) * np.sqrt(_weights)
                 _Xskat = _Xskat / xgower_factor_(_Xskat)
-        return _skat_test(Y, _Xskat)
+        return _skat_test(Y, _Xskat, F)
