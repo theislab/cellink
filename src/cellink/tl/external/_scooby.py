@@ -1340,6 +1340,7 @@ def resolve_snp_and_exon_bins(
     context_window: int,
     strand: str = "+",
     variant_id: str | None = None,
+    bin_mode: Literal["overlap", "center", "contained", "center_legacy"] = "overlap",
 ):
     """Orient a variant's alleles against the real reference sequence and compute its
     exon-overlapping, profile-clipped bin indices, or report why it must be skipped.
@@ -1383,6 +1384,15 @@ def resolve_snp_and_exon_bins(
         original call sites).
     variant_id : str, optional
         Used only in the skip message when returning ``None``.
+    bin_mode : {"overlap", "center", "contained", "center_legacy"}, default "overlap"
+        Which bins count as belonging to an exon, forwarded to embpy's
+        ``genomic_to_bin_indices``. ``"overlap"`` takes every bin the exon
+        touches, which is the convention behind Borzoi's gene-level statistic;
+        ``"center"`` keeps only bins whose midpoint is exonic; ``"contained"``
+        only bins wholly inside an exon; ``"center_legacy"`` reproduces a displaced
+        window kept only for backwards compatibility. Use one mode for every
+        window of a given comparison -- mixing them across the windows of one
+        statistic shifts the windows relative to each other.
 
     Returns
     -------
@@ -1424,6 +1434,7 @@ def resolve_snp_and_exon_bins(
         bin_size=bin_size,
         profile_offset_bp=profile_offset_bp,
         num_bins=num_bins,
+        mode=bin_mode,
     )
     if len(bin_indices) == 0:
         logger.warning(f"{label}: no exon bins fall inside the predicted (cropped) profile region, skipping")

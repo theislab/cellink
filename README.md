@@ -33,10 +33,11 @@ ecosystem directly from it.
 
 <!-- schematic-image-end -->
 
-- **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
+- **Donor-level Data (D):** `GenoAnnData`, or a plain table of donor covariates. Stores individual level data such as genotypes or clinical information.
+- **Sample-level Data (S, optional):** a table of samples, for example several time points or tissues per donor.
 - **Cell-level Data (C):** `AnnData`/ `MuData`, Stores single-cell omics data such as gene expression.
 
-Crucially, **`DonorData`** ensures that genetic data and single-cell modalities remain **synchronized**, preserving their donor-cell pairing even through complex filtering operations (e.g., selecting specific cell types or patient subsets). See the [`DonorData` on-disk format](https://cellink-docs.readthedocs.io/en/latest/donordata_format_spec.html) for how this is represented on disk and how to check a `DonorData` object against it.
+Crucially, **`DonorData`** ensures that genetic data and single-cell modalities remain **synchronized**, preserving their donor-cell pairing even through complex filtering operations (e.g., selecting specific cell types or patient subsets). `DonorData` itself lives in the standalone [DonorData](https://github.com/theislab/donordata) package, whose [on-disk format](https://github.com/theislab/donordata/blob/main/docs/io/spec.md) describes how it is stored and how to check an object against it.
 
 ### 2. Comprehensive toolkit
 
@@ -65,7 +66,7 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 
 **Other**
 - [Variant preprocessing & annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html): quality control, annotation (VCF export/import), and selection of genetic variants.
-- [Integrating `DonorData` with EHR data](https://cellink-docs.readthedocs.io/en/latest/tutorials/ehrdataset.html)
+- [Integrating `DonorData` with EHR data](https://github.com/theislab/donordata/blob/main/docs/tutorials/ehr_cohort.ipynb), part of the DonorData documentation
 
 ## Getting Started
 
@@ -87,7 +88,7 @@ New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthe
 | [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and every optional extra (`pip install cellink[extra-name]`) |
 | [Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html) | Step-by-step guides for every analysis workflow above |
 | [API reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html) | Every public function and class, organized by module |
-| [`DonorData` on-disk format](https://cellink-docs.readthedocs.io/en/latest/donordata_format_spec.html) | The versioned HDF5/Zarr schema, and how to check an object against it |
+| [`DonorData` on-disk format](https://github.com/theislab/donordata/blob/main/docs/io/spec.md) | The versioned HDF5/Zarr schema, and how to check an object against it |
 | [Contributing guide](https://cellink-docs.readthedocs.io/en/latest/contributing.html) | Dev setup, tests, and the PR workflow |
 | [Changelog](https://cellink-docs.readthedocs.io/en/latest/changelog.html) | What changed in each release |
 

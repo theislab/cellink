@@ -98,29 +98,29 @@ def expression_by_genotype(
     titlesize = titlesize or plt.rcParams.get("axes.titlesize", 14)
 
     dd_C = dd.C
-    dd_G = dd.G
+    dd_D = dd.D
 
     if celltype_filter is not None:
         dd_C = dd_C[np.where(dd_C.obs[celltype_key].isin(celltype_filter))[0], :]
     if gene_filter is not None:
         dd_C = dd_C[:, dd_C.var.index.get_indexer(gene_filter)]
 
-    if snp in dd_G.var.index:
-        dd_G = dd_G[:, dd_G.var.index.get_indexer([snp])]
+    if snp in dd_D.var.index:
+        dd_D = dd_D[:, dd_D.var.index.get_indexer([snp])]
     elif isinstance(snp, int):
-        dd_G = dd_G[:, snp]
+        dd_D = dd_D[:, snp]
     else:
-        raise ValueError(f"{snp} can't be found in DonorData.G.")
+        raise ValueError(f"{snp} can't be found in DonorData.D.")
 
     geno_label_map = {
-        0: dd_G.var[a0].iloc[0] * 2,
-        1: dd_G.var[a0].iloc[0] + dd_G.var[a1].iloc[0],
-        2: dd_G.var[a1].iloc[0] * 2,
+        0: dd_D.var[a0].iloc[0] * 2,
+        1: dd_D.var[a0].iloc[0] + dd_D.var[a1].iloc[0],
+        2: dd_D.var[a1].iloc[0] * 2,
     }
-    X = dd_G.X
+    X = dd_D.X
     if isinstance(X, da.Array):
         X = X.compute()
-    donor_to_genotype = pd.Series(np.squeeze(X), index=dd_G.obs.index)
+    donor_to_genotype = pd.Series(np.squeeze(X), index=dd_D.obs.index)
     donor_to_genotype = donor_to_genotype.map(geno_label_map)
 
     merged = []
@@ -145,7 +145,7 @@ def expression_by_genotype(
 
     merged = pd.concat(merged)
 
-    genotype_order = [dd_G.var[a0].iloc[0] * 2, dd_G.var[a0].iloc[0] + dd_G.var[a1].iloc[0], dd_G.var[a1].iloc[0] * 2]
+    genotype_order = [dd_D.var[a0].iloc[0] * 2, dd_D.var[a0].iloc[0] + dd_D.var[a1].iloc[0], dd_D.var[a1].iloc[0] * 2]
     merged["genotype"] = pd.Categorical(merged["genotype"], categories=genotype_order, ordered=True)
 
     facet_col = mode

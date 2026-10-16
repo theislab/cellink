@@ -160,7 +160,7 @@ def write_variants_to_vcf(gdata, out_file="variants.vcf") -> None:
 
     Parameters
     ----------
-    gdata : DonorData.G
+    gdata : DonorData.D
         DonorData genotype object
     out_file : str
         output file. By default "variants.vcf"

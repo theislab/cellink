@@ -24,6 +24,8 @@ def run_scdrs(
     src_species: str = "human",
     trait_name: str = None,
     n_pcs: int = 50,
+    score_genes: Literal["all", "hvg"] = "all",
+    n_hvg: int = 2000,
     n_ctrl: int = 1000,
     weight_opt: Literal["vs", "uniform"] = "vs",
     ctrl_match_key: str = "mean_var",
@@ -65,6 +67,15 @@ def run_scdrs(
         Species of the input gene sets.
     trait_name : str, optional
         Name of specific trait to analyze from gs_file. If None, analyzes all traits.
+    score_genes : {"all", "hvg"}, default="all"
+        Gene set the disease score is computed over.
+        - ``"all"``: every gene surviving ``min_cells`` filtering, which is what upstream
+          scDRS does (``scdrs/util.py::load_h5ad`` filters, normalizes and log1p-transforms,
+          and applies no HVG selection).
+        - ``"hvg"``: restrict to the top ``n_hvg`` highly variable genes before scoring.
+    n_hvg : int, default=2000
+        Number of highly variable genes, used for PCA always and for scoring when
+        ``score_genes="hvg"``.
     n_pcs : int, default=50
         Number of principal components to compute if not already present.
     n_ctrl : int, default=1000
@@ -154,7 +165,7 @@ def run_scdrs(
     sc.pp.filter_genes(adata, min_cells=min_cells)
 
     if "log1p" not in adata.uns_keys():
-        adata.layers["counts"] = adata.X
+        adata.layers["counts"] = adata.X.copy()
         logger.info("Normalizing and log-transforming data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
@@ -166,16 +177,27 @@ def run_scdrs(
             )
 
     if "X_pca" not in adata.obsm_keys():
-        logger.info(f"Computing PCA with {n_pcs} components")
+        logger.info(f"Computing PCA with {n_pcs} components on {n_hvg} HVGs")
         pca_view = adata.copy()
-        sc.pp.highly_variable_genes(pca_view, n_top_genes=2000)
+        sc.pp.highly_variable_genes(pca_view, n_top_genes=n_hvg)
         pca_view = pca_view[:, pca_view.var.highly_variable].copy()
         sc.pp.scale(pca_view, max_value=10)
         sc.tl.pca(pca_view, n_comps=n_pcs)
         adata.obsm["X_pca"] = pca_view.obsm["X_pca"]
         del pca_view
 
-    adata.X = adata.layers["counts"]
+    if score_genes not in ("all", "hvg"):
+        raise ValueError(f"score_genes must be 'all' or 'hvg', got {score_genes!r}")
+    if score_genes == "hvg":
+        logger.warning(
+            "score_genes='hvg': scoring on the top %d HVGs. Upstream scDRS scores on all "
+            "genes; restricting the pool biases the mean/variance-matched control sets and "
+            "the null is no longer matched to the disease gene set.",
+            n_hvg,
+        )
+        if "highly_variable" not in adata.var:
+            sc.pp.highly_variable_genes(adata, n_top_genes=n_hvg)
+        adata._inplace_subset_var(adata.var["highly_variable"].to_numpy())
 
     covariate_list = []
 

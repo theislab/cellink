@@ -56,7 +56,7 @@ PRELOAD_NCHUNKS = 16
 
 # --- cis config (synthetic, deterministic; matches baseline) ---
 # N_CIS_SNPS / N_TARGET_GENES each accept either:
-#   * an int   -> the first N (SNPs over dd.G var axis, genes over collection's genes)
+#   * an int   -> the first N (SNPs over dd.D var axis, genes over collection's genes)
 #   * a list/array of names    -> exactly those
 #   * a boolean mask over the axis -> the selected entries
 N_CIS_SNPS = 2996  # paper value

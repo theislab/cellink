@@ -449,7 +449,7 @@ def get_onek1k(
     Returns
     -------
     cellink.DonorData
-        A `DonorData` object containing preprocessed genotype (`G`) and expression (`C`) data,
+        A `DonorData` object containing preprocessed genotype (`D`) and expression (`C`) data,
         along with kinship and principal component metadata.
 
     Raises
@@ -550,7 +550,7 @@ def get_onek1k(
         adata.obs["sex"] = adata.obs["sex"].map({"male": 1, "female": 0}).astype(int)
         adata.obs["age"] = adata.obs["age"].astype("int")
 
-        dd = DonorData(G=gdata, C=adata).copy()
+        dd = DonorData(D=gdata, C=adata).copy()
 
         return dd
 
@@ -589,7 +589,7 @@ def get_dummy_onek1k(
     Returns
     -------
     cellink.DonorData
-        A `DonorData` object containing preprocessed genotype (`G`) and expression
+        A `DonorData` object containing preprocessed genotype (`D`) and expression
         (`C`) data, along with kinship and principal component metadata. Gene
         annotations are already included in `dd.C.var`.
 
@@ -604,10 +604,10 @@ def get_dummy_onek1k(
     Notes
     -----
     The dummy dataset maintains the same structure as the full OneK1K dataset:
-    - dd.G: Genotype data (donors x SNPs)
+    - dd.D: Genotype data (donors x SNPs)
     - dd.C: Single-cell expression data (cells x genes)
-    - dd.G.obsm["gPCs"]: Genotype principal components
-    - dd.G.uns["kinship"]: Kinship matrix
+    - dd.D.obsm["gPCs"]: Genotype principal components
+    - dd.D.uns["kinship"]: Kinship matrix
     - dd.C.var[GAnn.start/end/chrom]: Gene annotations (pre-included!)
 
     The dataset is provided as a single file (.dd.h5 or .dd.zarr) that can be

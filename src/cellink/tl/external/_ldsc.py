@@ -818,7 +818,7 @@ def estimate_ld_scores_from_donor_data(
         plink_export_kwargs = {}
 
     logger.info("Exporting genotype data to PLINK format for LD score estimation")
-    to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    to_plink(dd.D, out_prefix, **plink_export_kwargs)
 
     results = estimate_ld_scores_from_bimfile(
         bfile_prefix=out_prefix,
@@ -1722,7 +1722,7 @@ def make_annot_from_donor_data(
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
     logger.info("Exporting genotype data to PLINK format for annotation creation")
-    to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    to_plink(dd.D, out_prefix, **plink_export_kwargs)
     bimfile = f"{out_prefix}.bim"
 
     results = make_annot_from_bimfile(
@@ -2069,7 +2069,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
 
     Notes
     -----
-    - This function exports dd.G to PLINK format, computes LD scores with annotations,
+    - This function exports dd.D to PLINK format, computes LD scores with annotations,
       then optionally cleans up the temporary PLINK files
     - The annotation file must match the SNPs in the DonorData object
     - Typically used when you have your own genotype data and want to compute
@@ -2092,7 +2092,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
         plink_export_kwargs = {}
 
     logger.info("Exporting genotype data to PLINK format for LD score computation")
-    to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    to_plink(dd.D, out_prefix, **plink_export_kwargs)
 
     results = compute_ld_scores_with_annotations_from_bimfile(
         bfile_prefix=out_prefix,

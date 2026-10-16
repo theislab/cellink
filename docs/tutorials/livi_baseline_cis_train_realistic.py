@@ -99,8 +99,8 @@ t_load = time.perf_counter()
 dd = read_h5_dd(DD_CACHE_PATH_H5_REALISTIC)
 known_cis_eqtls = pd.read_parquet(KNOWN_CIS_EQTLS_PATH)
 load_secs = time.perf_counter() - t_load
-N_CIS_SNPS = dd.G.n_vars
-eqtl_genotypes = pd.DataFrame(asarray(dd.G.X), index=dd.G.obs_names, columns=dd.G.var_names)
+N_CIS_SNPS = dd.D.n_vars
+eqtl_genotypes = pd.DataFrame(asarray(dd.D.X), index=dd.D.obs_names, columns=dd.D.var_names)
 # Real genotype calls have missing entries (NaN), e.g. ~1.2% here. LIVI's V/DxC
 # path (activated after warmup_epochs_vae) feeds these dosages straight into the
 # decoder; left as NaN they propagate into a NaN decoder output and crash
@@ -115,7 +115,7 @@ if n_missing:
     eqtl_genotypes = eqtl_genotypes.fillna(eqtl_genotypes.mean())
 print(
     f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {dd.C.n_vars:,}  "
-    f"donors: {dd.G.n_obs}  cis SNPs: {N_CIS_SNPS:,}"
+    f"donors: {dd.D.n_obs}  cis SNPs: {N_CIS_SNPS:,}"
 )
 
 # %% [markdown]

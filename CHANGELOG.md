@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning][].
 
 ## [Unreleased]
 
+### Changed
+
+- `DonorData`, its readers and writers, the donor and cell filters in `pp` and `MILDataset` moved to the
+  new `donordata` package and are re-exported by cellink. The donor level is now called `D` and `dd.G` is gone,
+  files with a donor level `G` are read into `D` with a warning. It can also be a plain table of donor covariates with donor-aligned matrices in `dd.obsm` and
+  `dd.obsp`, and an optional sample level `S` sits between donors and cells.
+- The DonorData file format is now version 0.3.0. Files written as 0.1.0 or 0.2.0 are still read.
+- The EHR tutorial moved to the DonorData documentation.
+- `pp.cell_level_obs_filter`, `pp.donor_level_obs_filter` and `pp.donor_level_var_filter` now modify the
+  object when `inplace=True`, which they silently did not before.
+- `tl.external.run_mixmil` builds bags in the donor order of `G`, which previously could misalign bags
+  and labels when donors were not sorted alphabetically.
+- `muon` is no longer a dependency.
+
 ### Added
 
 - Fixed `SCLINKER_ENHANCER_LINKS_GENOME_BUILD`: the Broad sc-linker Roadmap/ABC

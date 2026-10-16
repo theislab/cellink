@@ -80,7 +80,7 @@ N_GENES = dd.C.n_vars
 N_DONORS = int(dd.C.obs[dd.donor_id].nunique())
 print(
     f"loaded in {load_secs:.1f}s | cells: {dd.C.n_obs:,}  genes: {N_GENES:,}  "
-    f"donors: {N_DONORS}  snps(total): {dd.G.n_vars:,}"
+    f"donors: {N_DONORS}  snps(total): {dd.D.n_vars:,}"
 )
 
 # %% [markdown]
@@ -88,9 +88,9 @@ print(
 
 # %%
 rng = np.random.default_rng(SEED)
-snp_names = list(dd.G.var_names[:N_CIS_SNPS])
+snp_names = list(dd.D.var_names[:N_CIS_SNPS])
 target_genes = list(dd.C.var_names[:N_TARGET_GENES])
-eqtl_genotypes = pd.DataFrame(asarray(dd.G[:, :N_CIS_SNPS].X), index=dd.G.obs_names, columns=snp_names)
+eqtl_genotypes = pd.DataFrame(asarray(dd.D[:, :N_CIS_SNPS].X), index=dd.D.obs_names, columns=snp_names)
 # Real genotype calls can have missing entries (NaN); left as-is they'd propagate
 # into a NaN decoder output once LIVI's V/DxC path activates. Mean-impute per SNP
 # (standard eQTL practice); see livi_baseline_cis_train_realistic.py, which hits

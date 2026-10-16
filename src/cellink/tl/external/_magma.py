@@ -397,11 +397,11 @@ def prepare_magma_inputs(
 
         from cellink.io import to_plink
 
-        maf = dd.G.X.sum(axis=0) / (2 * dd.G.n_obs)
+        maf = dd.D.X.sum(axis=0) / (2 * dd.D.n_obs)
         maf = np.minimum(maf, 1 - maf)
         common_variants = maf > 0.01
 
-        gdata = dd.G[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.G
+        gdata = dd.D[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.D
         logger.info(f"Exporting {common_variants.sum()} common variants (MAF > 0.01) " f"out of {len(maf)} total")
         to_plink(gdata, str(ld_ref_prefix))
         logger.info(f"Created PLINK files: {ld_ref_prefix}.{{bed,bim,fam}}")

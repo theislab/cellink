@@ -60,7 +60,10 @@ def build_annbatch_collection(
 
 
 def read_g_from_dd_store(path: str):
-    """Read only the "G" (genotype) group out of a `.dd.h5`/`.dd.zarr`, skipping "C"."""
+    """Read only the donor (genotype) group out of a `.dd.h5`/`.dd.zarr`, skipping "C".
+
+    The group is "D", or "G" in files written before DonorData 0.3.0.
+    """
     from anndata.io import read_elem
 
     path_str = str(path)
@@ -68,16 +71,18 @@ def read_g_from_dd_store(path: str):
         import zarr
 
         f = zarr.open(path_str, mode="r")
-        if f["G"].attrs.get("encoding-type") != "anndata":
-            raise ValueError(f"expected G to be stored as AnnData in {path}")
-        return read_elem(f["G"])
+        key = "D" if "D" in f else "G"
+        if f[key].attrs.get("encoding-type") != "anndata":
+            raise ValueError(f"expected {key} to be stored as AnnData in {path}")
+        return read_elem(f[key])
 
     import h5py
 
     with h5py.File(path_str, "r") as f:
-        if f["G"].attrs.get("encoding-type") != "anndata":
-            raise ValueError(f"expected G to be stored as AnnData in {path}")
-        return read_elem(f["G"])
+        key = "D" if "D" in f else "G"
+        if f[key].attrs.get("encoding-type") != "anndata":
+            raise ValueError(f"expected {key} to be stored as AnnData in {path}")
+        return read_elem(f[key])
 
 
 def _resolve_indices(spec, names: Iterable[str], what: str) -> np.ndarray:

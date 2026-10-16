@@ -33,7 +33,7 @@ def _is_matrix_elem(elem_name: str) -> bool:
 
 def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Literal["dask", "zarr"] = "dask"):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
-    nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
+    nesting depth, e.g. as ``D``/``C`` inside a larger DonorData zarr store)
     while keeping a dense ``X``/``layers`` entry lazily backed instead of
     materializing it.
 
