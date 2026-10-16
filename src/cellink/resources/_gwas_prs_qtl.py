@@ -596,7 +596,13 @@ def get_pgs_catalog_score(pgs_id: str, **params: Any) -> dict:
 
 
 def get_pgs_catalog_score_file(
-    pgs_id: str, dest: str | Path | None = None, return_path: bool = False, **params: Any
+    pgs_id: str,
+    dest: str | Path | None = None,
+    return_path: bool = False,
+    genome_build: str | None = None,
+    data_home: str | Path | None = None,
+    refresh: bool = False,
+    **params: Any,
 ) -> pd.DataFrame | Path:
     """
     Download the scoring file for a PGS catalog score.
@@ -606,9 +612,20 @@ def get_pgs_catalog_score_file(
     pgs_id : str
         PGS catalog score ID.
     dest : str or Path, optional
-        Destination path to save the scoring file. Defaults to data home directory.
+        Destination path to save the scoring file. Defaults to a file named after the score
+        (and, with ``genome_build``, the build) in ``data_home``.
     return_path : bool, default=False
         If True, return the local file path instead of reading the file into a DataFrame.
+    genome_build : str, optional
+        If given ('GRCh37' or 'GRCh38', or an alias such as 'hg19'/'hg38'), download the
+        PGS Catalog's harmonized scoring file for that build, whose ``hm_chr``/``hm_pos``
+        columns place every variant in that build. If None, download the author-submitted
+        file, which uses whatever build the authors scored in (``variants_genomebuild`` in
+        :func:`get_pgs_catalog_score`).
+    data_home : str or Path, optional
+        Directory for the default ``dest``. Defaults to cellink's data directory.
+    refresh : bool, default=False
+        If True, download again even if ``dest`` already exists.
     **params
         Additional query parameters to pass to the API.
 
@@ -617,20 +634,32 @@ def get_pgs_catalog_score_file(
     pd.DataFrame or Path
         DataFrame containing scoring data, or Path to the downloaded file if `return_path=True`.
     """
-    meta = _fetch(f"{PGS_API_BASE}/score/{pgs_id}", params=params, paginate=False)
-    url = meta["ftp_scoring_file"]
+    build = _normalize_build(genome_build) if genome_build else None
 
     if not dest:
-        data_home = get_data_home()
-        dest = data_home / f"{pgs_id}_scoring_file.txt.gz"
+        suffix = f"_hmPOS_{build}" if build else ""
+        dest = get_data_home(data_home) / f"{pgs_id}{suffix}_scoring_file.txt.gz"
+    dest = Path(dest)
 
-    logging.info(f"Downloading {url} to {dest}")
-    urlretrieve(url, dest)
+    if dest.exists() and not refresh:
+        logging.info(f"{dest} already exists")
+    else:
+        meta = _fetch(f"{PGS_API_BASE}/score/{pgs_id}", params=params, paginate=False)
+        if build is None:
+            url = meta["ftp_scoring_file"]
+        else:
+            harmonized = meta.get("ftp_harmonized_scoring_files") or {}
+            if build not in harmonized:
+                raise ValueError(f"No harmonized {build} scoring file for {pgs_id}. Available: {sorted(harmonized)}")
+            url = harmonized[build]["positions"]
+
+        logging.info(f"Downloading {url} to {dest}")
+        urlretrieve(url, dest)
 
     if return_path:
         return dest
 
-    df = pd.read_csv(dest, compression="gzip", sep="\t", comment="#")
+    df = pd.read_csv(dest, compression="gzip", sep="\t", comment="#", low_memory=False)
     return df
 
 

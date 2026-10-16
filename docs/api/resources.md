@@ -21,6 +21,7 @@
    resources.liftover_gwas_summary_stats
    resources.get_pgs_catalog_score
    resources.get_pgs_catalog_scores
+   resources.get_pgs_catalog_score_file
    resources.get_1000genomes_ld_scores
    resources.get_1000genomes_ld_weights
    resources.get_1000genomes_plink_files

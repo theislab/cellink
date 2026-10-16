@@ -11,6 +11,9 @@ from cellink.resources._utils import _download_file, get_data_home, retry_with_b
 
 logger = logging.getLogger(__name__)
 
+# Ships inside the package, so the default works from an installed cellink, not only a source checkout.
+DEFAULT_MAGMA_CONFIG = str(Path(__file__).parents[2] / "resources" / "config" / "magma.yaml")
+
 
 def load_magma_config(config_file: str) -> dict:
     """
@@ -31,24 +34,8 @@ def load_magma_config(config_file: str) -> dict:
     return config
 
 
-def get_gene_id_mapping(
-    genome_build: str = "GRCh38", gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
-) -> pd.DataFrame:
-    """
-    Get gene ID mapping from Ensembl using pybiomart.
-
-    Parameters
-    ----------
-    genome_build : str
-        Genome build version ('GRCh37' or 'GRCh38').
-    gene_id_type : str
-        Type of gene ID to use as index: 'entrez', 'ensembl', or 'gene_name'.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with gene ID mappings indexed by the chosen ID type.
-    """
+def _query_ensembl_entrez_pairs(genome_build: str = "GRCh38") -> pd.DataFrame:
+    """Query Ensembl BioMart for every (Ensembl ID, gene name, Entrez ID) triple on the primary assembly."""
     try:
         from pybiomart import Server
     except ImportError as e:
@@ -63,26 +50,57 @@ def get_gene_id_mapping(
     else:
         raise ValueError(f"Invalid genome_build: {genome_build}")
 
+    # Ensembl also annotates alternative haplotypes and patches (e.g. the MHC haplotypes),
+    # each with its own gene IDs cross-referenced to the same Entrez ID. Those IDs never
+    # appear in expression data quantified on the primary assembly, so filter them out
+    # server-side; a larger response (e.g. requesting the chromosome as a column) is
+    # silently truncated by the GRCh37 BioMart.
+    primary_chromosomes = [str(c) for c in range(1, 23)] + ["X", "Y", "MT"]
+
     server = Server(host=host)
     dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
-    mapping_df = retry_with_backoff(
-        lambda: dataset.query(attributes=["ensembl_gene_id", "external_gene_name", "entrezgene_id"])
+    pairs = retry_with_backoff(
+        lambda: dataset.query(
+            attributes=["ensembl_gene_id", "external_gene_name", "entrezgene_id"],
+            filters={"chromosome_name": primary_chromosomes},
+        )
     )
 
-    mapping_df = mapping_df.rename(
+    pairs = pairs.rename(
         columns={
             "Gene stable ID": "ensembl_gene_id",
             "Gene name": "external_gene_name",
             "NCBI gene (formerly Entrezgene) ID": "entrezgene_id",
         }
     )
+    pairs = pairs.dropna(subset=["entrezgene_id"])
+    pairs["entrezgene_id"] = pairs["entrezgene_id"].astype(int)
+    return pairs.drop_duplicates()
 
-    mask = ~mapping_df["entrezgene_id"].isna()
-    mapping_df_filtered = mapping_df[mask]
-    mapping_df = mapping_df_filtered[~mapping_df_filtered["ensembl_gene_id"].duplicated(keep=False)]
 
-    mapping_df = mapping_df.dropna(subset=["entrezgene_id"])
-    mapping_df["entrezgene_id"] = mapping_df["entrezgene_id"].astype(int)
+def get_gene_id_mapping(
+    genome_build: str = "GRCh38", gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
+) -> pd.DataFrame:
+    """
+    Get gene ID mapping from Ensembl using pybiomart.
+
+    Only genes on the primary assembly (chromosomes 1-22, X, Y, MT) are returned, and
+    Ensembl IDs cross-referenced to more than one Entrez ID are dropped.
+
+    Parameters
+    ----------
+    genome_build : str
+        Genome build version ('GRCh37' or 'GRCh38').
+    gene_id_type : str
+        Type of gene ID to use as index: 'entrez', 'ensembl', or 'gene_name'.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with gene ID mappings indexed by the chosen ID type.
+    """
+    mapping_df = _query_ensembl_entrez_pairs(genome_build)
+    mapping_df = mapping_df[~mapping_df["ensembl_gene_id"].duplicated(keep=False)]
 
     if gene_id_type == "entrez":
         mapping_df = mapping_df.set_index("entrezgene_id")
@@ -97,6 +115,29 @@ def get_gene_id_mapping(
     return mapping_df
 
 
+def _resolve_entrez_to_ensembl(gene_loc: pd.DataFrame, pairs: pd.DataFrame) -> pd.DataFrame:
+    """Attach one Ensembl ID per gene-location row, using the gene symbol to break ties.
+
+    Ensembl's Entrez cross-references are many-to-many: one Entrez ID can point at
+    several Ensembl genes (e.g. ACTB's also at ACTG1), and one Ensembl gene can carry
+    several Entrez IDs (e.g. HLA-DRB1's also those of HLA-DRB3/4/5). In both directions,
+    candidates whose Ensembl symbol matches MAGMA's symbol win; Ensembl IDs that are still
+    claimed by more than one Entrez gene are dropped, so every output ID is unique.
+    """
+    merged = gene_loc.merge(
+        pairs[["entrezgene_id", "ensembl_gene_id", "external_gene_name"]],
+        left_on="entrez_id",
+        right_on="entrezgene_id",
+        how="inner",
+    )
+    match = merged["external_gene_name"].str.upper() == merged["gene_name"].str.upper()
+    merged = merged[match | ~match.groupby(merged["entrez_id"]).transform("any")]
+    match = match.loc[merged.index]
+    merged = merged[match | ~match.groupby(merged["ensembl_gene_id"]).transform("any")]
+    merged = merged[~merged["ensembl_gene_id"].duplicated(keep=False)]
+    return merged.drop(columns=["entrezgene_id", "external_gene_name"])
+
+
 def convert_gene_loc_file(
     gene_loc_file: Path,
     output_file: Path,
@@ -107,7 +148,8 @@ def convert_gene_loc_file(
     Convert gene location file to use different gene ID types.
 
     The original MAGMA gene location files use Entrez Gene IDs. This function
-    converts them to use Ensembl Gene IDs or Gene Names if desired.
+    converts them to use Ensembl Gene IDs or Gene Names if desired. Ensembl IDs are
+    restricted to the primary assembly and are unique in the output.
 
     Parameters
     ----------
@@ -135,11 +177,9 @@ def convert_gene_loc_file(
         gene_loc_file, sep=r"\s+", header=None, names=["entrez_id", "chr", "start", "end", "strand", "gene_name"]
     )
 
-    mapping_df = get_gene_id_mapping(genome_build=genome_build, gene_id_type="entrez")
-
     if gene_id_type == "ensembl":
-        gene_loc = gene_loc.merge(mapping_df[["ensembl_gene_id"]], left_on="entrez_id", right_index=True, how="left")
-        gene_loc = gene_loc.dropna(subset=["ensembl_gene_id"])
+        pairs = _query_ensembl_entrez_pairs(genome_build=genome_build)
+        gene_loc = _resolve_entrez_to_ensembl(gene_loc, pairs)
         gene_loc["new_id"] = gene_loc["ensembl_gene_id"]
     elif gene_id_type == "gene_name":
         gene_loc["new_id"] = gene_loc["gene_name"]
@@ -159,7 +199,7 @@ def download_magma_references(
     genome_build: str = "GRCh38",
     reference_panel: str = None,
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    config_file: str = "configs/magma.yaml",
+    config_file: str = DEFAULT_MAGMA_CONFIG,
     data_home: str | Path | None = None,
 ) -> tuple[Path, Path]:
     """
@@ -179,8 +219,8 @@ def download_magma_references(
     gene_id_type : str, default='ensembl'
         Gene ID type to use: 'entrez', 'ensembl', or 'gene_name'.
         Entrez IDs are the original format; conversion to other types requires pybiomart.
-    config_file : str, default='configs/magma.yaml'
-        Path to YAML configuration file with reference URLs.
+    config_file : str, optional
+        Path to YAML configuration file with reference URLs. Defaults to the one shipped with cellink.
     data_home : str or Path, optional
         Directory to store downloaded files. If None, uses cellink's default data directory.
 
@@ -239,7 +279,7 @@ def download_magma_references(
         logger.info(f"Using cached gene location file: {gene_loc_file}")
 
     if gene_id_type != "entrez":
-        converted_file = magma_dir / f"{genome_build}_{gene_id_type}.gene.loc"
+        converted_file = magma_dir / f"{genome_build}_{gene_id_type}_primary_assembly.gene.loc"
         if not converted_file.exists():
             gene_loc_file = convert_gene_loc_file(
                 gene_loc_file=gene_loc_file,
@@ -293,7 +333,8 @@ def prepare_magma_inputs(
     reference_panel: str | None = None,  # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
     external_ld_prefix: str | Path | None = None,  # only if ld_source="external"
     col_mapping: dict = None,
-    config_file: str = "configs/magma.yaml",
+    config_file: str = DEFAULT_MAGMA_CONFIG,
+    data_home: str | Path | None = None,
 ) -> tuple[Path, Path, Path, Path | None]:
     """
     Prepare all input files needed for MAGMA analysis.
@@ -323,8 +364,10 @@ def prepare_magma_inputs(
     col_mapping : dict, optional
         Rename GWAS columns to standard names {'source_col': 'target_col'}.
         Default handles common variants of SNP, CHR, BP, P column names.
-    config_file : str
-        Path to YAML config with reference URLs.
+    config_file : str, optional
+        Path to YAML config with reference URLs. Defaults to the one shipped with cellink.
+    data_home : str or Path, optional
+        Directory to store downloaded reference files. If None, uses cellink's default data directory.
 
     Returns
     -------
@@ -347,6 +390,7 @@ def prepare_magma_inputs(
         gene_id_type=gene_id_type,
         reference_panel=None,
         config_file=config_file,
+        data_home=data_home,
     )
 
     if col_mapping is None:
@@ -413,6 +457,7 @@ def prepare_magma_inputs(
             reference_panel=reference_panel,
             gene_id_type=gene_id_type,
             config_file=config_file,
+            data_home=data_home,
         )
 
     elif ld_source == "external":
@@ -576,8 +621,9 @@ def run_magma_pipeline(
     reference_panel: str | None = None,
     external_ld_prefix: str | Path | None = None,
     col_mapping: dict = None,
-    config_file: str = "configs/magma.yaml",
+    config_file: str = DEFAULT_MAGMA_CONFIG,
     magma_bin: str = "magma",
+    data_home: str | Path | None = None,
 ) -> Path:
     """
     Complete MAGMA pipeline: prepare inputs, annotate SNPs, and run gene analysis.
@@ -610,10 +656,12 @@ def run_magma_pipeline(
         Required when ld_source='external'. Path prefix of PLINK files.
     col_mapping : dict, optional
         Column rename mapping for GWAS sumstats.
-    config_file : str
-        Path to YAML config.
+    config_file : str, optional
+        Path to YAML config. Defaults to the one shipped with cellink.
     magma_bin : str
         Path to MAGMA binary.
+    data_home : str or Path, optional
+        Directory to store downloaded reference files. If None, uses cellink's default data directory.
 
     Returns
     -------
@@ -671,6 +719,7 @@ def run_magma_pipeline(
         external_ld_prefix=external_ld_prefix,
         col_mapping=col_mapping,
         config_file=config_file,
+        data_home=data_home,
     )
 
     annotation_file = run_magma_annotation(
