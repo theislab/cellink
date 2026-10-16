@@ -102,10 +102,11 @@ def test_joint_nmf_wrapper():
 
 
 def _write_tensorqtl_nominal_parquet(path, rows):
-    pd.DataFrame(rows, columns=["gene", "variant_id", "pval"]).to_parquet(path)
+    pd.DataFrame(rows, columns=["gene", "variant_id", "pval"]).to_pickle(path)
     return path
 
 
+@pytest.mark.usefixtures("pickled_parquet")
 def test_build_known_cis_eqtls_picks_lowest_pval_per_gene(tmp_path):
     parquet = _write_tensorqtl_nominal_parquet(
         tmp_path / "nominal.parquet",
@@ -127,6 +128,7 @@ def test_build_known_cis_eqtls_picks_lowest_pval_per_gene(tmp_path):
     assert known.values.sum() == 2  # exactly one selected SNP per gene
 
 
+@pytest.mark.usefixtures("pickled_parquet")
 def test_build_known_cis_eqtls_respects_pval_threshold(tmp_path):
     parquet = _write_tensorqtl_nominal_parquet(
         tmp_path / "nominal.parquet",
@@ -143,6 +145,7 @@ def test_build_known_cis_eqtls_respects_pval_threshold(tmp_path):
     assert known.loc["2:100:A:G", "ENSG2"] == 1
 
 
+@pytest.mark.usefixtures("pickled_parquet")
 def test_build_known_cis_eqtls_max_snps_per_gene(tmp_path):
     parquet = _write_tensorqtl_nominal_parquet(
         tmp_path / "nominal.parquet",
@@ -158,6 +161,7 @@ def test_build_known_cis_eqtls_max_snps_per_gene(tmp_path):
     assert set(known.index) == {"1:200:A:G", "1:300:A:G"}
 
 
+@pytest.mark.usefixtures("pickled_parquet")
 def test_build_known_cis_eqtls_raises_when_nothing_survives(tmp_path):
     parquet = _write_tensorqtl_nominal_parquet(
         tmp_path / "nominal.parquet",

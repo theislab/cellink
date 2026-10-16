@@ -9,11 +9,13 @@ VARIANT = "1:100:A:G"
 GENE_A = "ENSG_A"
 GENE_B = "ENSG_B"
 
+pytestmark = pytest.mark.usefixtures("pickled_parquet")
+
 
 def _write_celltype_parquet(root, cohort, celltype, rows):
     celltype_dir = root / cohort / celltype
     celltype_dir.mkdir(parents=True)
-    pd.DataFrame(rows, columns=["gene", "variant_id", "beta", "se", "pval"]).to_parquet(
+    pd.DataFrame(rows, columns=["gene", "variant_id", "beta", "se", "pval"]).to_pickle(
         celltype_dir / "tensorqtl.parquet"
     )
     return celltype_dir
