@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- Config arguments (`config_path` / `config_file`) across cellink accept the name of a
+  config shipped with cellink, e.g. `tl.external.configure_ldsc_runner("ldsc_docker")`,
+  `tl.run_vep(config_file="vep_offline")` or
+  `resources.get_1000genomes_plink_files(config_path="1000genomes_grch38")`; a path to your
+  own YAML works as before. A bare name refers to a shipped config before a file of that
+  name in the working directory
+- `config_path` on `tl.external.configure_livi_runner`, which the shipped `livi.yaml`
+  already documented but which did not exist; arguments left unset are taken from the config
 - Fixed `SCLINKER_ENHANCER_LINKS_GENOME_BUILD`: the Broad sc-linker Roadmap/ABC
   enhancer-gene links are GRCh37, not GRCh38. Declaring GRCh38 refused correct
   GRCh37 setups and, worse, let a GRCh38 panel pass the build check while
@@ -57,6 +65,16 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 
+- Default configs only worked from particular working directories: the 1000 Genomes
+  functions (`resources.get_1000genomes*`) defaulted to `./cellink/resources/config/...`,
+  FAVOR and VEP to `../configs/...`, and MAGMA to `configs/magma.yaml`, so tutorials had
+  to pass hand-built paths. Every default is now a shipped config resolved inside the
+  installed package; the repo-level `configs/` directory moved into the package (`favor`
+  and `magma` to `resources/config/`, `vep*` to `tl/external/config/`), and the tutorials
+  no longer pass config paths
+- `LDSCRunner` and `SAIGEQTLRunner` silently ignored a `config_path` that did not exist
+  and ran with built-in defaults; they now raise, and read their defaults from the shipped
+  `ldsc.yaml` / `saigeqtl.yaml` instead of a hard-coded copy of them
 - Both eQTL Catalogue accessors were non-functional: `resources.get_eqtl_catalog_datasets`
   and `resources.get_eqtl_catalog_dataset_associations` targeted the retired REST API at
   `https://www.ebi.ac.uk/eqtl/api/v3`, which returns HTTP 410 for every endpoint and

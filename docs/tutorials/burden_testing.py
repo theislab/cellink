@@ -30,7 +30,7 @@ original_donor_col = "donor_id"
 min_percent_donors_expressed = 0.1
 do_debug = False
 
-dd = get_onek1k(config_path="./cellink/datasets/config/onek1k.yaml")
+dd = get_onek1k()
 dd
 
 
