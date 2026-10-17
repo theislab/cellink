@@ -4,31 +4,32 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-import yaml
 
+from cellink._config import load_config
 from cellink._core import DonorData
 from cellink.resources._utils import _download_file, get_data_home, retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
 
-def load_magma_config(config_file: str) -> dict:
+def load_magma_config(config_file: str | Path = "magma", config_dict: dict | None = None) -> dict:
     """
     Load MAGMA reference file URLs from YAML configuration.
 
     Parameters
     ----------
-    config_file : str
-        Path to YAML configuration file.
+    config_file : str or Path, default="magma"
+        Name of a config shipped with cellink, or path to a YAML configuration file.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
 
     Returns
     -------
     dict
         Configuration dictionary with reference file information.
     """
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
-    return config
+    return load_config(config_file, config_dict)
 
 
 def get_gene_id_mapping(
@@ -159,8 +160,9 @@ def download_magma_references(
     genome_build: str = "GRCh38",
     reference_panel: str = None,
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    config_file: str = "configs/magma.yaml",
+    config_file: str = "magma",
     data_home: str | Path | None = None,
+    config_dict: dict | None = None,
 ) -> tuple[Path, Path]:
     """
     Download MAGMA reference files (gene locations and optionally LD reference panel).
@@ -179,8 +181,11 @@ def download_magma_references(
     gene_id_type : str, default='ensembl'
         Gene ID type to use: 'entrez', 'ensembl', or 'gene_name'.
         Entrez IDs are the original format; conversion to other types requires pybiomart.
-    config_file : str, default='configs/magma.yaml'
-        Path to YAML configuration file with reference URLs.
+    config_file : str, default="magma"
+        Name of a config shipped with cellink, or path to a YAML file with the reference URLs.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
     data_home : str or Path, optional
         Directory to store downloaded files. If None, uses cellink's default data directory.
 
@@ -214,7 +219,7 @@ def download_magma_references(
     magma_dir = data_home / "magma_references"
     magma_dir.mkdir(exist_ok=True, parents=True)
 
-    config = load_magma_config(config_file)
+    config = load_magma_config(config_file, config_dict)
 
     if genome_build not in config["gene_loc"]:
         raise ValueError(f"Invalid genome_build: {genome_build}. " f"Options: {list(config['gene_loc'].keys())}")
@@ -293,7 +298,8 @@ def prepare_magma_inputs(
     reference_panel: str | None = None,  # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
     external_ld_prefix: str | Path | None = None,  # only if ld_source="external"
     col_mapping: dict = None,
-    config_file: str = "configs/magma.yaml",
+    config_file: str = "magma",
+    config_dict: dict | None = None,
 ) -> tuple[Path, Path, Path, Path | None]:
     """
     Prepare all input files needed for MAGMA analysis.
@@ -323,8 +329,11 @@ def prepare_magma_inputs(
     col_mapping : dict, optional
         Rename GWAS columns to standard names {'source_col': 'target_col'}.
         Default handles common variants of SNP, CHR, BP, P column names.
-    config_file : str
-        Path to YAML config with reference URLs.
+    config_file : str, default="magma"
+        Name of a config shipped with cellink, or path to a YAML file with the reference URLs.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
 
     Returns
     -------
@@ -347,6 +356,7 @@ def prepare_magma_inputs(
         gene_id_type=gene_id_type,
         reference_panel=None,
         config_file=config_file,
+        config_dict=config_dict,
     )
 
     if col_mapping is None:
@@ -413,6 +423,7 @@ def prepare_magma_inputs(
             reference_panel=reference_panel,
             gene_id_type=gene_id_type,
             config_file=config_file,
+            config_dict=config_dict,
         )
 
     elif ld_source == "external":
@@ -576,8 +587,9 @@ def run_magma_pipeline(
     reference_panel: str | None = None,
     external_ld_prefix: str | Path | None = None,
     col_mapping: dict = None,
-    config_file: str = "configs/magma.yaml",
+    config_file: str = "magma",
     magma_bin: str = "magma",
+    config_dict: dict | None = None,
 ) -> Path:
     """
     Complete MAGMA pipeline: prepare inputs, annotate SNPs, and run gene analysis.
@@ -610,8 +622,11 @@ def run_magma_pipeline(
         Required when ld_source='external'. Path prefix of PLINK files.
     col_mapping : dict, optional
         Column rename mapping for GWAS sumstats.
-    config_file : str
-        Path to YAML config.
+    config_file : str, default="magma"
+        Name of a config shipped with cellink, or path to a YAML file with the reference URLs.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
     magma_bin : str
         Path to MAGMA binary.
 
@@ -671,6 +686,7 @@ def run_magma_pipeline(
         external_ld_prefix=external_ld_prefix,
         col_mapping=col_mapping,
         config_file=config_file,
+        config_dict=config_dict,
     )
 
     annotation_file = run_magma_annotation(

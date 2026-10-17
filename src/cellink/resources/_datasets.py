@@ -2,7 +2,6 @@ import logging
 import os
 import shutil
 from collections.abc import Iterable
-from pathlib import Path
 
 import anndata as ad
 import pandas as pd
@@ -32,12 +31,13 @@ def _get_1000genomes_base(
     icf_name: str,
     vcz_name: str,
     chromosomes: Iterable[int] = range(1, 23),
+    config_dict: dict | None = None,
 ) -> ad.AnnData | None:
     data_home = get_data_home(data_home)
     DATA = data_home / dataset_name
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
 
     for file in config["remote_files"]:
         checksum = file.get("checksum") if verify_checksum else None
@@ -90,7 +90,7 @@ def _get_1000genomes_base(
 
 
 def get_1000genomes(
-    config_path: str = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str = "1000genomes",
     data_home: str | None = None,
     verify_checksum: bool = True,
     only_download: bool = False,
@@ -99,6 +99,7 @@ def get_1000genomes(
     max_memory: str | None = None,
     variants_chunk_size: int = 32000,
     samples_chunk_size: int = 2504,
+    config_dict: dict | None = None,
 ) -> ad.AnnData | None:
     """
     Download and preprocess the 1000 Genomes Project genotype data.
@@ -110,8 +111,12 @@ def get_1000genomes(
 
     Parameters
     ----------
-    config_path : str, default="./cellink/resources/config/1000genomes.yaml"
-        Path to the YAML configuration file listing remote genotype files.
+    config_path : str, default="1000genomes"
+        Name of a config shipped with cellink, or path to a YAML configuration file listing
+        remote genotype files.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     data_home : str or None, optional
         Directory where data should be stored. If None, uses the default `cellink` data directory.
     verify_checksum : bool, default=True
@@ -150,6 +155,7 @@ def get_1000genomes(
     return _get_1000genomes_base(
         dataset_name="1000genomes",
         config_path=config_path,
+        config_dict=config_dict,
         data_home=data_home,
         verify_checksum=verify_checksum,
         only_download=only_download,
@@ -165,7 +171,7 @@ def get_1000genomes(
 
 
 def get_1000genomes_grch38(
-    config_path: str = "./cellink/resources/config/1000genomes_grch38.yaml",
+    config_path: str = "1000genomes_grch38",
     data_home: str | None = None,
     verify_checksum: bool = False,
     only_download: bool = False,
@@ -175,6 +181,7 @@ def get_1000genomes_grch38(
     variants_chunk_size: int = 32000,
     samples_chunk_size: int = 3202,
     chromosomes: list[int] | None = None,
+    config_dict: dict | None = None,
 ) -> ad.AnnData | None:
     """
     Download and preprocess the GRcH38 1000 Genomes Project genotype data (https://www.cell.com/cell/pdf/S0092-8674(22)00991-6.pdf).
@@ -186,8 +193,12 @@ def get_1000genomes_grch38(
 
     Parameters
     ----------
-    config_path : str, default="./cellink/resources/config/1000genomes.yaml"
-        Path to the YAML configuration file listing remote genotype files.
+    config_path : str, default="1000genomes_grch38"
+        Name of a config shipped with cellink, or path to a YAML configuration file listing
+        remote genotype files.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     data_home : str or None, optional
         Directory where data should be stored. If None, uses the default `cellink` data directory.
     verify_checksum : bool, default=True
@@ -226,6 +237,7 @@ def get_1000genomes_grch38(
     return _get_1000genomes_base(
         dataset_name="1000genomes_grch38",
         config_path=config_path,
+        config_dict=config_dict,
         data_home=data_home,
         verify_checksum=verify_checksum,
         only_download=only_download,
@@ -243,7 +255,7 @@ def get_1000genomes_grch38(
 
 """
 def get_1000genomes(
-    config_path: str = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str = "1000genomes",
     data_home: str | None = None,
     verify_checksum: bool = True,
     only_download: bool = False,
@@ -317,7 +329,7 @@ def get_1000genomes(
         return gdata
 
 def get_1000genomes_grch38(
-    config_path: str = "./cellink/resources/config/1000genomes_grch38.yaml",
+    config_path: str = "1000genomes_grch38",
     data_home: str | None = None,
     only_download: bool = False,
     verify_checksum: bool = False,
@@ -394,7 +406,7 @@ def get_1000genomes_grch38(
 
 
 def get_onek1k(
-    config_path: str = str(Path(__file__).parent / "config" / "onek1k.yaml"),
+    config_path: str = "onek1k",
     data_home: str | None = None,
     verify_checksum: bool = True,
     only_download: bool = False,
@@ -403,6 +415,7 @@ def get_onek1k(
     max_memory: str | None = None,
     variants_chunk_size: int = 32000,
     samples_chunk_size: int = 981,
+    config_dict: dict | None = None,
 ) -> DonorData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.
@@ -422,8 +435,12 @@ def get_onek1k(
 
     Parameters
     ----------
-    config_path : str, default="./cellink/resources/config/onek1k.yaml"
-        Path to the YAML configuration file listing remote genotype and expression files.
+    config_path : str, default="onek1k"
+        Name of a config shipped with cellink, or path to a YAML configuration file listing
+        remote genotype and expression files.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     data_home : str or None, optional
         Directory where data should be stored. If None, uses the default `cellink` data directory.
     verify_checksum : bool, default=True
@@ -468,7 +485,7 @@ def get_onek1k(
     DATA = data_home / "onek1k"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
 
     for file in config["remote_files"]:
         checksum = file.get("checksum") if verify_checksum else None
@@ -556,9 +573,10 @@ def get_onek1k(
 
 
 def get_dummy_onek1k(
-    config_path: str = str(Path(__file__).parent / "config" / "dummy_onek1k.yaml"),
+    config_path: str = "dummy_onek1k",
     data_home: str | None = None,
     verify_checksum: bool = True,
+    config_dict: dict | None = None,
 ) -> DonorData:
     """
     Download and load the dummy OneK1K dataset.
@@ -578,8 +596,12 @@ def get_dummy_onek1k(
 
     Parameters
     ----------
-    config_path : str, default="./cellink/resources/config/dummy_onek1k.yaml"
-        Path to the YAML configuration file listing the remote dummy dataset file.
+    config_path : str, default="dummy_onek1k"
+        Name of a config shipped with cellink, or path to a YAML configuration file listing
+        the remote dummy dataset file.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     data_home : str or None, optional
         Directory where data should be stored. If None, uses the default `cellink`
         data directory.
@@ -627,7 +649,7 @@ def get_dummy_onek1k(
     DATA = data_home / "dummy_onek1k"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
 
     file_info = config["remote_files"][0]
     filename = file_info["filename"]

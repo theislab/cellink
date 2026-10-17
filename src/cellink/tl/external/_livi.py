@@ -10,6 +10,8 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from cellink._config import load_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,19 +93,23 @@ _livi_runner: LIVIRunner | None = None
 
 
 def configure_livi_runner(
-    livi_root: str | Path,
-    execution_mode: Literal["python_api", "subprocess"] = "python_api",
-    python_executable: str = "python",
-    device: str = "auto",
+    livi_root: str | Path | None = None,
+    execution_mode: Literal["python_api", "subprocess"] | None = None,
+    python_executable: str | None = None,
+    device: str | None = None,
+    config_path: str | Path = "livi",
+    config_dict: dict | None = None,
 ) -> LIVIRunner:
     """Configure the global LIVI runner.
 
-    Must be called once before using any other LIVI functions.
+    Must be called once before using any other LIVI functions. Arguments left as
+    ``None`` are taken from ``config_path``.
 
     Parameters
     ----------
-    livi_root : str or Path
-        Path to the LIVI repository root (contains ``src/`` and ``configs/``).
+    livi_root : str or Path, optional
+        Path to the LIVI repository root (contains ``src/`` and ``configs/``). Required,
+        either here or as ``livi_root`` in the config file.
     execution_mode : {"python_api", "subprocess"}
         How to run LIVI training.  ``"python_api"`` (recommended) imports
         LIVI classes directly; results are Python objects.  ``"subprocess"``
@@ -114,6 +120,13 @@ def configure_livi_runner(
     device : str
         Compute device: ``"auto"`` (auto-detect GPU), ``"cuda"``,
         or ``"cpu"``.
+    config_path : str or Path, default="livi"
+        Name of a config shipped with cellink, or path to a YAML file with any of the keys
+        ``livi_root``, ``execution_mode``, ``python_executable`` and ``device``. The
+        shipped ``"livi"`` config holds the defaults: ``python_api``, ``python``, ``auto``.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
 
     Returns
     -------
@@ -125,11 +138,21 @@ def configure_livi_runner(
     >>> cl.tl.external.configure_livi_runner("/lustre/projects/LIVI")
     """
     global _livi_runner
+    config = load_config(config_path, config_dict)
+    explicit = {
+        "livi_root": livi_root,
+        "execution_mode": execution_mode,
+        "python_executable": python_executable,
+        "device": device,
+    }
+    settings = {key: config.get(key) if value is None else value for key, value in explicit.items()}
+    if settings["livi_root"] is None:
+        raise ValueError(f"livi_root is required: pass it, or set it in the config ({config_path!r}).")
     _livi_runner = LIVIRunner(
-        livi_root=livi_root,
-        execution_mode=execution_mode,
-        python_executable=python_executable,
-        device=device,
+        livi_root=settings["livi_root"],
+        execution_mode=settings["execution_mode"] or "python_api",
+        python_executable=settings["python_executable"] or "python",
+        device=settings["device"] or "auto",
     )
     return _livi_runner
 
