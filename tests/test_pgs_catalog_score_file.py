@@ -61,7 +61,7 @@ def test_existing_file_is_reused_unless_refresh(tmp_path, pgs_catalog):
 
     assert first == second
     assert pgs_catalog["downloads"] == [HARMONIZED_URLS["GRCh37"]["positions"]]
-    assert pgs_catalog["fetch"] == 1  # no API call for a cached file either
+    assert pgs_catalog["fetch"] == 1
 
     get_pgs_catalog_score_file("PGS000001", genome_build="GRCh37", data_home=tmp_path, refresh=True)
     assert len(pgs_catalog["downloads"]) == 2
