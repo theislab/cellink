@@ -1,4 +1,6 @@
 execution_mode: local
+docker_image: zijingliu/ldsc
+singularity_image: null
 ldsc_command: ldsc.py
 make_annot_command: make_annot.py
 munge_command: munge_sumstats.py

@@ -7,8 +7,8 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 import polars as pl
-import yaml
 
+from cellink._config import load_config
 from cellink._core import DonorData
 from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
@@ -37,25 +37,15 @@ class LDSCRunner(BaseToolRunner):
         ``execution_mode="singularity"``).
     """
 
-    def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
+    def __init__(self, config_path: str | Path | None = "ldsc", config_dict: dict | None = None):
         required_fields = ["execution_mode", "ldsc_command", "make_annot_command", "munge_command"]
         prefix_tokens = ["--annot-file", "--out", "--bfile", "--ref-ld-chr", "--w-ld-chr", "--frqfile-chr"]
         super().__init__(config_path, config_dict, required_fields, prefix_tokens)
 
-    def _load_config(self, config_path: str | None, config_dict: dict | None) -> dict:
+    def _load_config(self, config_path: str | Path | None, config_dict: dict | None) -> dict:
         if config_dict:
             return config_dict
-        if config_path and os.path.exists(config_path):
-            with open(config_path) as f:
-                return yaml.safe_load(f)
-        return {
-            "execution_mode": "local",
-            "docker_image": "zijingliu/ldsc",
-            "singularity_image": None,
-            "ldsc_command": "ldsc.py",
-            "make_annot_command": "make_annot.py",
-            "munge_command": "munge_sumstats.py",
-        }
+        return load_config(config_path or "ldsc")
 
     @property
     def ldsc_command(self) -> str:
@@ -77,7 +67,22 @@ class LDSCRunner(BaseToolRunner):
 _ldsc_runner = None
 
 
-def configure_ldsc_runner(config_path: str | None = None, config_dict: dict | None = None) -> LDSCRunner:
+def configure_ldsc_runner(config_path: str | Path | None = "ldsc", config_dict: dict | None = None) -> LDSCRunner:
+    """
+    Configure the global LDSC runner.
+
+    Parameters
+    ----------
+    config_path : str or Path, default="ldsc"
+        Name of a config shipped with cellink (``"ldsc"`` runs locally, ``"ldsc_docker"`` and
+        ``"ldsc_singularity"`` in a container), or path to a YAML file with the keys above.
+    config_dict : dict, optional
+        Configuration dictionary; takes precedence over ``config_path``.
+
+    Returns
+    -------
+    LDSCRunner
+    """
     global _ldsc_runner
     _ldsc_runner = LDSCRunner(config_path=config_path, config_dict=config_dict)
     return _ldsc_runner

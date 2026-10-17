@@ -127,13 +127,14 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
 
 
 def get_1000genomes_ld_scores(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     population: str = "EUR",
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
     gwas_ancestry: str | list[str] | None = None,
     on_ancestry_mismatch: str = "warn",
+    config_dict: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, str] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes linkage disequilibrium (LD) scores.
@@ -144,8 +145,12 @@ def get_1000genomes_ld_scores(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
-        Path to YAML configuration file specifying URLs and file names for LD scores.
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file
+        specifying URLs and file names for LD scores.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     population : str, default='EUR'
         Population code for LD scores. Must be one of {'EUR', 'EAS'}.
     data_home : str or pathlib.Path, optional
@@ -190,7 +195,7 @@ def get_1000genomes_ld_scores(
     DATA = data_home / f"1000genomes_ld_scores_{population}"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
     if population not in config["ld_scores"]:
         raise ValueError("population must be one of {'EUR', 'EAS'}")
 
@@ -225,13 +230,14 @@ def get_1000genomes_ld_scores(
 
 
 def get_1000genomes_ld_weights(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     population: str = "EUR",
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
     gwas_ancestry: str | list[str] | None = None,
     on_ancestry_mismatch: str = "warn",
+    config_dict: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[Path, str]:
     """
     Download, extract, and load precomputed 1000 Genomes LD weights.
@@ -242,8 +248,12 @@ def get_1000genomes_ld_weights(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
-        Path to YAML configuration file specifying URLs and file names for LD weights.
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file
+        specifying URLs and file names for LD weights.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     population : str, default='EUR'
         Population code for LD weights. Must be one of {'EUR', 'EAS'}.
     data_home : str or pathlib.Path, optional
@@ -281,7 +291,7 @@ def get_1000genomes_ld_weights(
     DATA = data_home / f"1000genomes_ld_weights_{population}"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
     if population not in config["ld_weights"]:
         raise ValueError("population must be one of {'EUR', 'EAS'}")
 
@@ -309,12 +319,13 @@ def get_1000genomes_ld_weights(
 
 
 def get_1000genomes_plink_files(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     population: str = "EUR",
     data_home: str | Path | None = None,
     refresh: bool = False,
     gwas_ancestry: str | list[str] | None = None,
     on_ancestry_mismatch: str = "warn",
+    config_dict: dict | None = None,
 ) -> Path:
     """Download and extract 1000 Genomes PLINK files (BED/BIM/FAM format).
 
@@ -323,8 +334,12 @@ def get_1000genomes_plink_files(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path, default='./cellink/resources/config/1000genomes.yaml'
-        Path to YAML configuration file specifying URLs and file names for PLINK files.
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file
+        specifying URLs and file names for PLINK files.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     population : str, default='EUR'
         Population code for PLINK files. Currently only 'EUR' is supported.
     data_home : str or pathlib.Path, optional
@@ -362,7 +377,7 @@ def get_1000genomes_plink_files(
     DATA = data_home / f"1000genomes_plink_{population}"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
     if population not in config["plink_files"]:
         raise ValueError(f"population must be one of {list(config['plink_files'].keys())}")
 
@@ -376,13 +391,14 @@ def get_1000genomes_plink_files(
 
 
 def get_1000genomes_frq(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     population: str = "EUR",
     data_home: str | Path | None = None,
     return_path: bool = False,
     refresh: bool = False,
     gwas_ancestry: str | list[str] | None = None,
     on_ancestry_mismatch: str = "warn",
+    config_dict: dict | None = None,
 ) -> tuple[Path, str]:
     """
     Download and extract 1000 Genomes allele frequency files.
@@ -392,8 +408,11 @@ def get_1000genomes_frq(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path
-        Path to YAML configuration file.
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     population : str, default='EUR'
         Population code. Currently only ``'EUR'`` is available.
     data_home : str or pathlib.Path, optional
@@ -434,7 +453,7 @@ def get_1000genomes_frq(
     DATA = data_home / f"1000genomes_frq_{population}"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
     if population not in config["frq"]:
         raise ValueError(f"population must be one of {list(config['frq'].keys())}")
 
@@ -448,9 +467,10 @@ def get_1000genomes_frq(
 
 
 def get_1000genomes_hapmap3(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     data_home: str | Path | None = None,
     refresh: bool = False,
+    config_dict: dict | None = None,
 ) -> Path:
     """
     Download the HapMap3 SNP list (no MHC region).
@@ -462,8 +482,11 @@ def get_1000genomes_hapmap3(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path
-        Path to YAML configuration file.
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     data_home : str or pathlib.Path, optional
         Root directory where data will be stored.
     refresh : bool, default=False
@@ -483,7 +506,7 @@ def get_1000genomes_hapmap3(
     DATA = data_home / "1000genomes_hapmap3"
     DATA.mkdir(exist_ok=True)
 
-    config = _load_config(config_path)
+    config = _load_config(config_path, config_dict)
     dest = DATA / config["hapmap3"]["filename"]
 
     _download_file(config["hapmap3"]["url"], dest, checksum=None)
@@ -492,11 +515,12 @@ def get_1000genomes_hapmap3(
 
 
 def get_1000genomes_merge_alleles(
-    config_path: str | Path = "./cellink/resources/config/1000genomes.yaml",
+    config_path: str | Path = "1000genomes",
     population: str = "EUR",
     data_home: str | Path | None = None,
     refresh: bool = False,
     chromosomes: list[int] | None = None,
+    config_dict: dict | None = None,
 ) -> Path:
     """
     Build a genuine 3-column ``SNP A1 A2`` file usable for ``--merge-alleles``.
@@ -514,9 +538,12 @@ def get_1000genomes_merge_alleles(
 
     Parameters
     ----------
-    config_path : str or pathlib.Path
-        Path to YAML configuration file (used for both the plink files and
-        the HapMap3 list lookups).
+    config_path : str or pathlib.Path, default='1000genomes'
+        Name of a config shipped with cellink, or path to a YAML configuration file (used for
+        both the plink files and the HapMap3 list lookups).
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_path``.
     population : str, default='EUR'
         Population code for the underlying PLINK panel.
     data_home : str or pathlib.Path, optional
@@ -543,8 +570,10 @@ def get_1000genomes_merge_alleles(
     if dest.exists() and not refresh:
         return dest
 
-    plink_dir, plink_prefix = get_1000genomes_plink_files(config_path=config_path, population=population, data_home=data_home)
-    hapmap3_path = get_1000genomes_hapmap3(config_path=config_path, data_home=data_home)
+    plink_dir, plink_prefix = get_1000genomes_plink_files(
+        config_path=config_path, population=population, data_home=data_home, config_dict=config_dict
+    )
+    hapmap3_path = get_1000genomes_hapmap3(config_path=config_path, data_home=data_home, config_dict=config_dict)
     hapmap3_snps = set(pd.read_csv(hapmap3_path, header=None)[0])
 
     chromosomes = chromosomes or list(range(1, 23))

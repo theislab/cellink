@@ -1,5 +1,7 @@
 execution_mode: local
 rscript_path: Rscript
+docker_image: wzhou88/saigeqtl
+singularity_image: docker://wzhou88/saigeqtl
 step1_script: step1_fitNULLGLMM_qtl.R
 step2_script: step2_tests_qtl.R
 step3_script: step3_gene_pvalue_qtl.R
