@@ -8,6 +8,7 @@ from ._gwas_prs_qtl import (
     get_gwas_catalog_study,
     get_gwas_catalog_study_summary_stats,
     get_pgs_catalog_score,
+    get_pgs_catalog_score_file,
     get_pgs_catalog_scores,
     liftover_gwas_summary_stats,
 )
