@@ -4,12 +4,11 @@ from typing import Literal
 
 import anndata
 import numpy as np
-import pandas as pd
 import scipy.linalg as la
 import scipy.stats as st
 
 from cellink._core import DonorData
-from cellink.at.base_model import fetch_raw_slot, to_numpy
+from cellink.at.base_model import align_to_index, fetch_raw_slot, observation_index, to_numpy, variant_matrix
 from cellink.at.utils import ensure_float64_array
 
 __all__ = ["GWAS"]
@@ -20,10 +19,10 @@ class GWAS:
 
     def __init__(
         self,
-        Y: np.ndarray | str,
-        F: np.ndarray | str | None = None,
+        Y: str,
+        F: str | None = None,
         *,
-        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
+        data: DonorData | anndata.AnnData,
         target_level: Literal["donor", "cell"] | None = None,
     ) -> None:
         """
@@ -31,22 +30,18 @@ class GWAS:
 
         Parameters
         ----------
-            Y : (`N`, `1`) ndarray, or str
-                outputs. Either a numpy array directly, or, when `data` is
-                provided, a formula string (e.g. ``"phenotype"``) resolved
+            Y : str
+                outputs. A formula string (e.g. ``"phenotype"``) resolved
                 against `data`.
-            F : (`N`, `K`) ndarray, or str
-                covariates. If not specified, an intercept is assumed. Either
-                a numpy array directly, or, when `data` is provided, a formula
-                string (e.g. ``"age + sex"``) resolved against `data`; an
-                intercept column is kept for a string formula (unlike `Y`).
-            data : DonorData, AnnData, or pandas.DataFrame, optional
-                Data container `Y`/`F` are resolved against when either is
-                given as a string. Ignored (and not required) when `Y`/`F`
-                are already numpy arrays.
+            F : str, optional
+                covariates. If not specified, an intercept-only column is used.
+                A formula string (e.g. ``"age + sex"``) resolved against `data`;
+                an intercept column is kept for the formula.
+            data : DonorData or AnnData
+                Data container `Y`/`F` are resolved against.
             target_level : {"donor", "cell"}, optional
-                Required when `data` is a `DonorData` and `Y`/`F` are formula
-                strings, since a `DonorData` has values at both levels.
+                Required when `data` is a `DonorData`, since a `DonorData` has
+                values at both levels.
 
         Notes
         -----
@@ -58,21 +53,28 @@ class GWAS:
                 * F has two dimensions (either a column vector to model intercept or a matrix with covariates)
                 * F has the same number of rows as Y
         """
-        if isinstance(Y, str) or isinstance(F, str):
-            if isinstance(Y, str):
-                Y = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
-            if isinstance(F, str):
-                F = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
+        if isinstance(data, DonorData) and target_level == "cell":
+            raise ValueError(
+                "GWAS reads variants from `dd.G.X`, which is one row per donor, so a cell-level "
+                "phenotype would pair each genotype with many cells and treat them as independent "
+                'observations. Aggregate the phenotype instead (Y="dmean(<gene>)", '
+                'target_level="donor"), or use StructLMM, which models the cell-level structure.'
+            )
 
-        # sanity checks
-        assert isinstance(Y, np.ndarray), "Y must be a numpy array (or a formula string together with `data=`)"
-        assert Y.ndim == 2, "Y must be a 2D numpy array"
+        Y_df = fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False)
+        # remember which observations the null is fitted on, so `test_association` can
+        # verify that whatever it is handed lines up with them
+        self._obs_index = None if Y_df.attrs.get("has_dummy_index", False) else Y_df.index
+        Y = to_numpy(Y_df)
 
         if F is None:
             F = np.ones((Y.shape[0], 1))
+        else:
+            F = to_numpy(fetch_raw_slot(data, F, "F", target_level=target_level, add_intercept=True))
 
-        assert isinstance(F, np.ndarray), "F must be a numpy array (or a formula string together with `data=`)"
-        assert F.ndim == 2, "F must be a 2D numpy array"
+        # sanity checks
+        assert isinstance(Y, np.ndarray) and Y.ndim == 2, "Y (resolved from formula) must be a 2D numpy array"
+        assert isinstance(F, np.ndarray) and F.ndim == 2, "F (resolved from formula) must be a 2D numpy array"
         assert Y.shape[0] == F.shape[0], "Y and F must have the same number of rows"
 
         # type casting
@@ -108,25 +110,26 @@ class GWAS:
         self.beta_F0 = np.dot(self.A0i, self.FY)
         self.s20 = (self.YY - np.einsum("kp,kp->p", self.FY, self.beta_F0)) / self.df
 
-    def test_association(self, G: np.ndarray) -> None:
-        """Test association between phenotype and genotype matrix.
+    def test_association(self, data: DonorData | anndata.AnnData) -> None:
+        """Test association between the phenotype and every variant in `data`.
 
-        Each column of G is tested independently from the others.
-        The test is performed using the likelihood ratio test (LRT) statistic.
-        The LRT statistic is computed as:
+        Each variant is a column of `data.G.X` (DonorData) or `data.X` (AnnData), and
+        is tested independently of the others, one by one. The test is a likelihood
+        ratio test,
+
         .. math::
-            LRT = -df * log( marginal likelihood under H1 / marginal likelihood under H0 )
-        where s2 is the variance of the residuals of the model with the covariate and s20 is the variance of the residuals of the null model.
-        Uses the Woodbury Matrix Identity to invert the matrix in the LRT statistic.
-        Fit genotypes one-by-one.
+            LRT = -df * log( s2 / s20 )
+
+        where s2 is the residual variance of the model including the variant and s20
+        that of the null model. Uses the Woodbury matrix identity to avoid re-inverting
+        the design matrix for each variant.
 
         Parameters
         ----------
-        G : (`N`, `S`) ndarray
-            inputs
+        data : DonorData | anndata.AnnData
+            input data
         """
-        # type casting
-        G = ensure_float64_array(G)
+        G = align_to_index(variant_matrix(data), observation_index(data), self._obs_index)
 
         # precompute products
         GY = np.dot(G.T, self.Y)
