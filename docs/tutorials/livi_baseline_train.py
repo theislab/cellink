@@ -13,11 +13,8 @@
 # cis-eQTL part.
 #
 # Setup (run once, separately):
-#     git clone https://github.com/theislab/cellink
-#     # then in Python:
 #     import cellink
 #     cellink.resources.get_onek1k(
-#         config_path="./cellink/resources/config/onek1k.yaml",
 #         data_home="/lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data",
 #     )
 
@@ -30,9 +27,6 @@ from cellink.tl.external import configure_livi_runner, train_livi
 
 # --- paths ---
 LIVI_ROOT = "LIVI"
-# In-repo config; if you cloned theislab/cellink separately, point this at that
-# clone's onek1k.yaml instead (e.g. "./cellink/resources/config/onek1k.yaml").
-CONFIG_PATH = "../../src/cellink/resources/config/onek1k.yaml"
 DATA_HOME = "/lustre/groups/ml01/workspace/lucas.arnoldt/data/cellink_data"
 
 # --- model / training config: MUST match livi_annbatch_model_train.py ---
@@ -68,7 +62,7 @@ print(f"device: {runner.resolve_device()}")
 
 # %%
 t_load = time.perf_counter()
-dd = get_onek1k(config_path=CONFIG_PATH, data_home=DATA_HOME, verify_checksum=False)
+dd = get_onek1k(data_home=DATA_HOME, verify_checksum=False)
 load_secs = time.perf_counter() - t_load
 
 n_cells = dd.C.n_obs

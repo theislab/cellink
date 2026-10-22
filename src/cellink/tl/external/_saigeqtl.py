@@ -1,12 +1,13 @@
 import logging
 import os
+from pathlib import Path
 from typing import Literal
 
 import pandas as pd
 import scanpy as sc
-import yaml
 from anndata.utils import asarray
 
+from cellink._config import load_config
 from cellink._core import DAnn, DonorData
 from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 class SAIGEQTLRunner(BaseToolRunner):
     """SAIGE-QTL Runner with support for local, docker, and singularity"""
 
-    def __init__(self, config_path: str | None = None, config_dict: dict | None = None):
+    def __init__(self, config_path: str | Path | None = "saigeqtl", config_dict: dict | None = None):
         required_fields = [
             "execution_mode",
             "rscript_path",
@@ -29,22 +30,10 @@ class SAIGEQTLRunner(BaseToolRunner):
         prefix_tokens = []
         super().__init__(config_path, config_dict, required_fields, prefix_tokens)
 
-    def _load_config(self, config_path: str | None, config_dict: dict | None) -> dict:
+    def _load_config(self, config_path: str | Path | None, config_dict: dict | None) -> dict:
         if config_dict:
             return config_dict
-        if config_path and os.path.exists(config_path):
-            with open(config_path) as f:
-                return yaml.safe_load(f)
-        return {
-            "execution_mode": "local",
-            "rscript_path": "Rscript",
-            "docker_image": "wzhou88/saigeqtl",
-            "singularity_image": "docker://wzhou88/saigeqtl",
-            "step1_script": "step1_fitNULLGLMM_qtl.R",
-            "step2_script": "step2_tests_qtl.R",
-            "step3_script": "step3_gene_pvalue_qtl.R",
-            "makegroup_script": "makeGroupFile.R",
-        }
+        return load_config(config_path or "saigeqtl")
 
     @property
     def step1_script(self) -> str:
@@ -70,7 +59,25 @@ class SAIGEQTLRunner(BaseToolRunner):
 _saigeqtl_runner = None
 
 
-def configure_saigeqtl_runner(config_path: str | None = None, config_dict: dict | None = None) -> SAIGEQTLRunner:
+def configure_saigeqtl_runner(
+    config_path: str | Path | None = "saigeqtl", config_dict: dict | None = None
+) -> SAIGEQTLRunner:
+    """
+    Configure the global SAIGE-QTL runner.
+
+    Parameters
+    ----------
+    config_path : str or Path, default="saigeqtl"
+        Name of a config shipped with cellink (``"saigeqtl"`` runs locally,
+        ``"saigeqtl_docker"`` and ``"saigeqtl_singularity"`` in a container), or path to a
+        YAML file.
+    config_dict : dict, optional
+        Configuration dictionary; takes precedence over ``config_path``.
+
+    Returns
+    -------
+    SAIGEQTLRunner
+    """
     global _saigeqtl_runner
     _saigeqtl_runner = SAIGEQTLRunner(config_path=config_path, config_dict=config_dict)
     return _saigeqtl_runner

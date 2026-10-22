@@ -97,7 +97,7 @@ def generate_dummy_dataset(
     qtl_window: int = 500_000,
     seed: int = 42,
     verify_checksum: bool = False,
-    config_path: str = "./cellink/resources/config/onek1k.yaml",
+    config_path: str = "onek1k",
 ):
     """
     Generate a dummy OneK1K dataset for tutorial purposes.
@@ -116,8 +116,8 @@ def generate_dummy_dataset(
         Random seed for reproducibility
     verify_checksum : bool
         Whether to verify checksums when loading original data
-    config_path : str
-        Path to the OneK1K configuration file
+    config_path : str, default="onek1k"
+        Name of a config shipped with cellink, or path to a OneK1K configuration file
 
     Returns
     -------
@@ -243,7 +243,7 @@ def main():
         "--no_verify_checksum", action="store_true", help="Skip checksum verification when loading data"
     )
     parser.add_argument(
-        "--config_path", type=str, default="./cellink/resources/config/onek1k.yaml", help="Path to OneK1K config file"
+        "--config_path", type=str, default="onek1k", help="Name of a shipped config, or path to a OneK1K config file"
     )
 
     args = parser.parse_args()

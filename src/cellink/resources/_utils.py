@@ -10,8 +10,9 @@ from pathlib import Path
 from urllib.request import urlretrieve
 
 import pandas as pd
-import yaml
 from tqdm import tqdm
+
+from cellink._config import load_config
 
 DEFAULT_DATA_HOME = join("~", "cellink_data")
 
@@ -187,14 +188,16 @@ def _run(cmd: str, cwd: str | Path | None = None) -> subprocess.CompletedProcess
     return result
 
 
-def _load_config(path: str | Path) -> dict:
+def _load_config(path: str | Path, config_dict: dict | None = None) -> dict:
     """
     Load a YAML configuration file.
 
     Parameters
     ----------
     path : str or pathlib.Path
-        Path to the YAML configuration file.
+        Name of a config shipped with cellink (e.g. ``"1000genomes"``), or path to a YAML file.
+    config_dict : dict, optional
+        Configuration as a dictionary; returned as is, without reading ``path``.
 
     Returns
     -------
@@ -206,10 +209,9 @@ def _load_config(path: str | Path) -> dict:
     yaml.YAMLError
         If the file cannot be parsed as valid YAML.
     FileNotFoundError
-        If the file does not exist.
+        If the config cannot be found.
     """
-    with open(path) as f:
-        return yaml.safe_load(f)
+    return load_config(path, config_dict)
 
 
 def _to_dataframe(data: list[dict] | None) -> pd.DataFrame:

@@ -57,6 +57,7 @@ Crucially, **`DonorData`** ensures that genetic data and single-cell modalities 
 - [Gene program scoring with sc-linker](https://cellink-docs.readthedocs.io/en/latest/tutorials/sclinker.html)
 - [Gene-set enrichment with MAGMA](https://cellink-docs.readthedocs.io/en/latest/tutorials/magma_analysis_tutorial.html)
 - [Integrating GWAS with single-cell disease relevance scores (scDRS/seismic)](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_seismic.html)
+- [Finding disease-associated cell neighborhoods with scEPS](http://cellink-docs.readthedocs.io/en/latest/tutorials/sceps.html)
 - [Integrating GWAS with spatial data (gsMap)](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html)
 
 **Deep learning & representation learning**

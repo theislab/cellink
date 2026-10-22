@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import regex as re
-import yaml
 
+from cellink._config import load_config
 from cellink._core.data_fields import AAnn
 from cellink.tl.utils import (
     _get_vep_start_row,
@@ -26,23 +26,6 @@ logger = logging.getLogger(__name__)
 
 Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 Chromosome_str = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
-
-
-DEFAULT_EXTENSION = ".yaml"
-
-
-def resolve_config_path(name_or_path):
-    name_or_path = str(name_or_path)
-    if os.path.isfile(name_or_path):
-        return name_or_path
-
-    if not name_or_path.endswith(DEFAULT_EXTENSION):
-        name_or_path += DEFAULT_EXTENSION
-
-    if os.path.isfile(name_or_path):
-        return name_or_path
-
-    raise FileNotFoundError(f"Config file '{name_or_path}' not found.")
 
 
 def run_snpeff(
@@ -169,10 +152,10 @@ def _download_favor(
     )
 
 
-def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> pd.DataFrame:
-    config_file = resolve_config_path(config_file)
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
+def load_favor_urls(
+    config_file: str, version: Literal["essential", "full"], config_dict: dict | None = None
+) -> pd.DataFrame:
+    config = load_config(config_file, config_dict)
 
     urls_dict = config["favor"][version]
     URLs = pd.DataFrame({"chr": list(map(str, urls_dict.keys())), "URL": list(urls_dict.values())})
@@ -182,21 +165,23 @@ def load_favor_urls(config_file: str, version: Literal["essential", "full"]) -> 
 def download_favor(
     version: Literal["essential", "full"] = "essential",
     chromosome: Chromosome | list[Chromosome] | None = None,
-    config_file: str = "../configs/favor.yaml",
+    config_file: str = "favor",
     database_dir: str = None,
+    config_dict: dict | None = None,
 ):
     logger.info(f"Using config: {config_file}")
-    URLs = load_favor_urls(config_file=config_file, version=version)
+    URLs = load_favor_urls(config_file=config_file, version=version, config_dict=config_dict)
     _download_favor(URLs=URLs, chromosome=chromosome, database_dir=database_dir)
 
 
 def run_favor(
-    config_file: str = "../configs/favor.yaml",
+    config_file: str = "favor",
     database_dir: str = None,
     version: Literal["essential", "full"] = "essential",
     G=None,
     output: str = None,
     return_annos: bool = True,
+    config_dict: dict | None = None,
 ):
     """
     Annotates variants using the FAVOR database from within Python
@@ -205,6 +190,12 @@ def run_favor(
 
     Parameters
     ----------
+    config_file : str, default="favor"
+        Name of a config shipped with cellink, or path to a YAML file listing the FAVOR
+        database download URLs.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
     G : anndata.AnnData
         AnnData object with a .var DataFrame containing variant information, including
         'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
@@ -243,7 +234,11 @@ def run_favor(
             ):
                 logger.info(f"Favor database for chromosome {chromosome} not found. Downloading...")
                 download_favor(
-                    version=version, chromosome=chromosome, config_file=config_file, database_dir=database_dir
+                    version=version,
+                    chromosome=chromosome,
+                    config_file=config_file,
+                    database_dir=database_dir,
+                    config_dict=config_dict,
                 )
 
             G_var_chrom = G.var[G.var["chrom"] == chromosome]
@@ -291,10 +286,11 @@ def run_favor(
 
 
 def run_vep(
-    config_file: str = "../configs/vep.yaml",
+    config_file: str = "vep",
     input_vcf: str = "variants.vcf",
     output: str = "variants_vep_annotated.txt",
     return_annos: bool = True,
+    config_dict: dict | None = None,
     **kwargs,
 ):
     """Calls the VEP command line tool from within python
@@ -303,8 +299,12 @@ def run_vep(
 
     Parameters
     ----------
-    config_file : _type_
-        config file specifying VEP paths as in example/config.yaml
+    config_file : str, default="vep"
+        Name of a config shipped with cellink (``"vep"`` runs VEP online; ``"vep_offline"`` is a
+        template for a local cache), or path to a YAML file specifying the VEP command and paths.
+    config_dict : dict, optional
+        Configuration as a dictionary with the same structure as the YAML file; takes
+        precedence over ``config_file``.
     input_vcf : str
         VCF with variants to annotate. By default "variants.vcf"
     output : str
@@ -317,9 +317,7 @@ def run_vep(
     None if return_annos=False else the written annotations loaded into a Pandas Data Frame
     """
     logger.info(f"using config {config_file}")
-    config_file = resolve_config_path(config_file)
-    with open(config_file) as f:
-        config = yaml.safe_load(f)
+    config = load_config(config_file, config_dict)
 
     vep_input_format = "vcf"
 

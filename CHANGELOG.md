@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- Config arguments (`config_path` / `config_file`) across cellink accept the name of a
+  config shipped with cellink, e.g. `tl.external.configure_ldsc_runner("ldsc_docker")`,
+  `tl.run_vep(config_file="vep_offline")` or
+  `resources.get_1000genomes_plink_files(config_path="1000genomes_grch38")`; a path to your
+  own YAML works as before. A bare name refers to a shipped config before a file of that
+  name in the working directory
+- `config_path` on `tl.external.configure_livi_runner`, which the shipped `livi.yaml`
+  already documented but which did not exist; arguments left unset are taken from the config
 - Fixed `SCLINKER_ENHANCER_LINKS_GENOME_BUILD`: the Broad sc-linker Roadmap/ABC
   enhancer-gene links are GRCh37, not GRCh38. Declaring GRCh38 refused correct
   GRCh37 setups and, worse, let a GRCh38 panel pass the build check while
@@ -49,12 +57,38 @@ and this project adheres to [Semantic Versioning][].
   data (including loading genotypes via `read_sgkit_zarr`/`stream_pgen_to_zarr`), how donor
   syncing works, selecting subsets, aggregating, and saving/loading. No analysis, just the
   data structure itself
+- New scEPS tutorial: end-to-end walkthrough of the four [scEPS](https://github.com/Genentech/sceps)
+  command-line steps (per-neighborhood statistics, approximately independent neighborhood
+  blocks, cell-type aggregation, correlation with gene expression) on OneK1K, for rheumatoid
+  arthritis. Follows the scEPS paper's design for a healthy cohort, where no case/control
+  status exists to decompose: the phenotype is an RA polygenic risk score computed from the
+  donors' own `dd.G` dosages, with age, sex and local cell proportion as covariates. Also
+  covers gene-level statistics via `tl.external.run_magma_pipeline` and how to parallelize a
+  real run
+- `resources.get_pgs_catalog_score_file` is now exported from `cellink.resources` and listed
+  in the API reference; it existed but could only be reached through the private module
+- `resources.get_pgs_catalog_score_file(genome_build=...)` downloads the PGS Catalog's
+  harmonized scoring file for that build (previously only the author-submitted file, in
+  whatever build the authors used); it also takes `data_home`, and reuses an existing
+  download unless `refresh=True`
+- `data_home` on `tl.external.run_magma_pipeline` and `prepare_magma_inputs`, so the MAGMA
+  reference files can live somewhere other than cellink's default data directory
 - `tl.external.build_known_cis_eqtls_from_tensorqtl`: build a known-cis-eQTL annotation
   (variant x gene, binary) from a completed TensorQTL nominal cis-scan, for use as a
   fine-mapping prior
 
 ### Fixed
 
+- Default configs only worked from particular working directories: the 1000 Genomes
+  functions (`resources.get_1000genomes*`) defaulted to `./cellink/resources/config/...`,
+  FAVOR and VEP to `../configs/...`, and MAGMA to `configs/magma.yaml`, so tutorials had
+  to pass hand-built paths. Every default is now a shipped config resolved inside the
+  installed package; the repo-level `configs/` directory moved into the package (`favor`
+  and `magma` to `resources/config/`, `vep*` to `tl/external/config/`), and the tutorials
+  no longer pass config paths
+- `LDSCRunner` and `SAIGEQTLRunner` silently ignored a `config_path` that did not exist
+  and ran with built-in defaults; they now raise, and read their defaults from the shipped
+  `ldsc.yaml` / `saigeqtl.yaml` instead of a hard-coded copy of them
 - Both eQTL Catalogue accessors were non-functional: `resources.get_eqtl_catalog_datasets`
   and `resources.get_eqtl_catalog_dataset_associations` targeted the retired REST API at
   `https://www.ebi.ac.uk/eqtl/api/v3`, which returns HTTP 410 for every endpoint and
@@ -107,6 +141,17 @@ and this project adheres to [Semantic Versioning][].
   argument 'line_terminator'`) with `pandas-plink` 2.2.9 on a modern pandas, which
   renamed/removed that `to_csv` kwarg; bumped the minimum `pandas-plink` version to
   2.3.0, which uses the current `lineterminator` kwarg internally
+- `tl.external`'s MAGMA Entrez-to-Ensembl conversion (`gene_id_type="ensembl"`) assigned
+  genes to Ensembl IDs on alternative haplotypes and patches, which never match expression
+  data (e.g. C6orf10's MAGMA statistic landed only on two MHC-haplotype IDs), and gave one
+  Entrez gene several Ensembl IDs through noisy cross-references (ACTB's statistic also
+  under ACTG1's ID). The mapping is now restricted to the primary assembly, ties are broken
+  by gene symbol, every Ensembl ID is unique, and genes such as HLA-DRB1 whose Ensembl ID
+  carries several Entrez IDs are no longer dropped. Converted files are cached under a new
+  name, so files written by the old mapping are not reused
+- `tl.external.run_magma_pipeline`, `prepare_magma_inputs` and `download_magma_references`
+  defaulted to `configs/magma.yaml`, a path that only exists in a source checkout; the
+  config now ships inside the package and is the default
 
 ### Known limitations
 
