@@ -10,7 +10,7 @@ import pandas as pd
 import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_dispatched
-from anndata.io import read_elem
+from anndata.io import read_elem, sparse_dataset
 from tqdm.auto import tqdm
 
 from cellink._core.data_fields import VAnn
@@ -29,34 +29,63 @@ def _is_matrix_elem(elem_name: str) -> bool:
     return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")
 
 
+def _read_dataframe_columns(elem, columns) -> pd.DataFrame:
+    """Read only the requested columns (plus the index) of an AnnData-encoded dataframe group."""
+    index_key = elem.attrs["_index"]
+    index = read_elem(elem[index_key])
+    missing = [c for c in columns if c not in elem]
+    if missing:
+        raise KeyError(f"var_columns not in store: {missing}")
+    df = pd.DataFrame({c: read_elem(elem[c]) for c in columns}, index=pd.Index(index))
+    if index_key != "_index":
+        df.index.name = index_key
+    return df
 
 
-def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Literal["dask", "zarr"] = "dask"):
+def lazy_anndata_zarr_callback(
+    func,
+    elem_name: str,
+    elem,
+    iospec,
+    backend: Literal["dask", "zarr"] = "dask",
+    var_columns: tuple[str, ...] | None = None,
+):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
     nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
-    while keeping a dense ``X``/``layers`` entry lazily backed instead of
-    materializing it.
+    while keeping ``X``/``layers`` entries lazily backed instead of
+    materializing them.
 
-    ``backend="dask"`` (default, unchanged behavior) wraps the dense array in
-    a Dask array. ``backend="zarr"`` instead returns the raw Zarr array
-    directly.
+    Dense arrays: ``backend="dask"`` (default) wraps them in a Dask array;
+    ``backend="zarr"`` returns the raw Zarr array directly.
+
+    Sparse (CSR/CSC) matrices, the usual encoding of single-cell counts, are
+    returned as anndata's backed sparse datasets (:func:`anndata.io.sparse_dataset`)
+    for both backends. Nothing is read until the matrix is indexed, and
+    indexing reads only the requested rows of a CSR matrix (columns of a CSC
+    matrix) and returns an ordinary in-memory scipy sparse matrix, so code that
+    calls ``.toarray()`` on a selection keeps working unchanged.
+
+    ``var_columns`` (optional) reads only these ``var`` columns plus the index,
+    e.g. ``("chrom", "pos", "a0", "a1")`` to skip a genome-wide INFO column.
     """
     if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
         return ad.AnnData(
             **{
                 k: read_dispatched(
-                    v, lambda f, n, e, iospec: lazy_anndata_zarr_callback(f, n, e, iospec, backend=backend)
+                    v,
+                    lambda f, n, e, iospec: lazy_anndata_zarr_callback(
+                        f, n, e, iospec, backend=backend, var_columns=var_columns
+                    ),
                 )
                 for k, v in dict(elem).items()
                 if not k.startswith("raw.")
             }
         )
-    elif _is_matrix_elem(elem_name) and iospec.encoding_type in (
-        "dataframe",
-        "csr_matrix",
-        "csc_matrix",
-        "awkward-array",
-    ):
+    elif var_columns is not None and elem_name.endswith("/var") and iospec.encoding_type == "dataframe":
+        return _read_dataframe_columns(elem, var_columns)
+    elif _is_matrix_elem(elem_name) and iospec.encoding_type in ("csr_matrix", "csc_matrix"):
+        return sparse_dataset(elem)
+    elif _is_matrix_elem(elem_name) and iospec.encoding_type in ("dataframe", "awkward-array"):
         return read_elem(elem)
     elif _is_matrix_elem(elem_name) and iospec.encoding_type == "array":
         return elem if backend == "zarr" else da.from_zarr(elem)
@@ -64,7 +93,11 @@ def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Lite
         return func(elem)
 
 
-def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask") -> ad.AnnData:
+def read_pgen_zarr(
+    store: str | Path,
+    backend: Literal["dask", "zarr"] = "dask",
+    var_columns: list[str] | tuple[str, ...] | None = None,
+) -> ad.AnnData:
     """
     Lazily read an AnnData Zarr v3 store written by `stream_pgen_to_zarr`.
 
@@ -90,6 +123,11 @@ def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask")
         How to back a dense `X`/`layers` entry. ``"dask"`` (default) wraps it in a Dask array, useful if
         you need Dask's own lazy-graph chaining on X. ``"zarr"`` returns the
         raw Zarr array directly instead.
+    var_columns : list of str, optional
+        Read only these variant-annotation columns (plus the index), e.g.
+        ``["chrom", "pos", "a0", "a1"]``. ``None`` (default) reads all of ``var``,
+        which for a genome-wide store with a per-variant INFO column can take
+        several GB and dominate the cost of opening the store.
 
     Returns
     -------
@@ -107,7 +145,8 @@ def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask")
       only when `.compute()` (Dask backend) or ordinary indexing (Zarr
       backend) is requested.
     - For sparse X written via `stream_pgen_to_zarr(..., sparse=True)`,
-      the matrix is loaded as a SciPy sparse matrix regardless of `backend`.
+      the matrix is returned as a backed sparse dataset regardless of
+      `backend`: indexing reads only the selected rows/columns.
     - This function relies on AnnData's experimental dispatched I/O API.
 
     Examples
@@ -123,8 +162,12 @@ def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask")
     >>> X = adata.X.compute()
     """
     f = zarr.open(str(store), mode="r")
+    cols = tuple(var_columns) if var_columns is not None else None
     return read_dispatched(
-        f, callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(func, name, elem, iospec, backend=backend)
+        f,
+        callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(
+            func, name, elem, iospec, backend=backend, var_columns=cols
+        ),
     )
 
 
