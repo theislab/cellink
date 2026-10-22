@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from cellink import DonorData
@@ -146,3 +147,21 @@ def test_stream_pgen_to_zarr_sparse(tmp_path):
 
     adata = stream_pgen_to_zarr(str(pgen_file), str(out_path), sparse=True, return_adata=True)
     assert adata.shape == (100, 1000)
+
+
+def test_read_pgen_zarr_keeps_sparse_on_disk_and_reads_var_columns(tmp_path):
+    pytest.importorskip("pgenlib")
+
+    from anndata.abc import CSCDataset, CSRDataset
+
+    from cellink.io import read_pgen_zarr, stream_pgen_to_zarr
+
+    out_path = tmp_path / "pgen_sparse.zarr"
+    stream_pgen_to_zarr(str(DATA / "simulated_genotype_calls.pgen"), str(out_path), sparse=True)
+    adata = read_pgen_zarr(str(out_path))
+    assert isinstance(adata.X, CSRDataset | CSCDataset)
+    assert adata.X[:5].shape == (5, adata.n_vars)
+
+    lean = read_pgen_zarr(str(out_path), var_columns=["chrom", "pos"])
+    assert list(lean.var.columns) == ["chrom", "pos"]
+    pd.testing.assert_frame_equal(lean.var, adata.var[["chrom", "pos"]])
