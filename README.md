@@ -8,90 +8,96 @@
 
 <!-- logo-image-end -->
 
-[![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)
-[![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache2.0)
+[![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml)
+[![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache-2.0)
 [![Read the Docs](https://img.shields.io/readthedocs/cellink/latest.svg?label=Read%20the%20Docs)](https://cellink-docs.readthedocs.io/)
 [![Test](https://github.com/theislab/cellink/actions/workflows/test.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/test.yaml)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
-# cellink: a framework for joint analysis of genotype and single-cell data
+# cellink bridges donor genotypes and single-cell profiles for end-to-end single-cell genetics
 
-Single-cell profiles are indexed by cell; genotype data is indexed by donor. Keeping the two
-correctly paired through subsetting and filtering is easy to get wrong by hand, and each
-downstream genetics tool (PLINK, MAGMA, LDSC, TensorQTL, SAIGE-QTL, and more) expects its own
-file formats and conventions. **cellink** provides a single `DonorData` structure that keeps
-donor- and cell-level data synchronized, and the glue to drive that surrounding tool
-ecosystem directly from it.
-
-## Key Features
-
-### 1. Unified `DonorData` structure
-
-**cellink** introduces the `DonorData` class, unifying individual-level and single-cell data. It extends standard formats (AnnData, MuData) with GenoAnnData for efficient genotype (via dask) and phenotype (via ehrapy) handling.
+cellink brings single-cell data together with the genomes of the donors the cells come from. It reads genotypes from
+VCF, PLINK, BGEN and PGEN files, keeps them paired with the cells of the same donors through every selection, and
+runs genetic analyses on both. Established tools such as PLINK, tensorQTL, SAIGE-QTL, LDSC and MAGMA run directly on
+your data, and cellink takes care of the file formats and conventions each of them expects.
 
 <!-- schematic-image-start -->
 
-![Data structure schematic](docs/_static/img/schematic_figure.png)
+![cellink overview](docs/_static/img/schematic_figure.png)
 
 <!-- schematic-image-end -->
 
-- **Donor-level Data (G):** `GenoAnnData`, Stores individual level data such as genotypes.
-- **Cell-level Data (C):** `AnnData`/ `MuData`, Stores single-cell omics data such as gene expression.
+## Data
 
-Crucially, **`DonorData`** ensures that genetic data and single-cell modalities remain **synchronized**, preserving their donor-cell pairing even through complex filtering operations (e.g., selecting specific cell types or patient subsets). See the [`DonorData` on-disk format](https://cellink-docs.readthedocs.io/en/latest/donordata_format_spec.html) for how this is represented on disk and how to check a `DonorData` object against it.
+cellink works on [`DonorData`](https://donordata.readthedocs.io) objects, which link the cells of a cohort to their
+donors. In cellink the donor level `dd.D` holds the genotypes, with one row per donor and one column per variant, and
+`dd.C` holds the cells as an AnnData or MuData. Selecting donors, variants or cells keeps both levels aligned, so
+genotypes and expression always describe the same people.
 
-### 2. Comprehensive toolkit
+```python
+import cellink as cl
 
-**cellink** offers a streamlined suite of tools for the entire analysis workflow, organized by task:
+genotypes = cl.io.read_plink("cohort")
+dd = cl.DonorData(D=genotypes, C=adata, donor_id="individual")
+dd = dd[..., dd.C.obs["cell_type"] == "CD4 T", :]
+dd.write_dd("cohort.dd.zarr")
+```
+
+`DonorData` is imported from the [DonorData](https://github.com/theislab/donordata) package and is installed with cellink. The
+[DonorData documentation](https://donordata.readthedocs.io) explains how these objects are built and stored, and
+how to add a sample level or the
+[electronic health records](https://donordata.readthedocs.io/en/latest/tutorials/ehr_cohort.html) of the donors.
+
+## Analyses
 
 **Association testing**
-- [eQTL analysis with jaxQTL or tensorQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html)
-- [eQTL analysis with SAIGE-QTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)
-- [Naive pseudobulk eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html)
-- [Rare variant association studies](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html)
-- [Clumping & pruning](https://cellink-docs.readthedocs.io/en/latest/tutorials/clumping_pruning.html)
-- [Colocalization analysis](https://cellink-docs.readthedocs.io/en/latest/tutorials/colocalization.html)
-- [Resolving association-test inputs directly from `DonorData` via formula strings](https://cellink-docs.readthedocs.io/en/latest/tutorials/formula_resolver.html)
+- [eQTL mapping on pseudobulk with jaxQTL or tensorQTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl_jaxqtl_tensorqtl.html)
+- [eQTL mapping on single cells with SAIGE-QTL](https://cellink-docs.readthedocs.io/en/latest/tutorials/single_cell_eqtl_saigeqtl.html)
+- [A simple pseudobulk eQTL mapping](https://cellink-docs.readthedocs.io/en/latest/tutorials/pseudobulk_eqtl.html)
+- [Rare variant association tests](https://cellink-docs.readthedocs.io/en/latest/tutorials/burden_testing.html)
+- [Clumping and pruning](https://cellink-docs.readthedocs.io/en/latest/tutorials/clumping_pruning.html)
+- [Colocalization](https://cellink-docs.readthedocs.io/en/latest/tutorials/colocalization.html)
+- [Writing association tests as formula strings](https://cellink-docs.readthedocs.io/en/latest/tutorials/formula_resolver.html)
 
-**Heritability, gene programs & GWAS integration**
-- [Cell-type specific LD score regression](https://cellink-docs.readthedocs.io/en/latest/tutorials/cell_level_ldsc_analysis.html)
+**Heritability, gene programs and GWAS integration**
+- [LD score regression for cell types](https://cellink-docs.readthedocs.io/en/latest/tutorials/cell_level_ldsc_analysis.html)
 - [Gene program scoring with sc-linker](https://cellink-docs.readthedocs.io/en/latest/tutorials/sclinker.html)
-- [Gene-set enrichment with MAGMA](https://cellink-docs.readthedocs.io/en/latest/tutorials/magma_analysis_tutorial.html)
-- [Integrating GWAS with single-cell disease relevance scores (scDRS/seismic)](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_seismic.html)
-- [Finding disease-associated cell neighborhoods with scEPS](http://cellink-docs.readthedocs.io/en/latest/tutorials/sceps.html)
-- [Integrating GWAS with spatial data (gsMap)](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html)
+- [Gene set enrichment with MAGMA](https://cellink-docs.readthedocs.io/en/latest/tutorials/magma_analysis_tutorial.html)
+- [Disease relevance of single cells from GWAS with scDRS and seismic](https://cellink-docs.readthedocs.io/en/latest/tutorials/scdrs_seismic.html)
+- [Cell neighborhoods associated with disease with scEPS](https://cellink-docs.readthedocs.io/en/latest/tutorials/sceps.html)
+- [GWAS on spatial data with gsMap](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html)
 
-**Deep learning & representation learning**
-- [LIVI: donor-level representation learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html)
-- [Scooby: single-cell-resolution sequence-to-coverage modeling & variant scoring](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html)
-- [Built-in dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html), including Multiple Instance Learning (MIL) over per-donor cell bags
+**Deep learning**
+- [Learning donor representations with LIVI](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html)
+- [Predicting single cell coverage from sequence and scoring variants with scooby](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html)
+- [Dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html), including multiple instance learning over the cells of each donor
 
-**Other**
-- [Variant preprocessing & annotation](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html): quality control, annotation (VCF export/import), and selection of genetic variants.
-- [Integrating `DonorData` with EHR data](https://cellink-docs.readthedocs.io/en/latest/tutorials/ehrdataset.html)
+**Variants**
+- [Quality control, annotation and selection of genetic variants](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html)
 
-## Getting Started
+## Getting started
 
-Install the latest development version directly from GitHub (cellink is not yet published
-on PyPI; a future release will be published as `cellink-tools`, see the
-[installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) for
-optional extras and why):
+cellink is not on PyPI yet and will be published there as `cellink-tools`. Install the development version from
+GitHub, which also installs DonorData:
 
 ```bash
 pip install git+https://github.com/theislab/cellink.git@main
 ```
 
-New to **cellink**? Start with **[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html)**: no analysis, just how to build a `DonorData` from your own genotype/expression data, slice it, and save it. From there, the [Documentation](#documentation) section below is the map to everything else.
+The [installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) lists the optional extras
+for the external tools. If you are new to cellink, start with
+[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which builds an
+object from genotype and expression data, subsets it and saves it without running any analysis.
 
 ## Documentation
 
 | | |
 |---|---|
-| [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and every optional extra (`pip install cellink[extra-name]`) |
-| [Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html) | Step-by-step guides for every analysis workflow above |
+| [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and the optional extras (`pip install cellink[extra-name]`) |
+| [Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html) | Step by step guides for the analyses above |
 | [API reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html) | Every public function and class, organized by module |
-| [`DonorData` on-disk format](https://cellink-docs.readthedocs.io/en/latest/donordata_format_spec.html) | The versioned HDF5/Zarr schema, and how to check an object against it |
-| [Contributing guide](https://cellink-docs.readthedocs.io/en/latest/contributing.html) | Dev setup, tests, and the PR workflow |
+| [DonorData documentation](https://donordata.readthedocs.io) | The `DonorData` object, its sample level and its file format |
+| [Contributing guide](https://cellink-docs.readthedocs.io/en/latest/contributing.html) | Development setup, tests and the pull request workflow |
 | [Changelog](https://cellink-docs.readthedocs.io/en/latest/changelog.html) | What changed in each release |
 
 ## Contact
