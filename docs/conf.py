@@ -121,6 +121,9 @@ html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 
 html_title = project_name
+html_logo = "_static/img/cellink-logo.svg"
+html_favicon = "_static/img/cellink-logo-mark.svg"
+ogp_social_cards = {"image": "_static/img/cellink-logo.png"}
 
 html_theme_options = {
     "repository_url": repository_url,

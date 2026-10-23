@@ -4,6 +4,8 @@
   <img src="docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
 </p>
 
+<br>
+
 <!-- logo-image-end -->
 
 [![Build](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/build.yaml/badge.svg)
