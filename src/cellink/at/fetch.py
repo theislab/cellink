@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
 
 def _tag_axis(obj, axis, source=None):
     obj.attrs["axis"] = axis  # 'obs' or 'var'
-    if source is not None:  # e.g. 'C' or 'G' (or 'A','G:rna')
+    if source is not None:  # e.g. 'C' or 'D' (or 'A','D:rna')
         obj.attrs["source"] = source
     return obj
 
@@ -39,17 +39,18 @@ def _as_dataframe(A, arr, axis, base):
     return _tag_axis(pd.DataFrame(arr, index=idx, columns=cols), axis)
 
 
-def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
+def _iter_anndatas(dd, adatas=("D", "C"), modalities=None, delim=":"):
     """Iterate over AnnData objects in a DonorData-like object.
 
     Yields ``(name, AnnData)`` across:
       - plain AnnData -> ``('A', dd)``
       - plain MuData -> ``(mod, dd.mod[mod])`` in requested order
-      - DonorData-like with ``.G``/``.C``; if ``.G``/``.C`` is MuData, flatten
-        as ``'G:mod'`` / ``'C:mod'``.
+      - DonorData-like with ``.D``/``.C``; if ``.D``/``.C`` is MuData, flatten
+        as ``'D:mod'`` / ``'C:mod'``; a donor table ``D`` is searched together
+        with the donor-aligned ``dd.obsm``.
 
     ``modalities`` can be a sequence or a dict mapping outer name
-    (``'G'``, ``'C'``, ``'A'``) -> sequence.
+    (``'D'``, ``'C'``, ``'A'``) -> sequence.
     """
 
     def _mods(mud, outer):
@@ -74,12 +75,13 @@ def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
                 yield (m, dd.mod[m])
         return
 
-    # DonorData-like
     for outer in adatas:
         A = getattr(dd, outer, None)
         if A is None:
             continue
-        if isinstance(A, ad.AnnData):
+        if isinstance(A, pd.DataFrame):
+            yield (outer, ad.AnnData(obs=A, obsm=dict(dd.obsm)))
+        elif isinstance(A, ad.AnnData):
             yield (outer, A)
         elif isinstance(A, MuData):
             for m in _mods(A, outer):
@@ -87,7 +89,7 @@ def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
                     yield (f"{outer}{delim}{m}", A.mod[m])
 
 
-def fetch_slot(dd, key, *, axis=None, adatas=("G", "C"), layer=None, raise_on_multiple=True, modalities=None):
+def fetch_slot(dd, key, *, axis=None, adatas=("D", "C"), layer=None, raise_on_multiple=True, modalities=None):
     """Fetch a named slot from a DonorData-like, AnnData, MuData, or DataFrame object.
 
     If ``axis`` is None, both ``obs`` and ``var`` are searched; a key found in

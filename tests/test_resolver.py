@@ -16,18 +16,18 @@ from cellink.at.structlmm import StructLMM
 
 @pytest.fixture
 def dd():
-    donordata = DonorData(G=sim_gdata(), C=sim_adata())
+    donordata = DonorData(D=sim_gdata(), C=sim_adata())
     rng = np.random.default_rng(0)
-    donordata.G.obs["age"] = rng.integers(20, 60, donordata.G.n_obs).astype(float)
-    donordata.G.obs["phenotype"] = rng.standard_normal(donordata.G.n_obs)
+    donordata.D.obs["age"] = rng.integers(20, 60, donordata.D.n_obs).astype(float)
+    donordata.D.obs["phenotype"] = rng.standard_normal(donordata.D.n_obs)
     return donordata
 
 
 def test_get_model_matrix_donor_only_formula(dd):
     """A formula referencing only donor-level variables must not crash on an empty cell-level dict."""
     y = get_model_matrix(dd, "phenotype - 1", target_level="donor")
-    assert y.shape == (dd.G.n_obs, 1)
-    np.testing.assert_allclose(y.to_numpy().ravel(), dd.G.obs["phenotype"].to_numpy())
+    assert y.shape == (dd.D.n_obs, 1)
+    np.testing.assert_allclose(y.to_numpy().ravel(), dd.D.obs["phenotype"].to_numpy())
 
 
 def test_get_model_matrix_cell_only_formula(dd):
@@ -39,7 +39,7 @@ def test_get_model_matrix_cell_only_formula(dd):
 def test_get_model_matrix_donor_aggregation(dd):
     """dmax(<cell-level gene>) aggregates a cell-level variable up to one value per donor."""
     X = get_model_matrix(dd, "age + dmax(G0)", target_level="donor")
-    assert X.shape == (dd.G.n_obs, 3)  # Intercept, age, dmax(G0)
+    assert X.shape == (dd.D.n_obs, 3)  # Intercept, age, dmax(G0)
     assert "dmax(G0)" in X.columns
     expected = dd.C[:, "G0"].X.ravel()
     expected = (
@@ -54,7 +54,7 @@ def test_get_model_matrix_cell_aggregation_crepeat(dd):
     """crepeat(<donor-level var>) broadcasts a donor-level variable down to every cell."""
     X = get_model_matrix(dd, "crepeat(age)", target_level="cell")
     assert X.shape == (dd.C.n_obs, 2)  # Intercept, crepeat(age)
-    expected = dd.C.obs[dd.donor_id].map(dd.G.obs["age"]).to_numpy()
+    expected = dd.C.obs[dd.donor_id].map(dd.D.obs["age"]).to_numpy()
     np.testing.assert_allclose(X["crepeat(age)"].to_numpy(), expected)
 
 
@@ -104,7 +104,7 @@ def test_gwas_data_equals_raw_numpy():
 def test_gwas_donordata_formula_runs(dd):
     """GWAS against a DonorData with formula strings runs end to end and gives finite p-values."""
     gwas = GWAS(Y="phenotype", F="age", data=dd, target_level="donor")
-    g = np.random.default_rng(2).standard_normal((dd.G.n_obs, 4))
+    g = np.random.default_rng(2).standard_normal((dd.D.n_obs, 4))
     gwas.test_association(g)
     pv = gwas.getPv()
     assert np.all(np.isfinite(pv))
@@ -144,9 +144,9 @@ def test_skat_data_resolver_multiple_variants():
     pv_df = skat.run_test(data=df, Y="pheno", X=snp_formula)
     np.testing.assert_allclose(pv_df, pv_multi)
 
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    dd.G.obs["pheno"] = rng.standard_normal(dd.G.n_obs)
-    dd.G.obs[snp_cols] = rng.integers(0, 3, size=(dd.G.n_obs, 5)).astype(float)
+    dd = DonorData(D=sim_gdata(), C=sim_adata())
+    dd.D.obs["pheno"] = rng.standard_normal(dd.D.n_obs)
+    dd.D.obs[snp_cols] = rng.integers(0, 3, size=(dd.D.n_obs, 5)).astype(float)
     pv_dd = skat.run_test(data=dd, Y="pheno", X=snp_formula)
     assert np.isfinite(pv_dd)
 
@@ -176,9 +176,9 @@ def test_skat_donordata_defaults_to_donor_level():
 
     rng = np.random.default_rng(7)
     snp_cols = [f"snp{i}" for i in range(5)]
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    dd.G.obs["pheno"] = rng.standard_normal(dd.G.n_obs)
-    dd.G.obs[snp_cols] = rng.integers(0, 3, size=(dd.G.n_obs, 5)).astype(float)
+    dd = DonorData(D=sim_gdata(), C=sim_adata())
+    dd.D.obs["pheno"] = rng.standard_normal(dd.D.n_obs)
+    dd.D.obs[snp_cols] = rng.integers(0, 3, size=(dd.D.n_obs, 5)).astype(float)
 
     skat = Skat(min_threshold=1)
     pv = skat.run_test(data=dd, Y="pheno", X=" + ".join(snp_cols))
@@ -215,7 +215,7 @@ def test_get_model_matrix_family_operator_with_function_wrap():
 @pytest.mark.parametrize("agg_func", ["dmean", "dmax", "dmedian", "dfirst"])
 def test_get_model_matrix_donor_aggregation_functions(dd, agg_func):
     X = get_model_matrix(dd, f"{agg_func}(G0) - 1", target_level="donor")
-    assert X.shape == (dd.G.n_obs, 1)
+    assert X.shape == (dd.D.n_obs, 1)
     assert X.columns[0] == f"{agg_func}(G0)"
 
 

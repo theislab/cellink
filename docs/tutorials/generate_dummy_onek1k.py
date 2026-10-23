@@ -61,11 +61,11 @@ def _filter_genes_for_qtl_mapping(dd, qtl_window: int = 500_000):
 
     for chrom in valid_chroms:
         # Get SNPs on this chromosome
-        snp_mask = dd.G.var.chrom == chrom
+        snp_mask = dd.D.var.chrom == chrom
         if snp_mask.sum() == 0:
             continue
 
-        snp_positions = dd.G.var.loc[snp_mask, "pos"].values
+        snp_positions = dd.D.var.loc[snp_mask, "pos"].values
         min_snp_pos = snp_positions.min() - qtl_window
         max_snp_pos = snp_positions.max() + qtl_window
 
@@ -142,7 +142,7 @@ def generate_dummy_dataset(
     print(f"Added annotations for {ensembl_gene_id_start_end_chr.shape[0]} genes")
 
     print(f"Sampling {n_donors} random donors...")
-    all_donors = dd.G.obs.index.values
+    all_donors = dd.D.obs.index.values
     if len(all_donors) > n_donors:
         selected_donors = np.random.choice(all_donors, n_donors, replace=False)
         dd = dd[selected_donors, :, :, :].copy()
@@ -151,12 +151,12 @@ def generate_dummy_dataset(
     print(f"Selecting SNPs (full chr22 + {snp_sample_frac*100}% from chr 1-21)...")
     all_selected_idx = []
 
-    chr22_idx = np.where(dd.G.var.chrom == "22")[0]
+    chr22_idx = np.where(dd.D.var.chrom == "22")[0]
     all_selected_idx.extend(chr22_idx)
     print(f"Chromosome 22: {len(chr22_idx)} SNPs (100%)")
 
     for chrom in range(1, 22):
-        chrom_idx = np.where(dd.G.var.chrom == str(chrom))[0]
+        chrom_idx = np.where(dd.D.var.chrom == str(chrom))[0]
         n_snps = max(1, int(len(chrom_idx) * snp_sample_frac))
         selected_idx = np.random.choice(chrom_idx, n_snps, replace=False)
         all_selected_idx.extend(selected_idx)
@@ -173,7 +173,7 @@ def generate_dummy_dataset(
     print(f"Saving dummy dataset to {output_path}...")
 
     dd = dd.copy()
-    dd.G = dd.G.copy()
+    dd.D = dd.D.copy()
     dd.C = dd.C.copy()
 
     if str(output_path).endswith(".dd.h5"):

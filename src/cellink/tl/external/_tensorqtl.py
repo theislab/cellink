@@ -516,7 +516,7 @@ def run_tensorqtl(
     Parameters
     ----------
     dd : DonorData
-        DonorData object containing single-cell gene expression (`dd.C`) and donor-level genotype data (`dd.G`).
+        DonorData object containing single-cell gene expression (`dd.C`) and donor-level genotype data (`dd.D`).
     mode : {'cis_nominal', 'cis_independent',
             'cis', 'trans', 'cis_susie', 'trans_susie'}, optional
         Type of QTL analysis to perform.
@@ -580,19 +580,19 @@ def run_tensorqtl(
         If True, warnings are issued for monomorphic variants.
     n_pcs : int, default=50
         Number of principal components to compute from single-cell expression data, donor-aggregated
-        (mean) into dd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
+        (mean) into dd.D.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
         additional_covariates; otherwise unused.
     encode_sex : bool, default=True
         If True, includes donor sex as a covariate.
     encode_age : bool, default=True
         If True, includes donor age (z-normalized if needed) as a covariate.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model.
+        Additional covariates from `dd.D.obs` or `dd.D.obsm` to include in the model.
     dtype : str, default="float32"
         Data type to cast covariates and matrices for QTL model input.
     use_python_api : bool, default=False
         If True, runs TensorQTL directly via its Python API without exporting intermediate files or
-        invoking a subprocess. Genotypes are loaded from `dd.G` in memory. If False (default), the
+        invoking a subprocess. Genotypes are loaded from `dd.D` in memory. If False (default), the
         CLI-based workflow is used, which exports PLINK, phenotype, and covariate files and calls
         TensorQTL via subprocess.
     run : bool, default=True
@@ -659,12 +659,12 @@ def run_tensorqtl(
         if "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA.")
             sc.pp.pca(dd.C, n_comps=n_pcs)
-        if "X_pca" not in dd.G.obsm:
+        if "X_pca" not in dd.D.obsm:
             dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     dd.aggregate(key_added="PB", sync_var=True, verbose=True)
 
-    phenotype_df = dd.G.obsm["PB"].T
+    phenotype_df = dd.D.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
     phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
     phenotype_pos_df["Geneid"] = phenotype_pos_df.index
@@ -673,11 +673,11 @@ def run_tensorqtl(
     covariate_list.append(pd.DataFrame(np.ones((dd.shape[0], 1)), columns=["intercept"], index=phenotype_df.columns))
 
     if encode_sex:
-        sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+        sex_codes = dd.D.obs["sex"].astype("category").cat.codes
         covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
     if encode_age:
-        age_values = dd.G.obs[["age"]].values.astype(dtype)
+        age_values = dd.D.obs[["age"]].values.astype(dtype)
         mean = age_values.mean()
         std = age_values.std()
         tolerance = 1e-2
@@ -689,13 +689,13 @@ def run_tensorqtl(
 
     if additional_covariates:
         for cov in additional_covariates:
-            if cov in dd.G.obs.columns:
+            if cov in dd.D.obs.columns:
                 covariate_df = pd.DataFrame(
-                    dd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
+                    dd.D.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
                 )
                 covariate_list.append(covariate_df)
-            elif cov in dd.G.obsm:
-                cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+            elif cov in dd.D.obsm:
+                cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
                 if cov_matrix.ndim == 1:
                     covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                 else:
@@ -707,7 +707,7 @@ def run_tensorqtl(
                         )
                     )
             else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
 
     covariates_df = pd.concat(covariate_list, axis=1)
 
@@ -715,8 +715,8 @@ def run_tensorqtl(
         if importlib.util.find_spec("tensorqtl") is None:
             raise ImportError("tensorqtl is required for `run_tensorqtl`. Please install it.")
 
-        genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
-        variant_df = dd.G.var[["chrom", "pos"]].copy()
+        genotype_df = pd.DataFrame(dd.D.X.T, index=dd.D.var.index, columns=dd.D.obs.index)
+        variant_df = dd.D.var[["chrom", "pos"]].copy()
         variant_df["index"] = range(len(variant_df))
 
         return _run_tensorqtl_python_api(
@@ -799,7 +799,7 @@ def run_tensorqtl(
     pheno = f"{prefix}_phenotype.bed.gz"
 
     if not os.path.isfile(f"{prefix}.pgen") or overwrite_plink_export:
-        to_plink(dd.G, prefix, **plink_export_kwargs)
+        to_plink(dd.D, prefix, **plink_export_kwargs)
         cmd_plink_conversion = f"plink2 --bfile {geno} --make-pgen --out {geno}"
         subprocess.run(cmd_plink_conversion, check=True, shell=True)
 
@@ -869,7 +869,7 @@ def run_dense_trans_scan(
     """
     Dense, unfiltered genome-wide trans-QTL scan of one fixed variant against every gene.
 
-    A thin, specific mode of ``run_tensorqtl``: subsets ``dd.G`` to exactly
+    A thin, specific mode of ``run_tensorqtl``: subsets ``dd.D`` to exactly
     one variant and calls ``run_tensorqtl(..., mode="trans", pval_threshold=1.0)``,
     which bypasses TensorQTL's own sparse write-time filter (normally, trans
     mode only keeps pairs below some p-value threshold). The result is the
@@ -881,16 +881,16 @@ def run_dense_trans_scan(
     ----------
     dd : DonorData
         DonorData object containing single-cell gene expression (`dd.C`) and
-        donor-level genotype data (`dd.G`). Both are used as-is; any
+        donor-level genotype data (`dd.D`). Both are used as-is; any
         celltype/expression-level filtering is the caller's responsibility.
     variant_id : str
         The single variant to test against every gene, matched exactly
-        against ``dd.G.var_names``.
+        against ``dd.D.var_names``.
     gene_of_interest : str, optional
         If given, logs that gene's rank and p-value in the returned scan
         (or a warning if it's absent, e.g. excluded by ``window``).
     n_pcs : int, default=20
-        Number of leading genotype PCs kept from ``dd.G.obsm["gPCs"]`` (if
+        Number of leading genotype PCs kept from ``dd.D.obsm["gPCs"]`` (if
         present) when passed through as an additional covariate.
     window : int, default=1_000_000
         Genomic window (in base pairs) used to drop pairs where the variant
@@ -906,16 +906,16 @@ def run_dense_trans_scan(
     encode_sex : bool, optional
         If True, includes donor sex as a covariate (donors with missing sex
         are dropped first, since PLINK export hard-casts sex to int32). If
-        None (default), auto-detected from whether ``dd.G.obs["sex"])`` has
+        None (default), auto-detected from whether ``dd.D.obs["sex"])`` has
         any real signal.
     encode_age : bool, default=False
         If True, includes donor age as a covariate. Default False, matching
         this scan's typical use as a discovery/ranking tool rather than a
         fully covariate-adjusted association test.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in
+        Additional covariates from `dd.D.obs` or `dd.D.obsm` to include in
         the model. If None (default), ``"gPCs"`` is used automatically when
-        present in ``dd.G.obsm``.
+        present in ``dd.D.obsm``.
     prefix : str, optional
         File prefix for intermediate files. Only used when
         ``use_python_api=False``; unused (no files are written) otherwise.
@@ -936,36 +936,36 @@ def run_dense_trans_scan(
     Raises
     ------
     ValueError
-        If ``variant_id`` does not match exactly one entry in ``dd.G.var_names``.
+        If ``variant_id`` does not match exactly one entry in ``dd.D.var_names``.
     """
-    var_mask = np.asarray(dd.G.var_names == variant_id)
+    var_mask = np.asarray(dd.D.var_names == variant_id)
     n_hits = int(var_mask.sum())
     if n_hits != 1:
-        raise ValueError(f"expected exactly 1 match for variant_id={variant_id!r} in dd.G.var_names, found {n_hits}")
+        raise ValueError(f"expected exactly 1 match for variant_id={variant_id!r} in dd.D.var_names, found {n_hits}")
 
-    G_target = dd.G[:, var_mask].copy()
-    dd_scan = DonorData(G=G_target, C=dd.C, donor_id=dd.donor_id)
+    G_target = dd.D[:, var_mask].copy()
+    dd_scan = DonorData(D=G_target, C=dd.C, donor_id=dd.donor_id)
 
     if encode_sex is None:
-        encode_sex = "sex" in dd_scan.G.obs.columns and dd_scan.G.obs["sex"].notna().any()
-    if encode_sex and "sex" in dd_scan.G.obs.columns and dd_scan.G.obs["sex"].isna().any():
-        n_before = dd_scan.G.n_obs
+        encode_sex = "sex" in dd_scan.D.obs.columns and dd_scan.D.obs["sex"].notna().any()
+    if encode_sex and "sex" in dd_scan.D.obs.columns and dd_scan.D.obs["sex"].isna().any():
+        n_before = dd_scan.D.n_obs
         dd_scan = DonorData(
-            G=dd_scan.G[dd_scan.G.obs["sex"].notna()].copy(), C=dd_scan.C, donor_id=dd_scan.donor_id
+            D=dd_scan.D[dd_scan.D.obs["sex"].notna()].copy(), C=dd_scan.C, donor_id=dd_scan.donor_id
         )
         logger.info(
-            f"run_dense_trans_scan: dropped {n_before - dd_scan.G.n_obs} donor(s) with missing sex "
+            f"run_dense_trans_scan: dropped {n_before - dd_scan.D.n_obs} donor(s) with missing sex "
             "(needed for sex-covariate PLINK export)."
         )
 
-    if "gPCs" in dd_scan.G.obsm:
-        dd_scan.G.obsm["gPCs"] = dd_scan.G.obsm["gPCs"][:, :n_pcs]
+    if "gPCs" in dd_scan.D.obsm:
+        dd_scan.D.obsm["gPCs"] = dd_scan.D.obsm["gPCs"][:, :n_pcs]
     if additional_covariates is None:
-        additional_covariates = ["gPCs"] if "gPCs" in dd_scan.G.obsm else None
+        additional_covariates = ["gPCs"] if "gPCs" in dd_scan.D.obsm else None
 
     logger.info(
         f"run_dense_trans_scan: dense trans scan of {variant_id!r} against {dd_scan.C.n_vars} genes "
-        f"({dd_scan.G.n_obs} donors); mode='trans', pval_threshold=1.0."
+        f"({dd_scan.D.n_obs} donors); mode='trans', pval_threshold=1.0."
     )
     df = run_tensorqtl(
         dd_scan,

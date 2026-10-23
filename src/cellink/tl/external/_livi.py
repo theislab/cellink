@@ -174,7 +174,7 @@ def _resolve_adata(
 
     Accepts :class:`~anndata.AnnData` or :class:`~cellink.DonorData`.
     When DonorData is passed, ``dd.C`` is the cell AnnData, ``dd.donor_id``
-    is the individual column, and ``dd.G`` is returned as the third element
+    is the individual column, and ``dd.D`` is returned as the third element
     (donor-level AnnData carrying genotypes, kinship, genotype PCs, etc.).
     """
     from anndata import AnnData
@@ -186,7 +186,7 @@ def _resolve_adata(
             adata = adata_or_dd.C
             if individual_col is None:
                 individual_col = adata_or_dd.donor_id
-            return adata, individual_col, adata_or_dd.G
+            return adata, individual_col, adata_or_dd.D
     except ImportError:
         pass
 
@@ -199,7 +199,7 @@ def _resolve_adata(
 
 
 def _gdata_to_genotype_df(gdata) -> pd.DataFrame:
-    """Convert ``dd.G`` (donors × SNPs AnnData) to a dense DataFrame."""
+    """Convert ``dd.D`` (donors × SNPs AnnData) to a dense DataFrame."""
     from anndata.utils import asarray
 
     return pd.DataFrame(
@@ -732,13 +732,13 @@ def train_livi(
 
     adata, individual_col, gdata = _resolve_adata(adata_or_dd, individual_col)
 
-    # Auto-extract eqtl_genotypes from dd.G when training with cis-eQTL correction
+    # Auto-extract eqtl_genotypes from dd.D when training with cis-eQTL correction
     if eqtl_genotypes is None and gdata is not None and n_cis_snps > 0:
         eqtl_genotypes = _gdata_to_genotype_df(gdata)
         if n_cis_snps != gdata.n_vars:
             raise ValueError(
-                f"n_cis_snps={n_cis_snps} does not match dd.G.n_vars={gdata.n_vars}. "
-                "Either set n_cis_snps to match the number of SNPs in dd.G, "
+                f"n_cis_snps={n_cis_snps} does not match dd.D.n_vars={gdata.n_vars}. "
+                "Either set n_cis_snps to match the number of SNPs in dd.D, "
                 "or pass eqtl_genotypes explicitly."
             )
 
@@ -1040,9 +1040,9 @@ def run_livi_association_testing(
         ``"D_embedding"`` or ``"V_embedding"``.
     genotype_matrix : DonorData, str, or pd.DataFrame
         Genotype data.  When a :class:`~cellink.DonorData` object is passed,
-        ``dd.G.X`` is used as the donors × SNPs genotype matrix, and
+        ``dd.D.X`` is used as the donors × SNPs genotype matrix, and
         ``kinship`` / ``genotype_pcs`` are automatically extracted from
-        ``dd.G.uns["kinship"]`` and ``dd.G.obsm["gPCs"]`` respectively
+        ``dd.D.uns["kinship"]`` and ``dd.D.obsm["gPCs"]`` respectively
         (unless explicitly overridden).  Alternatively, pass a TSV file path
         or a DataFrame directly.
     output_dir : str
@@ -1053,10 +1053,10 @@ def run_livi_association_testing(
         does not support repeated-measures designs.
     kinship : str or pd.DataFrame, optional
         Donors × donors kinship / GRM matrix.  Required for ``method="LMM"``.
-        Auto-extracted from ``dd.G.uns["kinship"]`` when DonorData is passed.
+        Auto-extracted from ``dd.D.uns["kinship"]`` when DonorData is passed.
     genotype_pcs : str or pd.DataFrame, optional
         Donors × PCs genotype principal-component matrix used as additional
-        covariates.  Auto-extracted from ``dd.G.obsm["gPCs"]`` when DonorData
+        covariates.  Auto-extracted from ``dd.D.obsm["gPCs"]`` when DonorData
         is passed.
     covariates : pd.DataFrame, optional
         Extra donor-level covariates (donors × covariates) passed alongside
@@ -1118,12 +1118,12 @@ def run_livi_association_testing(
     if D_context is None and V_persistent is None:
         raise ValueError("inference_results contains neither 'D_embedding' nor 'V_embedding'. " "Run infer_livi first.")
 
-    # Resolve DonorData → extract dd.G components
+    # Resolve DonorData → extract dd.D components
     try:
         from cellink._core.donordata import DonorData as _DonorData
 
         if isinstance(genotype_matrix, _DonorData):
-            gdata = genotype_matrix.G
+            gdata = genotype_matrix.D
             GT = _gdata_to_genotype_df(gdata)
             if kinship is None and "kinship" in gdata.uns:
                 kinship = gdata.uns["kinship"]
