@@ -52,6 +52,13 @@ def run_scdrs(
     scDRS associates individual cells in single-cell RNA-seq data with disease GWAS,
     computing cell-level disease scores and performing downstream analyses.
 
+    ``adata`` is not modified; all processing is done on a copy. On the copy,
+    cells and genes are filtered (``min_genes``, ``min_cells``), and if
+    ``adata.uns`` does not contain ``"log1p"``, ``adata.X`` is assumed to
+    contain raw counts and is size-factor normalized and log1p-transformed.
+    If ``adata.obsm`` does not contain ``"X_pca"``, PCA is computed.
+    scDRS scores are computed on the log-normalized ``adata.X``.
+
     Parameters
     ----------
     adata : AnnData
@@ -110,7 +117,7 @@ def run_scdrs(
     save_results : bool, default=True
         Whether to save results to files.
     return_adata : bool, default=False
-        Whether to return the AnnData object with scDRS scores added.
+        Whether to return a processed copy of the input AnnData object with scDRS scores added.
 
     Returns
     -------
@@ -118,7 +125,7 @@ def run_scdrs(
         Depending on the analysis performed:
         - If only score computation: DataFrame with scDRS scores
         - If downstream analyses: tuple of DataFrames (scores, group_stats, cell_corr, gene_corr)
-        - If return_adata=True: AnnData object with scores in .obs
+        - If return_adata=True: processed copy of AnnData object with scores in .obs
 
     Raises
     ------
@@ -149,33 +156,25 @@ def run_scdrs(
     if prefix is None:
         prefix = "scdrs"
 
+    adata = adata.copy()
+
     logger.info("Filtering cells and genes")
     sc.pp.filter_cells(adata, min_genes=min_genes)
     sc.pp.filter_genes(adata, min_cells=min_cells)
 
     if "log1p" not in adata.uns_keys():
-        adata.layers["counts"] = adata.X
         logger.info("Normalizing and log-transforming data")
         sc.pp.normalize_total(adata, target_sum=1e4)
         sc.pp.log1p(adata)
-    else:
-        if "counts" not in adata.layers:
-            raise ValueError(
-                "adata appears already normalized (log1p in uns) but adata.layers['counts'] does not exist. "
-                "Please pass raw counts, or set adata.layers['counts'] before normalizing."
-            )
 
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
-        pca_view = adata.copy()
-        sc.pp.highly_variable_genes(pca_view, n_top_genes=2000)
-        pca_view = pca_view[:, pca_view.var.highly_variable].copy()
+        sc.pp.highly_variable_genes(adata, n_top_genes=2000)
+        pca_view = adata[:, adata.var.highly_variable].copy()
         sc.pp.scale(pca_view, max_value=10)
         sc.tl.pca(pca_view, n_comps=n_pcs)
         adata.obsm["X_pca"] = pca_view.obsm["X_pca"]
         del pca_view
-
-    adata.X = adata.layers["counts"]
 
     covariate_list = []
 
