@@ -1,8 +1,11 @@
+import importlib.util
 import logging
 
 import numpy as np
 import pytest
+from anndata import AnnData
 
+from cellink._core.dummy_data import sim_gdata
 from cellink.at import utils
 from cellink.at.acat import compute_acat
 from cellink.at.gwas import GWAS
@@ -86,21 +89,24 @@ def test_burden_testing():
     number_causal_variants = 50  # number of causal variants
     vg = 0.3  # variance explained by the causal variants
 
-    X = np.random.choice([0, 1, 2], size=(N, S), p=[0.99, 0.005, 0.005])
-    X = np.asarray(X, dtype=np.float64)
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(np.random.choice([0, 1, 2], size=(N, S), p=[0.99, 0.005, 0.005]), dtype=np.float64)
 
-    Y, *_ = utils.generate_phenotype(X, vg=vg, number_causal_variants=number_causal_variants)
+    Y, *_ = utils.generate_phenotype(gdata.X, vg=vg, number_causal_variants=number_causal_variants)
+    gdata.obs["pheno"] = Y.ravel()
+    gdata.obs["pheno_perm"] = np.random.permutation(Y.ravel())
 
-    gwas = GWAS(Y)
-    g = np.sum(X, axis=1, keepdims=True)  # define the burden as the sum of the variants (arbitrary)
+    # the burden is the sum of the variants (arbitrary); a derived vector has to be
+    # wrapped in its own object, since the models only take DonorData/AnnData now
+    burden = AnnData(X=gdata.X.sum(axis=1, keepdims=True), obs=gdata.obs)
 
-    g = utils.ensure_float64_array(g)
-    gwas.test_association(g)
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(burden)
     pv = gwas.getPv()
     assert pv is not None, "P-value is None"
-    Y = np.random.permutation(Y)
-    gwas = GWAS(Y)
-    gwas.test_association(g)
+
+    gwas = GWAS(Y="pheno_perm", data=gdata)
+    gwas.test_association(burden)
     pvp = gwas.getPv()  # pv permutated
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
@@ -115,17 +121,19 @@ def test_skat_testing():
     number_causal_variants = 3  # number of causal variants
     vg = 0.1  # variance explained by the causal variants
 
-    X = np.random.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05])
-    X = np.asarray(X, dtype=np.float64)
-    logger.info(f"number of variants: {X.sum(1)}")
-    Y, *_ = utils.generate_phenotype(X, vg=vg, number_causal_variants=number_causal_variants)
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(np.random.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+    logger.info(f"number of variants: {gdata.X.sum(1)}")
+
+    Y, *_ = utils.generate_phenotype(gdata.X, vg=vg, number_causal_variants=number_causal_variants)
+    gdata.obs["pheno"] = Y.ravel()
+    gdata.obs["pheno_perm"] = np.random.permutation(Y.ravel())
 
     skat = Skat(min_threshold=10)
-    pv = skat.run_test(Y=Y, X=X)
+    pv = skat.run_test(Y="pheno", data=gdata)  # variants come from gdata.X
     assert pv is not None, "P-value is None"
 
-    Y = np.random.permutation(Y)
-    pvp = skat.run_test(Y=Y, X=X)  # pv permutated
+    pvp = skat.run_test(Y="pheno_perm", data=gdata)  # pv permutated
     logger.info(f"pv: {pv}, pvp: {pvp}")
 
     assert pv < pvp, "P-value is not smaller than permutated p-value"
@@ -140,27 +148,29 @@ def test_acat_testing():
     number_causal_variants = 50  # number of causal variants
     vg = 0.15  # variance explained by the causal variants
 
-    X = np.random.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05])
-    X = np.asarray(X, dtype=np.float64)
-    Y, *_ = utils.generate_phenotype(X, vg=vg, number_causal_variants=number_causal_variants)
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(np.random.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+
+    Y, *_ = utils.generate_phenotype(gdata.X, vg=vg, number_causal_variants=number_causal_variants)
+    gdata.obs["pheno"] = Y.ravel()
+    gdata.obs["pheno_perm"] = np.random.permutation(Y.ravel())
 
     skat = Skat(min_threshold=10)
+    skat_pv = skat.run_test(Y="pheno", data=gdata)  # variants come from gdata.X
+    skat_pvp = skat.run_test(Y="pheno_perm", data=gdata)  # pv permutated
 
-    skat_pv = skat.run_test(Y=Y, X=X)
+    # the burden here is the sum of the standardized variants (arbitrary)
+    X_std = (gdata.X - gdata.X.mean(0)) / utils.xgower_factor_(gdata.X)
+    burden = AnnData(X=X_std.sum(axis=1, keepdims=True), obs=gdata.obs)
 
-    Yp = np.random.permutation(Y)
-    skat_pvp = skat.run_test(Y=Yp, X=X)  # pv permutated
-    X_std = (X - X.mean(0)) / utils.xgower_factor_(X)
-    g = np.sum(X_std, axis=1, keepdims=True)  # define the burden as the sum of the variants (arbitrary)
-
-    g = utils.ensure_float64_array(g)
-    gwas = GWAS(Y)
-    gwas.test_association(g)
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(burden)
     burden_pv = gwas.getPv()
 
-    gwas = GWAS(Yp)
-    gwas.test_association(g)
+    gwas = GWAS(Y="pheno_perm", data=gdata)
+    gwas.test_association(burden)
     burden_pvp = gwas.getPv()  # pv permutated
+
     # ACAT testing
     pvs = np.stack([skat_pv, burden_pv], axis=1)
     pvs = utils.ensure_float64_array(pvs)
@@ -172,3 +182,331 @@ def test_acat_testing():
     acat_pvp = compute_acat(pvs=pvps)
     logger.info(f"acat_pv: {acat_pv}, acat_pvp: {acat_pvp}")
     assert acat_pv < acat_pvp, "P-value is not smaller than permutated p-value"
+
+
+def _simulate_for_skat(seed, ve_g, ve_cov=0.3, confounded=False, N=500, S=30, K=8):
+    """Genotypes plus a phenotype built from an explicit variance budget.
+
+    The causal effects have balanced signs (``sum(betas) == 0``), so the burden of the
+    set carries no signal and only the variance component does -- which is what SKAT
+    tests. The phenotype is rank-inverse-normal transformed, as a QTL pipeline would.
+
+    With ``confounded=True`` the covariate is correlated with the genetic component and
+    the phenotype has no genetic term of its own (``ve_g=0``): the genotypes reach the
+    phenotype only through the covariate.
+    """
+    from scipy import stats
+
+    rng = np.random.default_rng(seed)
+    unit = lambda x: (x - x.mean()) / x.std()
+
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(rng.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+
+    betas = np.zeros(S)
+    idx = rng.choice(S, K, replace=False)
+    betas[idx[: K // 2]], betas[idx[K // 2 :]] = 1.0, -1.0
+    Yg = unit((gdata.X - gdata.X.mean(0)) @ betas)
+
+    cov = unit(Yg + rng.standard_normal(N)) if confounded else rng.standard_normal(N)
+    y = np.sqrt(ve_g) * Yg + np.sqrt(ve_cov) * cov + np.sqrt(1 - ve_g - ve_cov) * rng.standard_normal(N)
+
+    gdata.obs["pheno"] = stats.norm.ppf((stats.rankdata(y) - 0.5) / N)
+    gdata.obs["cov"] = cov
+    return gdata
+
+
+def test_skat_covariate_removes_confounding():
+    """A covariate correlated with the genotypes creates a false positive; adjusting for it removes it.
+
+    The phenotype has no genetic component at all (ve_g = 0), so any association is
+    confounding by construction. Omitting the covariate must find it; passing it as `F`
+    must not.
+    """
+    pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
+    from cellink.at.skat import Skat
+
+    skat = Skat(min_threshold=10)
+    adjusted = []
+    for seed in range(5):
+        gdata = _simulate_for_skat(seed, ve_g=0.0, confounded=True)
+        unadj = float(np.ravel(skat.run_test(Y="pheno", data=gdata))[0])
+        adj = float(np.ravel(skat.run_test(Y="pheno", F="cov", data=gdata))[0])
+
+        assert unadj < 1e-4, f"seed {seed}: confounding should be detected, got {unadj}"
+        # The ratio, not an absolute threshold: the adjusted p-value is a draw from a
+        # correctly calibrated null, so it sits below 0.05 about 5% of the time.
+        assert adj > 1e3 * unadj, f"seed {seed}: adjusting barely moved the p-value ({unadj} -> {adj})"
+        adjusted.append(adj)
+
+    assert np.median(adjusted) > 0.05, f"adjusted p-values should be null-like, got {adjusted}"
+
+
+def test_skat_covariate_improves_power():
+    """Adjusting for an independent covariate removes noise, so a real signal gets easier to see."""
+    pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
+    from cellink.at.skat import Skat
+
+    skat = Skat(min_threshold=10)
+    for seed in range(5):
+        gdata = _simulate_for_skat(seed, ve_g=0.2, confounded=False)
+        unadj = float(np.ravel(skat.run_test(Y="pheno", data=gdata))[0])
+        adj = float(np.ravel(skat.run_test(Y="pheno", F="cov", data=gdata))[0])
+
+        assert adj < unadj, f"seed {seed}: adjusting should sharpen the signal ({unadj} -> {adj})"
+        assert adj < 1e-8, f"seed {seed}: planted ve_g=0.2 should be strongly detected, got {adj}"
+
+
+def test_run_burden_test_resolves_from_anndata():
+    """`tl.run_burden_test` builds its GWAS from the genotype object and returns one row per annotation."""
+    import pandas as pd
+
+    from cellink.tl import run_burden_test
+
+    rng = np.random.default_rng(3)
+    N, S = 300, 20
+    gdata = sim_gdata(n_donors=N, n_snps=S)
+    gdata.X = np.asarray(rng.choice([0, 1, 2], size=(N, S), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+
+    annotation_cols = ["maf_beta", "tss_distance"]
+    gdata.varm["variant_annotation"] = pd.DataFrame(
+        rng.random((S, len(annotation_cols))), index=gdata.var_names, columns=annotation_cols
+    )
+
+    # phenotype and covariates live on the object the burdens are computed from
+    gdata.obs["pheno"] = rng.standard_normal(N)
+    gdata.obs["age"] = rng.standard_normal(N)
+
+    rdf = run_burden_test(gdata, "pheno", "age", gene="GENE1", annotation_cols=annotation_cols)
+
+    assert list(rdf["weight_col"]) == annotation_cols
+    assert len(rdf) == len(annotation_cols)
+    assert np.all(np.isfinite(rdf["pv"])) and np.all((rdf["pv"] >= 0) & (rdf["pv"] <= 1))
+    assert set(rdf.columns) >= {"burden_gene", "egene", "weight_col", "pv", "beta", "betaste", "lrt"}
+
+
+def _structlmm_donordata(seed=0, n_donors=40, n_snps=4):
+    """A DonorData with a cell-level phenotype and a cell-state factor to use as E."""
+    from cellink import DonorData
+    from cellink._core.dummy_data import sim_adata
+
+    rng = np.random.default_rng(seed)
+    dd = DonorData(G=sim_gdata(n_donors=n_donors, n_snps=n_snps), C=sim_adata(n_donors=n_donors))
+    dd.G.obs["sex"] = rng.integers(0, 2, dd.G.n_obs).astype(float)
+    dd.C.obs["expr"] = rng.standard_normal(dd.C.n_obs)
+    # `sim_adata` stores celltype as object dtype, so there are no empty levels here;
+    # with a real Categorical, call `.cat.remove_unused_categories()` first or the
+    # one-hot gains all-zero columns and E becomes singular
+    return dd
+
+
+def test_structlmm_cell_level_resolves_e_from_formula():
+    """E is a formula like any other slot: a one-hot of the cell state, resolved at cell level."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    dd = _structlmm_donordata()
+    slmm = StructLMM(y="expr", E="celltype - 1", F="crepeat(sex)", data=dd, target_level="cell")
+
+    assert slmm.y.shape == (dd.C.n_obs, 1)
+    assert slmm.E.shape[0] == dd.C.n_obs and slmm.E.shape[1] > 1  # one column per cell state
+    assert slmm.F.shape == (dd.C.n_obs, 2)  # intercept + crepeat(sex)
+
+    pvs = slmm.interaction_test(dd, exact=True)
+    assert pvs.shape == (dd.G.n_vars,)
+    assert np.all(np.isfinite(pvs)) and np.all((pvs >= 0) & (pvs <= 1))
+
+
+def test_structlmm_broadcasts_donor_variants_to_cells():
+    """Donor-level variants are expanded to cells exactly as `crepeat()` would."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+
+    from cellink.at.resolver import get_model_matrix
+    from cellink.at.structlmm import StructLMM
+
+    dd = _structlmm_donordata(seed=1)
+    slmm = StructLMM(y="expr", E="celltype - 1", data=dd, target_level="cell")
+
+    # what the class does internally, against what the resolver's crepeat produces
+    broadcast = slmm._variants(dd)
+    snp = dd.G.var_names[0]
+    dd.G.obs["v0"] = np.asarray(dd.G.X)[:, 0].astype(float)
+    by_crepeat = get_model_matrix(dd, "crepeat(v0) - 1", target_level="cell").to_numpy().ravel()
+
+    assert broadcast.shape == (dd.C.n_obs, dd.G.n_vars), f"expected cell rows for {snp}"
+    np.testing.assert_allclose(broadcast[:, 0], by_crepeat)
+
+
+def test_structlmm_donor_level_with_anndata():
+    """A plain AnnData needs no target_level, and E can be a donor covariate."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(2)
+    gdata = sim_gdata(n_donors=60, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    pvs = slmm.interaction_test(gdata, exact=True)
+    assert pvs.shape == (gdata.n_vars,)
+    assert np.all(np.isfinite(pvs))
+
+
+def test_structlmm_rejects_arrays():
+    """Arrays are no longer accepted, and the error says what to pass instead."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(3)
+    gdata = sim_gdata(n_donors=30, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    with pytest.raises(AssertionError, match="y must be a string"):
+        StructLMM(y=rng.standard_normal((30, 1)), E="env", data=gdata)
+    with pytest.raises(AssertionError, match="E must be a string"):
+        StructLMM(y="pheno", E=rng.standard_normal((30, 2)), data=gdata)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    with pytest.raises(TypeError, match="Wrap a derived matrix in an AnnData"):
+        slmm.interaction_test(rng.standard_normal((30, 3)))
+
+
+def test_gwas_realigns_reordered_observations():
+    """Observations in a different order must be realigned, not tested as-is.
+
+    Regression: `test_association` used `data.X` directly, so a view with the same
+    donors in a different order silently produced plausible but wrong statistics --
+    a true p=4e-15 association read as p=0.17.
+    """
+    rng = np.random.default_rng(0)
+    gdata = sim_gdata(n_donors=200, n_snps=4)
+    gdata.X = np.asarray(rng.choice([0, 1, 2], size=(200, 4)), dtype=np.float64)
+    gdata.obs["pheno"] = gdata.X[:, 0] * 0.8 + rng.standard_normal(200)
+
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(gdata)
+    aligned = np.ravel(gwas.getPv()).copy()
+    assert aligned[0] < 1e-8, "variant 0 is truly associated"
+
+    shuffled = gdata[rng.permutation(gdata.obs_names)].copy()
+    gwas = GWAS(Y="pheno", data=gdata)
+    gwas.test_association(shuffled)
+    np.testing.assert_allclose(np.ravel(gwas.getPv()), aligned, rtol=1e-10)
+
+
+def test_gwas_rejects_mismatched_observations():
+    """A partially overlapping object is an error, not something to silently reindex."""
+    rng = np.random.default_rng(1)
+    gdata = sim_gdata(n_donors=60, n_snps=3)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+
+    gwas = GWAS(Y="pheno", data=gdata)
+    with pytest.raises(ValueError, match="observations"):
+        gwas.test_association(gdata[gdata.obs_names[:30]].copy())
+
+
+def test_structlmm_realigns_reordered_observations():
+    """Same guarantee for StructLMM, whose variants may also be broadcast to cells."""
+    pytest.importorskip("limix_core", reason="StructLMM needs limix-core")
+    pytest.importorskip("chiscore", reason="StructLMM needs chiscore")
+    from cellink.at.structlmm import StructLMM
+
+    rng = np.random.default_rng(2)
+    gdata = sim_gdata(n_donors=80, n_snps=2)
+    gdata.obs["pheno"] = rng.standard_normal(gdata.n_obs)
+    gdata.obs["env"] = rng.standard_normal(gdata.n_obs)
+
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    aligned = slmm.interaction_test(gdata, exact=True)
+
+    shuffled = gdata[rng.permutation(gdata.obs_names)].copy()
+    slmm = StructLMM(y="pheno", E="env", data=gdata)
+    np.testing.assert_allclose(slmm.interaction_test(shuffled, exact=True), aligned, rtol=1e-10)
+
+
+def _sparse_and_dense_anndata(seed=0, n_donors=200, n_snps=6):
+    """The same genotypes as a sparse AnnData and a dense one."""
+    import pandas as pd
+    import scipy.sparse as sp
+    from anndata import AnnData
+
+    rng = np.random.default_rng(seed)
+    dense = np.asarray(rng.choice([0, 1, 2], size=(n_donors, n_snps), p=[0.9, 0.05, 0.05]), dtype=np.float64)
+    obs = pd.DataFrame(
+        {"pheno": rng.standard_normal(n_donors), "env": rng.standard_normal(n_donors)},
+        index=[f"D{i}" for i in range(n_donors)],
+    )
+    var = pd.DataFrame(index=[f"snp{i}" for i in range(n_snps)])
+    return AnnData(X=sp.csr_matrix(dense), obs=obs, var=var), AnnData(X=dense, obs=obs.copy(), var=var)
+
+
+def test_models_accept_sparse_x():
+    """`.X` is commonly sparse; `np.asarray` cannot cast it, so it must be densified first.
+
+    Regression: all three models called `ensure_float64_array` straight on `.X` and died
+    with `ValueError: setting an array element with a sequence`.
+    """
+    sparse_a, dense_a = _sparse_and_dense_anndata()
+
+    gwas_sparse = GWAS(Y="pheno", data=sparse_a)
+    gwas_sparse.test_association(sparse_a)
+    gwas_dense = GWAS(Y="pheno", data=dense_a)
+    gwas_dense.test_association(dense_a)
+    np.testing.assert_allclose(gwas_sparse.getPv(), gwas_dense.getPv())
+
+    if importlib.util.find_spec("chiscore") is not None:
+        from cellink.at.skat import Skat
+
+        np.testing.assert_allclose(
+            Skat(min_threshold=1).run_test(Y="pheno", data=sparse_a),
+            Skat(min_threshold=1).run_test(Y="pheno", data=dense_a),
+        )
+
+    if importlib.util.find_spec("limix_core") is not None and importlib.util.find_spec("chiscore") is not None:
+        from cellink.at.structlmm import StructLMM
+
+        np.testing.assert_allclose(
+            StructLMM(y="pheno", E="env", data=sparse_a).interaction_test(sparse_a, exact=True),
+            StructLMM(y="pheno", E="env", data=dense_a).interaction_test(dense_a, exact=True),
+        )
+
+
+def test_gwas_accepts_dask_x():
+    """`read_sgkit_zarr` returns a dask-backed `.X`; it must be computed, not left lazy."""
+    da = pytest.importorskip("dask.array", reason="dask is a core dependency but guard anyway")
+    from anndata import AnnData
+
+    _, dense_a = _sparse_and_dense_anndata(seed=1)
+    lazy = AnnData(X=da.from_array(dense_a.X, chunks=(50, 3)), obs=dense_a.obs.copy(), var=dense_a.var)
+
+    gwas_lazy = GWAS(Y="pheno", data=lazy)
+    gwas_lazy.test_association(lazy)
+    gwas_dense = GWAS(Y="pheno", data=dense_a)
+    gwas_dense.test_association(dense_a)
+    np.testing.assert_allclose(gwas_lazy.getPv(), gwas_dense.getPv())
+
+
+def test_gwas_rejects_cell_level_donordata():
+    """Cell-level Y against donor-level genotypes is pseudo-replication, so refuse it up front.
+
+    Regression: `test_association` read `dd.G.X` unconditionally, so a cell-level Y either
+    blew up on shapes or, when donor and cell counts coincided, paired rows incorrectly.
+    """
+    from cellink import DonorData
+    from cellink._core.dummy_data import sim_adata
+
+    dd = DonorData(G=sim_gdata(n_donors=20, n_snps=3), C=sim_adata(n_donors=20))
+    dd.C.obs["expr"] = np.random.default_rng(0).standard_normal(dd.C.n_obs)
+
+    with pytest.raises(ValueError, match="one row per donor"):
+        GWAS(Y="expr", data=dd, target_level="cell")
+
+    # the supported route: aggregate to donors
+    gwas = GWAS(Y="dmean(expr)", data=dd, target_level="donor")
+    gwas.test_association(dd)
+    assert gwas.getPv().shape == (dd.G.n_vars, 1)

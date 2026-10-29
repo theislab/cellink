@@ -79,6 +79,7 @@ def test_get_model_matrix_dataframe_passthrough():
     np.testing.assert_allclose(y.to_numpy().ravel(), df["y"].to_numpy())
 
 
+@pytest.mark.skip(reason="deprecated: GWAS no longer accepts ndarray")
 def test_gwas_data_equals_raw_numpy():
     """GWAS(Y=<formula>, data=...) must give the same result as GWAS(Y=<same values as ndarray>)."""
     rng = np.random.default_rng(1)
@@ -104,18 +105,19 @@ def test_gwas_data_equals_raw_numpy():
 def test_gwas_donordata_formula_runs(dd):
     """GWAS against a DonorData with formula strings runs end to end and gives finite p-values."""
     gwas = GWAS(Y="phenotype", F="age", data=dd, target_level="donor")
-    g = np.random.default_rng(2).standard_normal((dd.G.n_obs, 4))
-    gwas.test_association(g)
+    gwas.test_association(dd)  # every variant in dd.G.X is tested
     pv = gwas.getPv()
     assert np.all(np.isfinite(pv))
-    assert pv.shape == (4, 1)
+    assert pv.shape == (dd.G.n_vars, 1)
 
 
-def test_gwas_missing_data_raises_on_formula_string():
-    with pytest.raises(ValueError, match="Mandatory to provide `data`"):
+def test_gwas_missing_data_raises():
+    """`data` is keyword-only and mandatory: the signature rejects the call."""
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'data'"):
         GWAS(Y="phenotype")
 
 
+@pytest.mark.skip(reason="deprecated: Skat.run_test no longer takes X; the variant set is data.X")
 def test_skat_data_resolver_multiple_variants():
     """Regression test: `Skat.run_test(data=..., X=...)` used to raise TypeError
     (`isinstance(X, str | list[str])` is invalid at runtime) and, even past that,
@@ -151,6 +153,7 @@ def test_skat_data_resolver_multiple_variants():
     assert np.isfinite(pv_dd)
 
 
+@pytest.mark.skip(reason="deprecated: GWAS no longer accepts ndarray")
 def test_skat_data_equals_raw_numpy():
     """Skat.run_test(data=...) must give the same result as the equivalent raw-numpy call,
     now that it goes through the same fetch_raw_slot resolver as GWAS/StructLMM."""
@@ -170,28 +173,34 @@ def test_skat_data_equals_raw_numpy():
 
 
 def test_skat_donordata_defaults_to_donor_level():
-    """Skat's variants are donor-level; a DonorData resolves against `.G` without target_level="donor"."""
+    """Skat's variants are donor-level; a DonorData resolves Y/F there without an explicit target_level."""
     pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
     from cellink.at.skat import Skat
 
     rng = np.random.default_rng(7)
-    snp_cols = [f"snp{i}" for i in range(5)]
     dd = DonorData(G=sim_gdata(), C=sim_adata())
     dd.G.obs["pheno"] = rng.standard_normal(dd.G.n_obs)
-    dd.G.obs[snp_cols] = rng.integers(0, 3, size=(dd.G.n_obs, 5)).astype(float)
+    # a donor-level covariate; note `cov1`-`cov3` already exist in C.obs, and a name
+    # present at both levels would be rejected by the resolver as ambiguous
+    dd.G.obs["gpc1"] = rng.standard_normal(dd.G.n_obs)
 
     skat = Skat(min_threshold=1)
-    pv = skat.run_test(data=dd, Y="pheno", X=" + ".join(snp_cols))
-    assert np.isfinite(pv)
+    # the level default has to be applied before Y/F are resolved, or the resolver
+    # raises "target_level must be 'donor' or 'cell'" on a DonorData
+    assert np.isfinite(skat.run_test(Y="pheno", data=dd))
+    assert np.isfinite(skat.run_test(Y="pheno", F="gpc1", data=dd))
 
 
+@pytest.mark.skip(reason="deprecated: StructLMM no longer accepts ndarray/DataFrame")
 def test_structlmm_data_equals_raw_numpy():
     rng = np.random.default_rng(3)
     n = 60
     df = pd.DataFrame({"y": rng.standard_normal(n), "cov1": rng.standard_normal(n)})
     E = rng.standard_normal((n, 2))
 
-    s_raw = StructLMM(y=df[["y"]].to_numpy(), E=E, F=df[["cov1"]].assign(intercept=1.0)[["intercept", "cov1"]].to_numpy())
+    s_raw = StructLMM(
+        y=df[["y"]].to_numpy(), E=E, F=df[["cov1"]].assign(intercept=1.0)[["intercept", "cov1"]].to_numpy()
+    )
     s_formula = StructLMM(y="y", E=E, F="cov1", data=df)
 
     np.testing.assert_allclose(s_formula.y, s_raw.y)
@@ -269,14 +278,15 @@ def test_skat_missing_limix_core_raises_helpful_error(monkeypatch):
         _skat_test(np.zeros(5), np.zeros((5, 1)))
 
 
-def test_structlmm_missing_limix_core_raises_helpful_error(monkeypatch):
-    rng = np.random.default_rng(5)
-    n = 30
-    s = StructLMM(y=rng.standard_normal((n, 1)), E=rng.standard_normal((n, 2)), F=rng.standard_normal((n, 1)))
+def test_structlmm_missing_limix_core_raises_helpful_error(monkeypatch, dd):
+    dd.G.obs["gpc1"] = np.random.default_rng(5).standard_normal(dd.G.n_obs)
+    s = StructLMM(y="phenotype", E="gpc1", F="age", data=dd, target_level="donor")
 
     _block_module(monkeypatch, "limix_core")
+    # exact=True keeps this on the limix-core path; the approximate path would fail on
+    # limix-lmm instead, which is neither installed nor declared in pyproject.toml
     with pytest.raises(ImportError, match="pip install limix-core"):
-        s.interaction_test(rng.standard_normal((n, 3)))
+        s.interaction_test(dd, exact=True)
 
 
 def test_base_model_run_smoke():

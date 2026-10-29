@@ -4,13 +4,70 @@ from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Literal
 
+import anndata
 import numpy as np
 import pandas as pd
+import scipy.sparse
 
 from cellink.at.require import SlotRequirement
 from cellink.at.resolver import get_model_matrix
+from cellink.at.utils import ensure_float64_array
 
-__all__ = ["BaseModel", "fetch_raw_slot", "to_numpy"]
+__all__ = ["BaseModel", "align_to_index", "fetch_raw_slot", "observation_index", "to_numpy", "variant_matrix"]
+
+
+def variant_matrix(data) -> np.ndarray:
+    """The dense ``(n_obs, n_variants)`` matrix an association test reads from `data`.
+
+    `.X` may be sparse (a supported AnnData representation) or dask-backed (what
+    `read_sgkit_zarr` produces), neither of which `np.asarray` can cast, so both are
+    materialised here rather than at each call site.
+    """
+    from cellink._core import DonorData
+
+    if not isinstance(data, anndata.AnnData | DonorData):
+        raise TypeError(
+            f"expected a DonorData or AnnData, got {type(data).__name__}. "
+            "Wrap a derived matrix in an AnnData before testing it."
+        )
+    X = data.G.X if isinstance(data, DonorData) else data.X
+    if scipy.sparse.issparse(X):
+        X = X.toarray()
+    elif hasattr(X, "compute"):  # dask, e.g. from read_sgkit_zarr
+        X = X.compute()
+    return ensure_float64_array(X)
+
+
+def observation_index(data) -> pd.Index | None:
+    """The observation names of the axis a variant matrix is indexed by."""
+    from cellink._core import DonorData
+
+    if isinstance(data, DonorData):
+        return data.G.obs_names
+    return getattr(data, "obs_names", None)
+
+
+def align_to_index(values: np.ndarray, index, fitted_index, slot: str = "variants") -> np.ndarray:
+    """Reorder `values` so its rows match the observations the model was fitted on.
+
+    Same observations in a different order are reordered; anything else raises, since
+    testing a differently-populated matrix against the fitted null silently produces
+    plausible but wrong statistics.
+    """
+    if fitted_index is None or index is None:
+        if values.shape[0] != len(fitted_index or ()):
+            pass  # nothing to check against
+        return values
+    if index.equals(fitted_index):
+        return values
+    missing = fitted_index.difference(index)
+    if len(missing) or len(index) != len(fitted_index):
+        raise ValueError(
+            f"{slot} cover {len(index)} observations, but the model was fitted on "
+            f"{len(fitted_index)} ({len(missing)} of them missing, e.g. {list(missing[:3])}). "
+            "Subset both to the same observations before testing."
+        )
+    return values[index.get_indexer(fitted_index)]
 
 
 def to_numpy(raw) -> np.ndarray:

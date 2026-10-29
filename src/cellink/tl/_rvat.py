@@ -1,3 +1,4 @@
+import anndata as ad
 import numpy as np
 import pandas as pd
 from scipy.stats import beta
@@ -53,11 +54,14 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
     G : AnnData
         An AnnData object containing genotype data. The `X` attribute should
         contain the genotype matrix, and the `varm["variant_annotation"]`
-        attribute should contain variant annotations.
-    Y : np.ndarray
-        Phenotype data for the samples.
-    F : np.ndarray
-        Covariate matrix for the samples.
+        attribute should contain variant annotations. `Y` and `F` are resolved
+        against this object, so the phenotype and covariates have to live in its
+        `obs`/`obsm`.
+    Y : str
+        Phenotype: a formula string or bare column name resolved against `G`.
+    F : str or None
+        Covariates, resolved against `G` with an intercept column kept. If
+        omitted, an intercept-only null model is used.
     gene : str
         The name of the gene being tested.
     annotation_cols : list of str
@@ -83,12 +87,20 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
         - "betaste": Standard errors of the effect sizes.
         - "lrt" (if `run_lrt` is True): LRT statistics from the GWAS analysis.
     """
-    gwas = GWAS(Y, F)  # move this outside of the function and provide gwas object as input?
+    gwas = GWAS(Y=Y, F=F, data=G)  # move this outside of the function and provide gwas object as input?
     genotypes = G.X
     var_scores = G.varm["variant_annotation"][annotation_cols].to_numpy()
 
     burdens = _get_burden(genotypes, var_scores, burden_agg_fct)
-    gwas.test_association(burdens)
+    # the burden is a derived matrix (samples x annotations), so it has to be handed
+    # over as an object; its "variants" are the annotation weightings, which labels
+    # the results by annotation
+    burden_data = ad.AnnData(
+        X=np.asarray(burdens, dtype=np.float64),
+        obs=G.obs,
+        var=pd.DataFrame(index=pd.Index(list(annotation_cols), name="annotation")),
+    )
+    gwas.test_association(burden_data)
     rdf = pd.DataFrame(
         {
             "burden_gene": gene,
