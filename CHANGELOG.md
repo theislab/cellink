@@ -65,6 +65,16 @@ and this project adheres to [Semantic Versioning][].
 
 ### Fixed
 
+- `tl.external.run_scdrs`, `tl.external.run_seismic` and `tl.external.run_seismic_torch` decide whether to
+  log-normalize from the values of `X` (integer counts are normalized) instead of from `uns["log1p"]`.
+  Raw counts with a stale `log1p` flag were scored as log-normalized data, and log-normalized data without
+  the flag, as in many published objects, was normalized twice.
+- `tl.external.run_seismic_torch(layer=...)` scored the raw layer while only `X` was normalized.
+- `tl.external.run_seismic` filtered the caller's AnnData in place.
+- `tl.external.run_scdrs` no longer filters or normalizes the caller's AnnData; it only adds the
+  `{trait}_norm_score` and `{trait}_pval` columns to `adata.obs` (NaN for filtered cells). `run_scdrs`,
+  `run_seismic` and `run_seismic_torch` copy only the filtered expression, `obs` and `var`, not layers or `raw`,
+  and log a warning saying whether they normalized the input or used it as log-normalized.
 - Default configs only worked from particular working directories: the 1000 Genomes
   functions (`resources.get_1000genomes*`) defaulted to `./cellink/resources/config/...`,
   FAVOR and VEP to `../configs/...`, and MAGMA to `configs/magma.yaml`, so tutorials had

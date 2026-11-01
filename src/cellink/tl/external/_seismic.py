@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Literal
 
 import pandas as pd
-import scanpy as sc
 from anndata import AnnData
 from scipy.sparse import issparse
+
+from cellink.tl.external._preprocessing import _log_normalized_copy
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,10 @@ def run_seismic(
     Parameters
     ----------
     adata : AnnData
-        AnnData object containing single-cell expression data.
+        AnnData object containing single-cell expression data. ``adata.X`` may hold raw counts,
+        which are size-factor normalized and log1p-transformed, or log-normalized expression,
+        which is used as is. Which of the two is decided from the values, not from
+        ``adata.uns["log1p"]``.
     magma_file : str or Path
         Path to MAGMA gene-level summary statistics file.
     cell_type_col : str
@@ -112,16 +116,9 @@ def run_seismic(
 
     logger.info("Preparing data for seismic analysis")
 
-    logger.info("Filtering cells and genes")
-    sc.pp.filter_cells(adata, min_genes=min_genes)
-    sc.pp.filter_genes(adata, min_cells=min_cells)
-
-    adata = adata[~adata.obs[cell_type_col].isna()].copy()
-
-    if "log1p" not in adata.uns_keys():
-        logger.info("Log-normalizing data")
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
+    adata, _ = _log_normalized_copy(
+        adata, "seismic", min_genes, min_cells, cells=adata.obs[cell_type_col].notna().to_numpy()
+    )
 
     if species == "human":
         magma_df_genes = pd.read_csv(magma_file, sep=r"\s+")
