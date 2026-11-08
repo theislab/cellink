@@ -73,6 +73,12 @@ SAIGE-QTL). See each tool's own documentation for installation instructions.
    tl.external.generate_sldsc_genesets
    tl.external.get_magma_gene_loc
    tl.external.preprocess_for_sldsc
+   tl.external.pseudobulk_peak_counts
+   tl.external.preprocess_for_chromatin_sldsc
+   tl.external.generate_sldsc_peaksets
+   tl.external.make_annot_from_bed_regions
+   tl.external.split_ld_scores
+   tl.external.write_cts_file
 ```
 
 ### MAGMA

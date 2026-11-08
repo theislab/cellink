@@ -79,6 +79,14 @@ from ._scprs import (
     write_slurm_array_job,
 )
 from ._seismic import run_seismic
+from ._sldsc_chromatin import (
+    generate_sldsc_peaksets,
+    make_annot_from_bed_regions,
+    preprocess_for_chromatin_sldsc,
+    pseudobulk_peak_counts,
+    split_ld_scores,
+    write_cts_file,
+)
 from ._sldsc_utils import generate_gene_coord_file, generate_sldsc_genesets, get_magma_gene_loc, preprocess_for_sldsc
 from ._tensorqtl import (
     build_known_cis_eqtls_from_tensorqtl,
@@ -137,6 +145,13 @@ __all__ = [
     "generate_sldsc_genesets",
     "get_magma_gene_loc",
     "preprocess_for_sldsc",
+    ###
+    "generate_sldsc_peaksets",
+    "make_annot_from_bed_regions",
+    "preprocess_for_chromatin_sldsc",
+    "pseudobulk_peak_counts",
+    "split_ld_scores",
+    "write_cts_file",
     ###
     "compute_celltype_programs",
     "compute_diseaseprogression_programs",
