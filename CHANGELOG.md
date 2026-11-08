@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- Chromatin S-LDSC: `tl.external.pseudobulk_peak_counts` (peak counts per cell type × donor, backed
+  AnnData supported), `tl.external.preprocess_for_chromatin_sldsc` (donor-aware pseudobulk peak
+  accessibility and per-cell-type peak specificity),
+  `tl.external.generate_sldsc_peaksets` (top specific peaks per cell type and an all-peaks control as
+  BED files), `tl.external.make_annot_from_bed_regions` (binary SNP annotations from BED regions
+  without bedtools, several region sets per call, with a genome-build check), `tl.external.split_ld_scores` (split a
+  multi-annotation `ldsc.py --l2` output into per-annotation files) and `tl.external.write_cts_file`
+  (`--ref-ld-chr-cts` file with an optional control), so that cell-type-specific open chromatin is
+  tested with `tl.external.estimate_celltype_specific_heritability` the same way as cell-type-specific genes
 - Config arguments (`config_path` / `config_file`) across cellink accept the name of a
   config shipped with cellink, e.g. `tl.external.configure_ldsc_runner("ldsc_docker")`,
   `tl.run_vep(config_file="vep_offline")` or
