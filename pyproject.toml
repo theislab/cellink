@@ -24,6 +24,7 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "adjusttext",
@@ -233,6 +234,9 @@ lint.per-file-ignores."*/__init__.py" = [ "F401" ]
 lint.per-file-ignores."docs/*" = [ "B007", "B018", "BLE001", "D", "E402", "I" ]
 lint.per-file-ignores."tests/*" = [ "D", "E402" ]
 lint.pydocstyle.convention = "numpy"
+
+[tool.pyproject-fmt]
+max_supported_python = "3.13"
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
