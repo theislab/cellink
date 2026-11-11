@@ -35,9 +35,12 @@ dependencies = [
   "muon",
   "numexpr",
   "pandas",
-  "pandas-plink>=2.3.0",
+  "pandas-plink>=2.3",
   "pandera",
   "polars",
+  # pandas-plink pins numpy<2; pyarrow>=26 (pulled in via pandas-plink -> dask[dataframe])
+  # requires numpy>=2 at import time without declaring it
+  "pyarrow<26",
   "regex",
   "requests",
   "rich",
@@ -56,7 +59,7 @@ optional-dependencies.datasets = [
   "bio2zarr[all]",
   "liftover",
   "setuptools<82",
-  "sgkit[plink]",  
+  "sgkit[plink]",
 ]
 
 optional-dependencies.dev = [
@@ -131,16 +134,16 @@ optional-dependencies.scdrs = [
   "scdrs",
 ]
 optional-dependencies.scooby = [
-  "torch",
   "accelerate",
+  "borzoi-pytorch>=0.4",
   "enformer-pytorch>=0.8.10",
-  "borzoi-pytorch>=0.4.0",
   "scooby @ git+https://github.com/gagneurlab/scooby.git",
+  "torch",
 ]
 optional-dependencies.scpoli = [
+  "pyarrow",
   "scarches",
   "scvi-tools",
-  "pyarrow",
 ]
 optional-dependencies.scprs = [
   "ncls",
@@ -231,6 +234,9 @@ lint.per-file-ignores."*/__init__.py" = [ "F401" ]
 lint.per-file-ignores."docs/*" = [ "B007", "B018", "BLE001", "D", "E402", "I" ]
 lint.per-file-ignores."tests/*" = [ "D", "E402" ]
 lint.pydocstyle.convention = "numpy"
+
+[tool.pyproject-fmt]
+max_supported_python = "3.13"
 
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]

@@ -1,0 +1,46 @@
+name: Run Notebooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only notebooks that run on synthetic data / tests/data and need nothing beyond pip.
+        notebook:
+          [
+            "docs/tutorials/donordata_basics.ipynb",
+            "docs/tutorials/formula_resolver.ipynb",
+          ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install UV
+        run: pip install uv
+
+      - name: Install cellink and notebook dependencies
+        # limix-core (pulled in by the `at` extra) imports pkg_resources and six without declaring them.
+        run: uv pip install --system ".[at,pgen,datasets]" "setuptools<82" six nbconvert ipykernel
+
+      - name: Run ${{ matrix.notebook }}
+        run: jupyter nbconvert --to notebook --execute ${{ matrix.notebook }}
