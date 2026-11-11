@@ -1,10 +1,12 @@
 from pathlib import Path
 
 import mudata as md
+import numpy as np
+import pandas as pd
 import pytest
 
 from cellink._core.data_fields import CAnn, DAnn
-from cellink._core.donordata import DonorData
+from cellink._core.donordata import DonorData, _anndata_repr
 
 if hasattr(md, "set_options"):
     md.set_options(pull_on_update=False)  # mudata <0.4
@@ -214,6 +216,51 @@ def test_write_zarr_dd(tmp_path, adata, gdata):
     dd.write_zarr_dd(str(output_path))
 
     assert output_path.exists()
+
+
+@pytest.fixture
+def ehr_gdata(adata):
+    ed = pytest.importorskip("ehrdata")
+    donors = adata.obs[DAnn.donor].unique()
+    n_donors, n_vars, n_t = len(donors), 2, 3
+    return ed.EHRData(
+        layers={"tem_data": np.arange(n_donors * n_vars * n_t, dtype=float).reshape(n_donors, n_vars, n_t)},
+        obs=pd.DataFrame({DAnn.donor: donors}, index=pd.Index(donors, name=DAnn.donor)),
+        var=pd.DataFrame(index=["BP_Systolic", "BP_Diastolic"]),
+        tem=pd.DataFrame({"visit_id": ["V1", "V2", "V3"]}, index=["1", "2", "3"]),
+    )
+
+
+def test_ehrdata_G(adata, ehr_gdata):
+    dd = DonorData(G=ehr_gdata, C=adata)
+    n_donors, n_vars, n_t = ehr_gdata.shape
+
+    # the time axis is not one of the four axes dd[...] indexes
+    assert dd.shape == (n_donors, n_vars, *adata.shape)
+    assert str(dd) == (
+        f"DonorData(n_G_obs={n_donors:,}, n_G_vars={n_vars:,}, n_C_obs={adata.n_obs:,}, n_C_vars={adata.n_vars:,})"
+    )
+    lines, _ = _anndata_repr(dd.G)
+    assert lines[0] == [f"EHRData object with n_obs × n_vars × n_t = {n_donors} × {n_vars} × {n_t}"]
+    assert ["    tem: ", "'visit_id'"] in lines
+    assert "EHRData object" in repr(dd)
+
+    sub = dd[["D0", "D1"], :, :, :5].copy()
+    assert type(sub.G).__name__ == "EHRData"
+    assert sub.G.shape == (2, n_vars, n_t)
+    assert sub.shape[3] == 5
+
+
+def test_ehrdata_G_write_raises(adata, ehr_gdata, tmp_path):
+    dd = DonorData(G=ehr_gdata, C=adata)
+    for path in (tmp_path / "ehr.dd.h5", tmp_path / "ehr.dd.zarr"):
+        with pytest.raises(NotImplementedError, match="EHRData"):
+            dd.write_dd(str(path))
+        assert not path.exists()
+
+
+def test_mudata_G_repr(adata, gdata):
+    assert "MuData object" in repr(DonorData(G=md.MuData({"genotype": gdata}), C=adata))
 
 
 if __name__ == "__main__":

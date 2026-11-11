@@ -56,7 +56,7 @@ optional-dependencies.datasets = [
   "bio2zarr[all]",
   "liftover",
   "setuptools<82",
-  "sgkit[plink]",  
+  "sgkit[plink]",
 ]
 
 optional-dependencies.dev = [
@@ -78,6 +78,9 @@ optional-dependencies.doc = [
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
+]
+optional-dependencies.ehr = [
+  "ehrdata>=0.4; python_version>='3.12'", # ehrdata>=0.5 requires numpy>=2
 ]
 optional-dependencies.embpy = [
   "embpy",

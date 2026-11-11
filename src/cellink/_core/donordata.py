@@ -96,12 +96,13 @@ class DonorData:
     """Store and manage donor-related data with single-cell readouts.
 
     This class allows donor-level, especially genetic, analysis with single-cell datasets.
-    It holds AnnData objects for donor-level/genetic (G) and single-cell (C) data
+    It holds AnnData objects for donor-level/genetic (G) and single-cell (C) data.
+    G can also be an :class:`~ehrdata.EHRData` with a time axis (e.g. repeated clinical measurements).
 
     Attributes
     ----------
-        G (AnnData): Donor-level AnnData
-        C (AnnData): Cell-level AnnData
+        G (AnnData | EHRData | MuData): Donor-level data
+        C (AnnData | MuData): Cell-level AnnData
         donor_id (str): Key for donor information in C.obs
 
     Returns
@@ -211,6 +212,7 @@ class DonorData:
         -------
         write_dd('path/to/donor_data.dd.h5')
         """
+        self._check_writable()
         with h5py.File(path, "w") as f:
             self._write_dd(f)
 
@@ -238,8 +240,17 @@ class DonorData:
         for m in [self.G, self.C]:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")
+        self._check_writable()
         f = zarr.open(path, mode="w")
         self._write_dd(f, zarr_path=str(path), x_chunks=x_chunks)
+
+    def _check_writable(self) -> None:
+        # anndata's write_elem has no EHRData encoding: fail before a half-written file is left behind
+        if _is_ehrdata(self.G):
+            raise NotImplementedError(
+                "Writing a DonorData whose G is an EHRData is not supported yet. "
+                "Write dd.G with ehrdata (e.g. ehrdata.io.write_h5ed) and dd.C with anndata separately."
+            )
 
     def _ensure_extension(self, path: str, ext: str) -> str:
         """Ensure the given path ends with the desired extension."""
@@ -461,8 +472,8 @@ class DonorData:
     def prep_repr(self) -> str:
         """String representation of DonorData showing side-by-side dd.G and dd.C views."""
         # Split the representations into lines
-        G_lines, G_highlight = _anndata_repr(self.G, self.G.n_obs, self.G.n_vars, self._var_dims_to_sync)
-        C_lines, C_highlight = _anndata_repr(self.C, self.C.n_obs, self.C.n_vars, [self.donor_id])
+        G_lines, G_highlight = _anndata_repr(self.G, self._var_dims_to_sync)
+        C_lines, C_highlight = _anndata_repr(self.C, [self.donor_id])
 
         def pad_lists(l1, l2):
             max_lines = max(len(l1), len(l2))
@@ -528,21 +539,35 @@ class DonorData:
         )
 
     @property
-    def shape(self) -> tuple[tuple[int, int], tuple[int, int]]:
-        return *self.G.shape, *self.C.shape
+    def shape(self) -> tuple[int, int, int, int]:
+        """``(n_donors, n_G_vars, n_cells, n_C_vars)``, the four axes ``dd[...]`` indexes.
+
+        A time axis of an EHRData ``G`` is not part of it, see ``dd.G.n_t``.
+        """
+        return self.G.n_obs, self.G.n_vars, self.C.n_obs, self.C.n_vars
 
 
-def _anndata_repr(adata, n_obs, n_vars, highlight_keys=None) -> str:
-    if adata.isbacked:
-        backed_at = f" backed at {str(adata.filename)!r}"
-    else:
-        backed_at = ""
-    lines = [[f"AnnData object with n_obs × n_vars = {n_obs:,} × {n_vars:,} {backed_at}"]]
+def _is_ehrdata(obj) -> bool:
+    """Whether ``obj`` is an :class:`~ehrdata.EHRData`, without importing ehrdata."""
+    return any(cls.__name__ == "EHRData" for cls in type(obj).__mro__) and hasattr(obj, "n_t")
+
+
+def _anndata_repr(adata, highlight_keys=()) -> tuple[list[list[str]], list[list[bool]]]:
+    backed_at = f" backed at {str(adata.filename)!r}" if getattr(adata, "isbacked", False) else ""
+    dims, sizes = "n_obs × n_vars", f"{adata.n_obs:,} × {adata.n_vars:,}"
+    attrs = ["obs", "var", "uns", "obsm", "varm", "layers", "obsp", "varp"]
+    if _is_ehrdata(adata):
+        dims, sizes = dims + " × n_t", sizes + f" × {adata.n_t:,}"
+        attrs.insert(2, "tem")
+    lines = [[f"{type(adata).__name__} object with {dims} = {sizes}{backed_at}"]]
     if adata.is_view:
         lines[0][0] = "View of " + lines[0][0]
     highlight = [[False]]
-    for attr in ["obs", "var", "uns", "obsm", "varm", "layers", "obsp", "varp"]:
-        keys = getattr(adata, attr).keys()
+    for attr in attrs:
+        mapping = getattr(adata, attr, None)
+        if mapping is None:  # e.g. MuData has no layers
+            continue
+        keys = mapping.keys()
 
         if len(keys) > 0:
             line = [f"    {attr}: "]
