@@ -16,7 +16,7 @@ from anndata.io import write_elem
 from mudata import MuData
 from mudata._core.io import _write_h5mu
 from rich.box import DOUBLE
-from rich.console import Console
+from rich.console import JUPYTER_DEFAULT_COLUMNS, Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -216,9 +216,7 @@ class DonorData:
         with h5py.File(path, "w") as f:
             self._write_dd(f)
 
-    def write_zarr_dd(
-        self, path: str, x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None
-    ) -> None:
+    def write_zarr_dd(self, path: str, x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
         Parameters
@@ -500,8 +498,8 @@ class DonorData:
 
         # Create table
         table = Table(show_header=True, header_style=HIGHLIGHT_COLOR)
-        table.add_column("G (donors)", max_width=50, justify="left")
-        table.add_column("C (cells)", max_width=50, justify="left")
+        table.add_column("G (donors)", max_width=max(50, G_lines[0].cell_len), justify="left")
+        table.add_column("C (cells)", max_width=max(50, C_lines[0].cell_len), justify="left")
         for gdata_line, adata_line in zip(G_lines, C_lines, strict=True):
             table.add_row(gdata_line, adata_line)
 
@@ -525,7 +523,7 @@ class DonorData:
 
     def __repr__(self) -> str:
         table = self.prep_repr()
-        console = Console()
+        console = Console(force_jupyter=False, width=JUPYTER_DEFAULT_COLUMNS if Console().is_jupyter else None)
         with console.capture() as capture:
             console.print(table)
         return capture.get()
