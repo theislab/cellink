@@ -247,7 +247,6 @@ class DonorData:
         self._write_dd(f, zarr_path=str(path), x_chunks=x_chunks)
 
     def _check_writable(self) -> None:
-        # anndata's write_elem has no EHRData encoding: fail before a half-written file is left behind
         if _is_ehrdata(self.G):
             raise NotImplementedError(
                 "Writing a DonorData whose G is an EHRData is not supported yet. "
