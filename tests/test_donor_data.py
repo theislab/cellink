@@ -263,6 +263,12 @@ def test_mudata_G_repr(adata, gdata):
     assert "MuData object" in repr(DonorData(G=md.MuData({"genotype": gdata}), C=adata))
 
 
+
+def test_repr_html(adata, gdata):
+    html = DonorData(G=gdata, C=adata)._repr_html_()
+    assert html.startswith("<pre") and "DonorData(n_donors=" in html and "AnnData object" in html
+
+
 if __name__ == "__main__":
     import pytest
 

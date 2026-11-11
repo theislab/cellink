@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy as _copy
+import io
 import logging
 from collections.abc import Callable
 
@@ -27,6 +28,9 @@ from cellink._core.schema import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VER
 logger = logging.getLogger(__name__)
 
 HIGHLIGHT_COLOR = "bold deep_pink2"
+_HTML_FORMAT = (
+    "<pre style=\"font-family: Menlo, 'DejaVu Sans Mono', consolas, monospace; line-height: 1.2\">{code}</pre>"
+)
 
 
 def _write_dense_array_zarr_chunked(f: zarr.Group, path: str, X, chunks: tuple[int, int] | None) -> None:
@@ -523,10 +527,21 @@ class DonorData:
 
     def __repr__(self) -> str:
         table = self.prep_repr()
-        console = Console(force_jupyter=False, width=JUPYTER_DEFAULT_COLUMNS if Console().is_jupyter else None)
+        jupyter = Console().is_jupyter  # notebooks show _repr_html_, with colors; keep this text plain
+        console = Console(
+            force_jupyter=False,
+            width=JUPYTER_DEFAULT_COLUMNS if jupyter else None,
+            color_system=None if jupyter else "auto",
+        )
         with console.capture() as capture:
             console.print(table)
         return capture.get()
+
+    def _repr_html_(self) -> str:
+        # as in the donordata package: notebook frontends like GitHub or ReviewNB render HTML, not ANSI colors
+        console = Console(record=True, width=JUPYTER_DEFAULT_COLUMNS, force_jupyter=False, file=io.StringIO())
+        console.print(self.prep_repr())
+        return console.export_html(inline_styles=True, code_format=_HTML_FORMAT)
 
     def __str__(self) -> str:
         n_donors, n_donor_vars, n_cells, n_cell_vars = self.shape
