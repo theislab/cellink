@@ -7,6 +7,8 @@ import pandas as pd
 import scanpy as sc
 from anndata import AnnData
 
+from cellink.tl.external._preprocessing import _log_normalized_copy
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -52,12 +54,16 @@ def run_scdrs(
     scDRS associates individual cells in single-cell RNA-seq data with disease GWAS,
     computing cell-level disease scores and performing downstream analyses.
 
-    ``adata`` is not modified; all processing is done on a copy. On the copy,
-    cells and genes are filtered (``min_genes``, ``min_cells``), and if
-    ``adata.uns`` does not contain ``"log1p"``, ``adata.X`` is assumed to
-    contain raw counts and is size-factor normalized and log1p-transformed.
+    ``adata`` is not filtered or normalized; the only change is that the scores
+    are added to ``adata.obs`` as ``{trait}_norm_score`` and ``{trait}_pval``.
+    scDRS runs on a copy of ``adata.X``, ``obs``, ``var`` and ``obsm["X_pca"]``
+    without layers or ``raw``, restricted to the cells and genes that pass
+    ``min_genes`` and ``min_cells``; removed cells get NaN scores.
+    If the values of ``adata.X`` are integer counts, they are size-factor
+    normalized and log1p-transformed; otherwise ``adata.X`` is used as
+    log-normalized expression. ``adata.uns["log1p"]`` is not used for this
+    decision, which is logged as a warning.
     If ``adata.obsm`` does not contain ``"X_pca"``, PCA is computed.
-    scDRS scores are computed on the log-normalized ``adata.X``.
 
     Parameters
     ----------
@@ -117,7 +123,7 @@ def run_scdrs(
     save_results : bool, default=True
         Whether to save results to files.
     return_adata : bool, default=False
-        Whether to return a processed copy of the input AnnData object with scDRS scores added.
+        Whether to return the filtered, log-normalized AnnData that scDRS ran on, with scores in .obs.
 
     Returns
     -------
@@ -125,7 +131,7 @@ def run_scdrs(
         Depending on the analysis performed:
         - If only score computation: DataFrame with scDRS scores
         - If downstream analyses: tuple of DataFrames (scores, group_stats, cell_corr, gene_corr)
-        - If return_adata=True: processed copy of AnnData object with scores in .obs
+        - If return_adata=True: the filtered, log-normalized AnnData that scDRS ran on, with scores in .obs
 
     Raises
     ------
@@ -156,16 +162,8 @@ def run_scdrs(
     if prefix is None:
         prefix = "scdrs"
 
-    adata = adata.copy()
-
-    logger.info("Filtering cells and genes")
-    sc.pp.filter_cells(adata, min_genes=min_genes)
-    sc.pp.filter_genes(adata, min_cells=min_cells)
-
-    if "log1p" not in adata.uns_keys():
-        logger.info("Normalizing and log-transforming data")
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
+    input_adata = adata
+    adata, cell_mask = _log_normalized_copy(input_adata, "scDRS", min_genes, min_cells, obsm_keys=("X_pca",))
 
     if "X_pca" not in adata.obsm_keys():
         logger.info(f"Computing PCA with {n_pcs} components")
@@ -251,8 +249,11 @@ def run_scdrs(
 
         dict_df_score[trait] = df_score
 
-        adata.obs[f"{trait}_norm_score"] = df_score["norm_score"]
-        adata.obs[f"{trait}_pval"] = df_score["pval"]
+        for key in ("norm_score", "pval"):
+            adata.obs[f"{trait}_{key}"] = df_score[key]
+            column = np.full(input_adata.n_obs, np.nan)
+            column[cell_mask] = df_score[key].to_numpy()
+            input_adata.obs[f"{trait}_{key}"] = column
 
         if save_results:
             df_score.to_csv(f"{prefix}.{trait}.full_score.gz", sep="\t", compression="gzip")

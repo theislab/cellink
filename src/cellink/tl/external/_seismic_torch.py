@@ -5,13 +5,14 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
-import scanpy as sc
 import scipy.stats as st
 import torch
 import torch.linalg as la
 import torch.nn as nn
 from anndata import AnnData
 from scipy.sparse import issparse
+
+from cellink.tl.external._preprocessing import _log_normalized_copy
 
 logger = logging.getLogger(__name__)
 
@@ -339,7 +340,10 @@ def run_seismic_torch(
     adata : AnnData
         Single-cell data. ``species="mouse"`` is not auto-translated (unlike
         the R backend), pass an adata already indexed by the target species'
-        gene symbols if you need cross-species gene mapping.
+        gene symbols if you need cross-species gene mapping. The expression
+        (``adata.X`` or ``layer``) may hold raw counts, which are log-normalized,
+        or log-normalized values, which are used as is; this is decided from
+        the values, not from ``adata.uns["log1p"]``.
     magma_file : str or Path
         MAGMA ``.genes.out`` file with columns ``magma_gene_col``/``magma_z_col``.
     cell_type_col : str
@@ -367,17 +371,12 @@ def run_seismic_torch(
             "to human orthologs before calling this function."
         )
 
-    adata = adata[~adata.obs[cell_type_col].isna()].copy()
-    sc.pp.filter_cells(adata, min_genes=min_genes)
-    sc.pp.filter_genes(adata, min_cells=min_cells)
-
-    if "log1p" not in adata.uns_keys():
-        logger.info("run_seismic_torch: log-normalising data")
-        sc.pp.normalize_total(adata, target_sum=1e4)
-        sc.pp.log1p(adata)
+    adata, _ = _log_normalized_copy(
+        adata, "seismic", min_genes, min_cells, cells=adata.obs[cell_type_col].notna().to_numpy(), layer=layer
+    )
 
     logger.info(f"run_seismic_torch: building sparse tensor ({adata.n_obs:,} cells x {adata.n_vars:,} genes)")
-    Et = _adata_to_sparse_csr_tensor(adata, layer).to(device)
+    Et = _adata_to_sparse_csr_tensor(adata, None).to(device)
 
     cell_types = sorted(adata.obs[cell_type_col].astype(str).unique())
     ct_codes = adata.obs[cell_type_col].astype(str).map({ct: i for i, ct in enumerate(cell_types)}).values
