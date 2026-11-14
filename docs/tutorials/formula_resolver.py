@@ -123,8 +123,8 @@ s.y.shape, s.F.shape
 #
 # The same convention applies to `cellink.at.Skat.run_test`:
 
-# %%
-from cellink.at import Skat  # noqa: E402
+# %% tags=["skip-execution"]
+from cellink.at import Skat
 
 adata2 = sim_adata()
 adata2.obs["pheno"] = rng.standard_normal(adata2.n_obs)
