@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import copy as _copy
 import logging
+import warnings
 from collections.abc import Callable
 
+import anndata as ad
 import dask.array as da
 import h5py
 import numpy as np
@@ -29,8 +32,86 @@ logger = logging.getLogger(__name__)
 HIGHLIGHT_COLOR = "bold deep_pink2"
 
 
-def _write_dense_array_zarr_chunked(f: zarr.Group, path: str, X, chunks: tuple[int, int] | None) -> None:
-    """Write one dense array (`X` or a dense layer) to `f[path]` with sane chunks."""
+def _genotype_view():
+    """Context in which AnnData views of genotypes keep their categories."""
+    if hasattr(ad.settings, "override") and hasattr(ad.settings, "remove_unused_categories"):
+        return ad.settings.override(remove_unused_categories=False)
+    return contextlib.nullcontext()
+
+
+def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
+    """Write a genotype matrix as 2-bit packed int8 calls, one column block at a time.
+
+    Values are converted with :func:`cellink.io._codecs.to_genotype_codes`:
+    floats are rounded to the nearest integer (halves to even), NaN and negative
+    integers are missing and stored as 0, and a warning reports the counts of
+    rounded and missing values. Raises ValueError if any value does not round to
+    0-2 (integers above 2, floats outside [-0.5, 2.5)); the caller then writes the
+    matrix unencoded.
+    """
+    from zarr.codecs import BloscCodec, BloscShuffle
+
+    from cellink.io._codecs import Pack2Bit, to_genotype_codes
+
+    n, m = X.shape
+    chunks = chunks if chunks is not None else (min(n, 4096), min(-(-m // 4) * 4, 4096))
+    z = zarr.create_array(
+        store=path,
+        shape=(n, m),
+        chunks=chunks,
+        dtype="int8",
+        filters=[Pack2Bit()],
+        compressors=BloscCodec(cname="lz4hc", clevel=5, shuffle=BloscShuffle.noshuffle, typesize=1),
+        fill_value=0,
+        overwrite=True,
+    )
+    n_frac = n_missing = 0
+    for j in range(0, m, chunks[1]):
+        block = X[:, j : j + chunks[1]]
+        block = block.compute() if isinstance(block, da.Array) else np.asarray(block)
+        codes, frac, miss = to_genotype_codes(block)
+        z[:, j : j + chunks[1]] = codes
+        n_frac, n_missing = n_frac + frac, n_missing + miss
+    if n_frac:
+        warnings.warn(
+            f"G.X contains {n_frac:,} imputed (non-integer) values; the 2-bit genotype store keeps them rounded "
+            "to the nearest integer. Pass genotype_encoding=None to keep the original values.",
+            UserWarning,
+            stacklevel=4,
+        )
+    if n_missing:
+        warnings.warn(
+            f"G.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them as 0 "
+            "(homozygous reference).",
+            UserWarning,
+            stacklevel=4,
+        )
+
+
+def _write_dense_array_zarr_chunked(
+    f: zarr.Group, path: str, X, chunks: tuple[int, int] | None, genotype_encoding: str | None = None
+) -> None:
+    """Write one dense array (`X` or a dense layer) to `f[path]` with sane chunks.
+
+    ``genotype_encoding="2bit"`` stores it as 2-bit packed genotype calls; if the
+    values are not genotypes (outside 0-2), it is written unencoded with a warning.
+    """
+    if genotype_encoding == "2bit":
+        if chunks is not None and chunks[1] % 4:
+            raise ValueError(f"2-bit genotype encoding needs a variant chunk size divisible by 4, got {chunks[1]}")
+        try:
+            _write_genotypes_2bit(path, X, chunks)
+        except ValueError:
+            warnings.warn(
+                "G.X has values outside the 0-2 genotype range; it is written without 2-bit encoding.",
+                UserWarning,
+                stacklevel=3,
+            )
+        else:
+            arr = zarr.open(path, mode="r+")
+            arr.attrs["encoding-type"] = "array"
+            arr.attrs["encoding-version"] = "0.2.0"
+            return
     if isinstance(X, da.Array):
         X = X.rechunk(chunks) if chunks is not None else X
         da.to_zarr(X, path, overwrite=True)
@@ -44,7 +125,12 @@ def _write_dense_array_zarr_chunked(f: zarr.Group, path: str, X, chunks: tuple[i
 
 
 def _write_anndata_zarr_dense_x_chunked(
-    f: zarr.Group, key: str, adata: AnnData, zarr_path: str, chunks: tuple[int, int] | None = None
+    f: zarr.Group,
+    key: str,
+    adata: AnnData,
+    zarr_path: str,
+    chunks: tuple[int, int] | None = None,
+    genotype_encoding: str | None = None,
 ) -> None:
     """Write one AnnData to a Zarr group with `X` and any dense `layers` chunked sanely.
 
@@ -65,6 +151,8 @@ def _write_anndata_zarr_dense_x_chunked(
         Chunk shape applied to `X` and every dense layer. If `None`: a dask
         array's own chunks (which `dask.array.to_zarr` preserves
         automatically), or, for a plain array, capped at 4096 per axis.
+    genotype_encoding
+        ``"2bit"`` stores `X` (not layers) as 2-bit packed genotype calls.
     """
     X = adata.X
     dense_layers = {k: v for k, v in adata.layers.items() if hasattr(v, "ndim") and not sp.issparse(v)}
@@ -84,7 +172,7 @@ def _write_anndata_zarr_dense_x_chunked(
     )
     write_elem(f, key, shell)
     del f[key]["X"]
-    _write_dense_array_zarr_chunked(f, f"{zarr_path}/{key}/X", X, chunks)
+    _write_dense_array_zarr_chunked(f, f"{zarr_path}/{key}/X", X, chunks, genotype_encoding=genotype_encoding)
 
     if dense_layers and "layers" not in f[key]:
         f[key].create_group("layers")
@@ -176,7 +264,7 @@ class DonorData:
         new.uns = _copy.deepcopy(self.uns)
         return new
 
-    def _write_dd(self, f: h5py.File, zarr_path: str | None = None, x_chunks=None):
+    def _write_dd(self, f: h5py.File, zarr_path: str | None = None, x_chunks=None, genotype_encoding=None):
         is_zarr = isinstance(f, zarr.Group)
         for key, modality in (("G", self.G), ("C", self.C)):
             if isinstance(modality, MuData):
@@ -184,7 +272,10 @@ class DonorData:
                 _write_h5mu(group, modality)
             elif is_zarr and hasattr(modality.X, "ndim") and not sp.issparse(modality.X):
                 key_chunks = x_chunks.get(key) if isinstance(x_chunks, dict) else x_chunks
-                _write_anndata_zarr_dense_x_chunked(f, key, modality, zarr_path, chunks=key_chunks)
+                encoding = genotype_encoding if key == "G" else None
+                _write_anndata_zarr_dense_x_chunked(
+                    f, key, modality, zarr_path, chunks=key_chunks, genotype_encoding=encoding
+                )
             else:
                 write_elem(f, key, modality)
         f.attrs["encoding-type"] = DONORDATA_ENCODING_TYPE
@@ -215,7 +306,10 @@ class DonorData:
             self._write_dd(f)
 
     def write_zarr_dd(
-        self, path: str, x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None
+        self,
+        path: str,
+        x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None,
+        genotype_encoding: str | None = "2bit",
     ) -> None:
         """Write the DonorData object to the specified file paths for both gene expression data (G) and cell-type data (C).
 
@@ -230,6 +324,26 @@ class DonorData:
             `dask.array.to_zarr`); a plain array gets chunks capped at 4096
             per axis. Only applies to a dense `X`; sparse/`MuData` are
             unaffected.
+        genotype_encoding : {"2bit", None}
+            Storage of a dense `G.X`. ``None`` writes it unencoded, with its
+            values and dtype unchanged. ``"2bit"`` (default) stores it as 2-bit
+            packed genotype calls, four per byte; the variant chunk size must be
+            divisible by 4. Only `G.X` is affected: `obs`, `var`, `obsm`,
+            `layers`, `uns` and `C` are written unchanged. With ``"2bit"``:
+
+            - Integer values 0, 1 and 2 are stored as they are. Negative
+              integers count as missing.
+            - Floating-point values, e.g. imputed dosages, are rounded to the
+              nearest integer, halves to even (0.5 becomes 0, 1.5 becomes 2).
+              NaN counts as missing.
+            - Missing values are stored as 0 (homozygous reference).
+            - A warning reports how many non-integer values were rounded and
+              how many missing values were stored as 0.
+            - Every value must round to 0, 1 or 2: integers 0-2, or floats in
+              [-0.5, 2.5). If any value lies outside, the whole `G.X` is written
+              unencoded, with its original values and dtype, and a warning.
+            - Continuous data inside [-0.5, 2.5) cannot be told apart from
+              dosages and is rounded. Pass ``None`` to keep such data unchanged.
 
         Example
         -------
@@ -239,7 +353,7 @@ class DonorData:
             if isinstance(m, MuData):
                 raise NotImplementedError("MuData not supported for zarr write")
         f = zarr.open(path, mode="w")
-        self._write_dd(f, zarr_path=str(path), x_chunks=x_chunks)
+        self._write_dd(f, zarr_path=str(path), x_chunks=x_chunks, genotype_encoding=genotype_encoding)
 
     def _ensure_extension(self, path: str, ext: str) -> str:
         """Ensure the given path ends with the desired extension."""
@@ -319,7 +433,8 @@ class DonorData:
         C_obs: slice = slice(None),
         C_var: slice = slice(None),
     ):
-        _G = self.G[G_obs, G_var]
+        with _genotype_view():
+            _G = self.G[G_obs, G_var]
         _C = self.C[C_obs, C_var]
 
         _G = self._sync_var_dims(_G, _C)
@@ -338,8 +453,9 @@ class DonorData:
         )  # needed because Mudata[str] looks up modalities
         key = key + (slice(None),) * (4 - len(key))
         # Only slice if key is not slice(None)
-        _G = self.G[key[0]] if key[0] is not slice(None) else self.G
-        _G = _G[:, key[1]] if key[1] is not slice(None) else _G
+        with _genotype_view():
+            _G = self.G[key[0]] if key[0] is not slice(None) else self.G
+            _G = _G[:, key[1]] if key[1] is not slice(None) else _G
         _C = self.C[key[2]] if key[2] is not slice(None) else self.C
         _C = _C[:, key[3]] if key[3] is not slice(None) else _C
 

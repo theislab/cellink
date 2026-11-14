@@ -45,7 +45,7 @@ dependencies = [
   "scikit-learn",
   "session-info",
   "xarray",
-  "zarr>=3",
+  "zarr>=3.1",
 ]
 
 optional-dependencies.at = [
@@ -112,7 +112,7 @@ optional-dependencies.ml = [
 ]
 optional-dependencies.pgen = [
   "pgenlib",
-  "zarr>3",
+  "zarr>=3.1",
 ]
 
 optional-dependencies.rvat = [
@@ -169,6 +169,7 @@ urls.Homepage = "https://github.com/theislab/cellink"
 urls.Source = "https://github.com/theislab/cellink"
 
 scripts.cellink-pgen = "cellink.cli.pgen:main"
+entry-points."zarr.codecs".cellink_pack2bit = "cellink.io._codecs:Pack2Bit"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/cellink" ]

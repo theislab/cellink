@@ -42,8 +42,21 @@ def main() -> int:
     parser.add_argument("--chunk-samples", type=int, default=4096)
     parser.add_argument("--chunk-variants", type=int, default=2048)
     parser.add_argument("--memory-limit", type=float, default=10.0)
-    parser.add_argument("--compressor", choices=["zstd", "lz4", "zlib"], default="zstd")
-    parser.add_argument("--compression-level", type=int, default=7, choices=range(1, 10))
+    parser.add_argument(
+        "--compressor",
+        choices=["auto", "zstd", "lz4", "lz4hc", "zlib"],
+        default="auto",
+        help="Blosc compressor (default: lz4hc for 2bit, zstd for int8)",
+    )
+    parser.add_argument(
+        "--compression-level", type=int, default=None, choices=range(1, 10), help="Default: 5 for 2bit, 7 for int8"
+    )
+    parser.add_argument(
+        "--genotype-encoding",
+        choices=["2bit", "int8"],
+        default="2bit",
+        help="Dense genotype storage: 2bit (default; dosages rounded to the nearest integer) or int8 (hard calls)",
+    )
     parser.add_argument("--sparse", action="store_true")
     parser.add_argument(
         "--sparse-format",
@@ -68,6 +81,7 @@ def main() -> int:
         compression_level=args.compression_level,
         sparse=args.sparse,
         sparse_format=args.sparse_format,
+        genotype_encoding=args.genotype_encoding,
     )
 
     return 0

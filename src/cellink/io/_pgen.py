@@ -1,5 +1,6 @@
 import gc
 import logging
+import warnings
 from pathlib import Path
 from typing import Literal
 
@@ -11,9 +12,12 @@ import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_dispatched
 from anndata.io import read_elem
+from dask.base import tokenize
 from tqdm.auto import tqdm
 
 from cellink._core.data_fields import VAnn
+from cellink.io._codecs import Pack2Bit, to_genotype_codes
+from cellink.io._genotype_array import GenotypeArray
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,23 +33,51 @@ def _is_matrix_elem(elem_name: str) -> bool:
     return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")
 
 
+def _lazy_matrix(elem: zarr.Array, backend: Literal["dask", "zarr"], n_threads: int | None):
+    """Back a dense matrix element with :class:`GenotypeArray` (``"zarr"``) or Dask (``"dask"``).
+
+    For int8 genotype stores (blosc, optionally 2-bit packed) the Dask array reads
+    each block through :class:`GenotypeArray`; any other array keeps ``da.from_zarr``.
+    """
+    g = GenotypeArray.wrap(elem, n_threads)
+    if backend == "zarr":
+        return g
+    if g._layout() is None:
+        return da.from_zarr(elem)
+    return da.from_array(
+        GenotypeArray.wrap(elem, 1),
+        chunks=elem.chunks,
+        name="cellink-genotypes-" + tokenize(str(elem.store), elem.path, elem.shape),
+        meta=np.empty((0, 0), dtype=np.int8),
+    )
 
 
-def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Literal["dask", "zarr"] = "dask"):
+def lazy_anndata_zarr_callback(
+    func,
+    elem_name: str,
+    elem,
+    iospec,
+    backend: Literal["dask", "zarr"] = "dask",
+    n_threads: int | None = None,
+):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
     nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
     while keeping a dense ``X``/``layers`` entry lazily backed instead of
     materializing it.
 
-    ``backend="dask"`` (default, unchanged behavior) wraps the dense array in
-    a Dask array. ``backend="zarr"`` instead returns the raw Zarr array
-    directly.
+    ``backend="dask"`` (default) wraps the dense array in a Dask array.
+    ``backend="zarr"`` returns a :class:`cellink.io._genotype_array.GenotypeArray`,
+    a `zarr.Array` whose indexing reads genotype chunks in parallel with
+    ``n_threads`` threads (default: available cores, at most 16).
     """
     if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
         return ad.AnnData(
             **{
                 k: read_dispatched(
-                    v, lambda f, n, e, iospec: lazy_anndata_zarr_callback(f, n, e, iospec, backend=backend)
+                    v,
+                    lambda f, n, e, iospec: lazy_anndata_zarr_callback(
+                        f, n, e, iospec, backend=backend, n_threads=n_threads
+                    ),
                 )
                 for k, v in dict(elem).items()
                 if not k.startswith("raw.")
@@ -59,12 +91,14 @@ def lazy_anndata_zarr_callback(func, elem_name: str, elem, iospec, backend: Lite
     ):
         return read_elem(elem)
     elif _is_matrix_elem(elem_name) and iospec.encoding_type == "array":
-        return elem if backend == "zarr" else da.from_zarr(elem)
+        return _lazy_matrix(elem, backend, n_threads)
     else:
         return func(elem)
 
 
-def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask") -> ad.AnnData:
+def read_pgen_zarr(
+    store: str | Path, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None
+) -> ad.AnnData:
     """
     Lazily read an AnnData Zarr v3 store written by `stream_pgen_to_zarr`.
 
@@ -88,8 +122,11 @@ def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask")
         or a compatible AnnData Zarr v3 store.
     backend : {"dask", "zarr"}
         How to back a dense `X`/`layers` entry. ``"dask"`` (default) wraps it in a Dask array, useful if
-        you need Dask's own lazy-graph chaining on X. ``"zarr"`` returns the
-        raw Zarr array directly instead.
+        you need Dask's own lazy-graph chaining on X. ``"zarr"`` returns a
+        `zarr.Array` subclass whose indexing reads chunks in parallel and selects
+        donors before decoding, the fastest way to subset genotypes.
+    n_threads : int, optional
+        Threads for ``backend="zarr"`` reads. Default: available cores, at most 16.
 
     Returns
     -------
@@ -124,7 +161,10 @@ def read_pgen_zarr(store: str | Path, backend: Literal["dask", "zarr"] = "dask")
     """
     f = zarr.open(str(store), mode="r")
     return read_dispatched(
-        f, callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(func, name, elem, iospec, backend=backend)
+        f,
+        callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(
+            func, name, elem, iospec, backend=backend, n_threads=n_threads
+        ),
     )
 
 
@@ -181,11 +221,12 @@ def stream_pgen_to_zarr(
     chunk_samples: int = 4096,
     chunk_variants: int = 2048,
     memory_limit_gb: float = 10.0,
-    compressor: str | None = "zstd",
-    compression_level: int = 7,
+    compressor: str | None = "auto",
+    compression_level: int | None = None,
     sparse: bool = False,
     sparse_format: Literal["csc", "csr"] = "csc",
     return_adata: bool = False,
+    genotype_encoding: Literal["2bit", "int8"] = "2bit",
 ) -> ad.AnnData | None:
     """
     Stream one or more PGEN files → a single Zarr v3 AnnData-compatible store.
@@ -208,13 +249,15 @@ def stream_pgen_to_zarr(
     chunk_samples : int
         Zarr chunk size along sample axis.
     chunk_variants : int
-        Zarr chunk size along variant axis.
+        Zarr chunk size along variant axis. Must be divisible by 4 for
+        ``genotype_encoding="2bit"``.
     memory_limit_gb : float
         Max RAM per read block in GB.
-    compressor : str
-        Blosc compressor name ('zstd', 'lz4', 'zlib').
-    compression_level : int
-        Compression level 1-9.
+    compressor : str or None
+        Blosc compressor name ('zstd', 'lz4', 'lz4hc', 'zlib'), or None for no
+        compression. ``"auto"`` (default) picks 'lz4hc' for 2-bit and 'zstd' for int8.
+    compression_level : int, optional
+        Compression level 1-9. Default: 5 for 2-bit, 7 for int8.
     sparse : bool
         If True, accumulate a scipy CSR matrix and write as AnnData sparse X.
         If False (default), stream directly into a dense Zarr dataset.
@@ -229,6 +272,16 @@ def stream_pgen_to_zarr(
         Default is False: this is normally a one-off conversion step, so the data
         isn't re-opened/held onto unless asked for. Load it back later with
         :func:`read_pgen_zarr`.
+    genotype_encoding : {"2bit", "int8"}
+        Storage of the dense genotype matrix. ``"2bit"`` (default) packs four
+        calls per byte via the ``cellink_pack2bit`` zarr codec (about 2.4x
+        smaller than int8 and faster to read with ``read_pgen_zarr(...,
+        backend="zarr")``). It stores PLINK's hard calls; a call without a hard
+        call but with an imputed dosage is stored as that dosage rounded to the
+        nearest integer (halves to even), with a warning if the PGEN carries
+        imputed dosages. Dosages themselves are never stored.
+        ``"int8"`` stores PLINK's hard calls, one byte each. In both, calls
+        without a hard call or dosage are stored as 0. Ignored for ``sparse=True``.
 
     Returns
     -------
@@ -246,6 +299,16 @@ def stream_pgen_to_zarr(
         from zarr.codecs import BloscCodec, BloscShuffle
     except ImportError as e:
         raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.") from e
+
+    if genotype_encoding not in ("2bit", "int8"):
+        raise ValueError(f"genotype_encoding must be '2bit' or 'int8', got {genotype_encoding!r}")
+    two_bit = genotype_encoding == "2bit" and not sparse
+    if two_bit and chunk_variants % 4:
+        raise ValueError(f"genotype_encoding='2bit' needs chunk_variants divisible by 4, got {chunk_variants}")
+    if compressor == "auto":
+        compressor = "lz4hc" if two_bit else "zstd"
+    if compression_level is None:
+        compression_level = 5 if two_bit else 7
 
     if isinstance(pgen_path, str):
         pgen_paths = [pgen_path]
@@ -306,7 +369,8 @@ def stream_pgen_to_zarr(
         pvar.index = pvar.index.astype(str)
 
     output_path = Path(output_path)
-    codecs = () if compressor is None else (BloscCodec(cname=compressor, clevel=compression_level, shuffle=BloscShuffle.bitshuffle),)
+    shuffle = BloscShuffle.noshuffle if two_bit else BloscShuffle.bitshuffle
+    codecs = () if compressor is None else (BloscCodec(cname=compressor, clevel=compression_level, shuffle=shuffle, typesize=1),)
 
     if sparse:
         if sparse_format not in ("csr", "csc"):
@@ -369,21 +433,23 @@ def stream_pgen_to_zarr(
             f"Creating dense X ({n_samples:,} × {n_variants_total:,}) "
             f"chunks=({chunk_samples}, {chunk_variants}) ..."
         )
-        Xz = root.create_dataset(
+        Xz = root.create_array(
             "X",
             shape=(n_samples, n_variants_total),
             chunks=(chunk_samples, chunk_variants),
             dtype="i1",
+            filters=(Pack2Bit(),) if two_bit else None,
             compressors=codecs,
+            fill_value=0,
         )
         Xz.attrs["encoding-type"] = "array"
         Xz.attrs["encoding-version"] = "0.2.0"
 
-        col_offset = 0
+        col_offset, n_rounded, n_missing, has_dosages = 0, 0, 0, False
         for (reader, n_raw, base), nv in zip(readers, n_variants_per_file, strict=False):
             pgen_file = Path(base + ".pgen")
             logger.info(f"Reading (dense) {pgen_file.name} ...")
-            bytes_per_variant = n_raw
+            bytes_per_variant = 5 * n_raw if two_bit else n_raw
             max_vblock = max(100, int((memory_limit_gb * 1024**3) / bytes_per_variant))
             vblock = min(chunk_variants, max_vblock, nv)
             n_blocks = (nv + vblock - 1) // vblock
@@ -395,8 +461,24 @@ def stream_pgen_to_zarr(
                     width = end - start
                     buf = np.zeros((n_raw, width), dtype=np.int8)
                     reader.read_range(start, end, geno_int_out=buf, sample_maj=1)
-                    buf[buf < 0] = 0
-                    Xz[:, col_offset + start : col_offset + end] = buf[:n_samples, :]
+                    buf = buf[:n_samples, :]
+                    no_call = buf < 0
+                    if two_bit and (i == 0 or no_call.any()):
+                        dos = np.empty((width, n_raw), dtype=np.float32)
+                        reader.read_dosages_range(start, end, dos)
+                        dos = dos.T[:n_samples, :]
+                        has_dosages |= bool((np.rint(dos) != dos).any())
+                        codes, _, _ = to_genotype_codes(np.where(no_call, dos, 0), missing_value=-9)
+                        no_dosage = no_call & (dos == -9)
+                        n_rounded += int(no_call.sum() - no_dosage.sum())
+                        n_missing += int(no_dosage.sum())
+                        buf = np.where(no_call, codes, buf).astype(np.int8)
+                        del dos
+                    else:
+                        if two_bit:
+                            n_missing += int(no_call.sum())
+                        buf[no_call] = 0
+                    Xz[:, col_offset + start : col_offset + end] = buf
                     del buf
                     pbar.update(width)
                     if i % 5 == 0:
@@ -404,6 +486,19 @@ def stream_pgen_to_zarr(
 
             col_offset += nv
 
+        if has_dosages or n_rounded:
+            warnings.warn(
+                "The PGEN carries imputed dosages; the 2-bit store keeps integer calls: PLINK's hard calls, "
+                f"and for {n_rounded:,} calls without a hard call the imputed dosage rounded to the nearest integer.",
+                UserWarning,
+                stacklevel=2,
+            )
+        if n_missing:
+            warnings.warn(
+                f"{n_missing:,} missing genotype calls are stored as 0 (homozygous reference).",
+                UserWarning,
+                stacklevel=2,
+            )
         logger.info("Writing obs / var / metadata ...")
         ad.io.write_elem(root, "obs", psam)
         ad.io.write_elem(root, "var", pvar)

@@ -1,4 +1,5 @@
 import warnings
+from typing import Literal
 
 import h5py
 import zarr
@@ -79,7 +80,9 @@ def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
     return mu
 
 
-def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
+def _read_dd(
+    f: h5py.File, lazy: bool = False, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None
+) -> DonorData:
     """
     Internal function to read a DonorData object from an HDF5 or Zarr group.
 
@@ -97,6 +100,10 @@ def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
         so a dense `X` stays Dask-backed instead of being materialized, which
         lets callers select a subset (e.g. one cell type) before ever loading
         the full array into memory.
+    backend : {"dask", "zarr"}
+        Backing of a dense `X`/`layers` entry when ``lazy``; see :func:`cellink.io.read_pgen_zarr`.
+    n_threads : int, optional
+        Threads for ``backend="zarr"`` genotype reads.
 
     Returns
     -------
@@ -110,8 +117,11 @@ def _read_dd(f: h5py.File, lazy: bool = False) -> DonorData:
         If the encoding type of `G` or `C` is not recognized.
     """
 
+    def _callback(func, name, elem, iospec):
+        return lazy_anndata_zarr_callback(func, name, elem, iospec, backend=backend, n_threads=n_threads)
+
     def _read_anndata(group):
-        return read_dispatched(group, callback=lazy_anndata_zarr_callback) if lazy else read_elem(group)
+        return read_dispatched(group, callback=_callback) if lazy else read_elem(group)
 
     top_encoding_type = f.attrs.get("encoding-type")
     if top_encoding_type is not None and top_encoding_type != DONORDATA_ENCODING_TYPE:
@@ -179,7 +189,7 @@ def read_h5_dd(path: str) -> DonorData:
         return _read_dd(f)
 
 
-def read_zarr_dd(path: str) -> DonorData:
+def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None) -> DonorData:
     """
     Read a DonorData object from a Zarr store on disk.
 
@@ -192,6 +202,11 @@ def read_zarr_dd(path: str) -> DonorData:
     ----------
     path : str
         Path to the Zarr store containing serialized DonorData.
+    backend : {"dask", "zarr"}
+        Backing of a dense `X`/`layers` entry. ``"zarr"`` gives `G.X` the parallel
+        genotype reader (:func:`cellink.io.read_pgen_zarr`), fastest for subsetting donors.
+    n_threads : int, optional
+        Threads for ``backend="zarr"`` genotype reads. Default: available cores, at most 16.
 
     Returns
     -------
@@ -199,7 +214,7 @@ def read_zarr_dd(path: str) -> DonorData:
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
     f = zarr.open(path, mode="r")
-    return _read_dd(f, lazy=True)
+    return _read_dd(f, lazy=True, backend=backend, n_threads=n_threads)
 
 
 def read_dd(path: str, fmt: str = None) -> DonorData:
