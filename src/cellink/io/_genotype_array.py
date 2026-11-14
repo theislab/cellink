@@ -10,7 +10,8 @@ import zarr
 from numcodecs import Blosc
 from zarr.storage import LocalStore
 
-_LUT = np.array([[(b >> 6) & 3, (b >> 4) & 3, (b >> 2) & 3, b & 3] for b in range(256)], dtype=np.int8)
+from cellink.io._codecs import _LUT
+
 _BLOSC = Blosc()
 
 

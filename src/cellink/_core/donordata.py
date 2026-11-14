@@ -44,12 +44,12 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
 
     Values are converted with :func:`cellink.io._codecs.to_genotype_codes`:
     floats are rounded to the nearest integer (halves to even), NaN and negative
-    integers are missing and stored as 0, and a warning reports the counts of
-    rounded and missing values. Raises ValueError if any value does not round to
+    integers are missing and kept as missing (2-bit code 3, read back as -1), and
+    a warning reports the counts of rounded and missing values. Raises ValueError if any value does not round to
     0-2 (integers above 2, floats outside [-0.5, 2.5)); the caller then writes the
     matrix unencoded.
     """
-    from zarr.codecs import BloscCodec, BloscShuffle
+    from zarr.codecs import BloscCodec
 
     from cellink.io._codecs import Pack2Bit, to_genotype_codes
 
@@ -61,7 +61,7 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
         chunks=chunks,
         dtype="int8",
         filters=[Pack2Bit()],
-        compressors=BloscCodec(cname="lz4hc", clevel=5, shuffle=BloscShuffle.noshuffle, typesize=1),
+        compressors=BloscCodec(cname="lz4hc", clevel=5, shuffle="noshuffle", typesize=1),
         fill_value=0,
         overwrite=True,
     )
@@ -81,8 +81,8 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
         )
     if n_missing:
         warnings.warn(
-            f"G.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them as 0 "
-            "(homozygous reference).",
+            f"G.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them missing, "
+            "read back as -1.",
             UserWarning,
             stacklevel=4,
         )
@@ -98,7 +98,14 @@ def _write_dense_array_zarr_chunked(
     """
     if genotype_encoding == "2bit":
         if chunks is not None and chunks[1] % 4:
-            raise ValueError(f"2-bit genotype encoding needs a variant chunk size divisible by 4, got {chunks[1]}")
+            rounded = -(-chunks[1] // 4) * 4
+            warnings.warn(
+                f"2-bit genotype encoding packs 4 variants per byte; the variant chunk size {chunks[1]} is "
+                f"rounded up to {rounded}.",
+                UserWarning,
+                stacklevel=3,
+            )
+            chunks = (chunks[0], rounded)
         try:
             _write_genotypes_2bit(path, X, chunks)
         except ValueError:
@@ -327,8 +334,9 @@ class DonorData:
         genotype_encoding : {"2bit", None}
             Storage of a dense `G.X`. ``None`` writes it unencoded, with its
             values and dtype unchanged. ``"2bit"`` (default) stores it as 2-bit
-            packed genotype calls, four per byte; the variant chunk size must be
-            divisible by 4. Only `G.X` is affected: `obs`, `var`, `obsm`,
+            packed genotype calls, four per byte; a variant chunk size not
+            divisible by 4 is rounded up to the next multiple of 4, with a
+            warning. Only `G.X` is affected: `obs`, `var`, `obsm`,
             `layers`, `uns` and `C` are written unchanged. With ``"2bit"``:
 
             - Integer values 0, 1 and 2 are stored as they are. Negative
@@ -336,9 +344,10 @@ class DonorData:
             - Floating-point values, e.g. imputed dosages, are rounded to the
               nearest integer, halves to even (0.5 becomes 0, 1.5 becomes 2).
               NaN counts as missing.
-            - Missing values are stored as 0 (homozygous reference).
+            - Missing values stay missing: stored as the 2-bit code 3 and read
+              back as -1.
             - A warning reports how many non-integer values were rounded and
-              how many missing values were stored as 0.
+              how many values are missing.
             - Every value must round to 0, 1 or 2: integers 0-2, or floats in
               [-0.5, 2.5). If any value lies outside, the whole `G.X` is written
               unencoded, with its original values and dtype, and a warning.

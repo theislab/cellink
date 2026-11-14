@@ -9,14 +9,17 @@ from zarr.core.dtype import parse_data_type
 from zarr.registry import register_codec
 
 _UINT8 = parse_data_type("uint8", zarr_format=3)
+_LUT = np.array([[(b >> 6) & 3, (b >> 4) & 3, (b >> 2) & 3, b & 3] for b in range(256)], dtype=np.int8)
+_LUT[_LUT == 3] = -1
 
 
 @dataclass(frozen=True)
 class Pack2Bit(ArrayArrayCodec):
-    """Zarr v3 codec storing genotype calls (0-3) as 2 bits each, four per byte.
+    """Zarr v3 codec storing genotype calls as 2 bits each, four per byte.
 
-    Packs along the last (variant) axis, first call in the two highest bits.
-    Chunks must span a multiple of 4 variants.
+    Calls 0, 1 and 2 are stored as codes 0-2 and missing calls (-1) as code 3,
+    which decodes back to -1. Packs along the last (variant) axis, first call in
+    the two highest bits. Chunks must span a multiple of 4 variants.
     """
 
     is_fixed_size = True
@@ -45,17 +48,15 @@ class Pack2Bit(ArrayArrayCodec):
 
     async def _encode_single(self, chunk_array, chunk_spec):
         x = chunk_array.as_numpy_array()
-        if x.size and (x.min() < 0 or x.max() > 3):
-            raise ValueError("cellink_pack2bit stores values 0-3 only")
-        q = x.astype(np.uint8).reshape(*x.shape[:-1], -1, 4)
+        if x.size and (x.min() < -1 or x.max() > 2):
+            raise ValueError("cellink_pack2bit stores genotype calls 0-2 and missing calls (-1) only")
+        q = np.where(x < 0, 3, x).astype(np.uint8).reshape(*x.shape[:-1], -1, 4)
         packed = (q[..., 0] << 6) | (q[..., 1] << 4) | (q[..., 2] << 2) | q[..., 3]
         return chunk_spec.prototype.nd_buffer.from_numpy_array(packed)
 
     async def _decode_single(self, chunk_array, chunk_spec):
         p = chunk_array.as_numpy_array()
-        out = np.empty((*p.shape, 4), dtype=np.int8)
-        out[..., 0], out[..., 1], out[..., 2], out[..., 3] = p >> 6, (p >> 4) & 3, (p >> 2) & 3, p & 3
-        return chunk_spec.prototype.nd_buffer.from_numpy_array(out.reshape(*p.shape[:-1], -1))
+        return chunk_spec.prototype.nd_buffer.from_numpy_array(_LUT[p].reshape(*p.shape[:-1], -1))
 
     def compute_encoded_size(self, input_byte_length: int, _chunk_spec: ArraySpec) -> int:
         return input_byte_length // 4
@@ -72,7 +73,7 @@ def to_genotype_codes(x, missing_value: float | None = None) -> tuple[np.ndarray
     - Float input: NaN and ``missing_value`` (e.g. PLINK's -9) are missing.
       Other values are rounded to the nearest integer, halves to even (0.5 to 0,
       1.5 to 2), and must lie in [-0.5, 2.5).
-    - Missing values become 0.
+    - Missing values become -1, which :class:`Pack2Bit` stores as code 3.
 
     Returns the codes, the number of non-integer values that were rounded, and
     the number of missing values. Raises ValueError if any value does not round
@@ -94,4 +95,4 @@ def to_genotype_codes(x, missing_value: float | None = None) -> tuple[np.ndarray
         n_frac = int(np.count_nonzero(r != xv))
     if bad.any():
         raise ValueError("values outside the 0-2 genotype range cannot be stored with 2-bit encoding")
-    return np.where(missing, 0, r).astype(np.int8), n_frac, int(np.count_nonzero(missing))
+    return np.where(missing, -1, r).astype(np.int8), n_frac, int(np.count_nonzero(missing))
