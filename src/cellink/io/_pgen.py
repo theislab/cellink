@@ -52,6 +52,19 @@ def _lazy_matrix(elem: zarr.Array, backend: Literal["dask", "zarr"], n_threads: 
     )
 
 
+def _read_dataframe_columns(elem, columns: list[str]) -> pd.DataFrame:
+    """Read only ``columns`` of a stored dataframe, as anndata's own dataframe reader would."""
+    idx_key = elem.attrs["_index"]
+    df = pd.DataFrame(
+        {c: read_elem(elem[c]) for c in columns},
+        index=read_elem(elem[idx_key]),
+        columns=list(columns) or None,
+    )
+    if idx_key != "_index":
+        df.index.name = idx_key
+    return df
+
+
 def lazy_anndata_zarr_callback(
     func,
     elem_name: str,
@@ -59,6 +72,7 @@ def lazy_anndata_zarr_callback(
     iospec,
     backend: Literal["dask", "zarr"] = "dask",
     n_threads: int | None = None,
+    var_columns: list[str] | None = None,
 ):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
     nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
@@ -69,6 +83,8 @@ def lazy_anndata_zarr_callback(
     ``backend="zarr"`` returns a :class:`cellink.io._genotype_array.GenotypeArray`,
     a `zarr.Array` whose indexing reads genotype chunks in parallel with
     ``n_threads`` threads (default: available cores, at most 16).
+
+    ``var_columns`` restricts a ``var`` dataframe to those columns and its index.
     """
     if iospec.encoding_type == "anndata" or elem_name.endswith("/"):
         return ad.AnnData(
@@ -76,13 +92,15 @@ def lazy_anndata_zarr_callback(
                 k: read_dispatched(
                     v,
                     lambda f, n, e, iospec: lazy_anndata_zarr_callback(
-                        f, n, e, iospec, backend=backend, n_threads=n_threads
+                        f, n, e, iospec, backend=backend, n_threads=n_threads, var_columns=var_columns
                     ),
                 )
                 for k, v in dict(elem).items()
                 if not k.startswith("raw.")
             }
         )
+    elif var_columns is not None and elem_name.endswith("/var") and iospec.encoding_type == "dataframe":
+        return _read_dataframe_columns(elem, var_columns)
     elif _is_matrix_elem(elem_name) and iospec.encoding_type in (
         "dataframe",
         "csr_matrix",
@@ -97,7 +115,10 @@ def lazy_anndata_zarr_callback(
 
 
 def read_pgen_zarr(
-    store: str | Path, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None
+    store: str | Path,
+    backend: Literal["dask", "zarr"] = "dask",
+    n_threads: int | None = None,
+    var_columns: list[str] | None = None,
 ) -> ad.AnnData:
     """
     Lazily read an AnnData Zarr v3 store written by `stream_pgen_to_zarr`.
@@ -127,6 +148,10 @@ def read_pgen_zarr(
         donors before decoding, the fastest way to subset genotypes.
     n_threads : int, optional
         Threads for ``backend="zarr"`` reads. Default: available cores, at most 16.
+    var_columns : list of str, optional
+        Columns of `var` to read, e.g. ``["chrom", "pos", "a0", "a1"]``; ``[]`` reads only the
+        variant index. All columns by default. Long per-variant annotations, such as a PLINK
+        ``INFO`` field, can need more memory than reading the genotypes chunk by chunk.
 
     Returns
     -------
@@ -163,7 +188,7 @@ def read_pgen_zarr(
     return read_dispatched(
         f,
         callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(
-            func, name, elem, iospec, backend=backend, n_threads=n_threads
+            func, name, elem, iospec, backend=backend, n_threads=n_threads, var_columns=var_columns
         ),
     )
 
@@ -249,8 +274,8 @@ def stream_pgen_to_zarr(
     chunk_samples : int
         Zarr chunk size along sample axis.
     chunk_variants : int
-        Zarr chunk size along variant axis. Must be divisible by 4 for
-        ``genotype_encoding="2bit"``.
+        Zarr chunk size along variant axis. For ``genotype_encoding="2bit"``
+        it is rounded up to a multiple of 4, with a warning.
     memory_limit_gb : float
         Max RAM per read block in GB.
     compressor : str or None
@@ -280,8 +305,10 @@ def stream_pgen_to_zarr(
         call but with an imputed dosage is stored as that dosage rounded to the
         nearest integer (halves to even), with a warning if the PGEN carries
         imputed dosages. Dosages themselves are never stored.
-        ``"int8"`` stores PLINK's hard calls, one byte each. In both, calls
-        without a hard call or dosage are stored as 0. Ignored for ``sparse=True``.
+        ``"int8"`` stores PLINK's hard calls, one byte each. Calls without a
+        hard call or dosage stay missing in a 2-bit store (code 3, read back as
+        -1, counted in ``uns["n_missing"]``) and are stored as 0 in an int8
+        store. Ignored for ``sparse=True``.
 
     Returns
     -------
@@ -296,7 +323,7 @@ def stream_pgen_to_zarr(
         ) from e
 
     try:
-        from zarr.codecs import BloscCodec, BloscShuffle
+        from zarr.codecs import BloscCodec
     except ImportError as e:
         raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.") from e
 
@@ -304,7 +331,14 @@ def stream_pgen_to_zarr(
         raise ValueError(f"genotype_encoding must be '2bit' or 'int8', got {genotype_encoding!r}")
     two_bit = genotype_encoding == "2bit" and not sparse
     if two_bit and chunk_variants % 4:
-        raise ValueError(f"genotype_encoding='2bit' needs chunk_variants divisible by 4, got {chunk_variants}")
+        rounded = -(-chunk_variants // 4) * 4
+        warnings.warn(
+            f"genotype_encoding='2bit' packs 4 variants per byte; chunk_variants={chunk_variants} is rounded up to "
+            f"{rounded}.",
+            UserWarning,
+            stacklevel=2,
+        )
+        chunk_variants = rounded
     if compressor == "auto":
         compressor = "lz4hc" if two_bit else "zstd"
     if compression_level is None:
@@ -369,7 +403,7 @@ def stream_pgen_to_zarr(
         pvar.index = pvar.index.astype(str)
 
     output_path = Path(output_path)
-    shuffle = BloscShuffle.noshuffle if two_bit else BloscShuffle.bitshuffle
+    shuffle = "noshuffle" if two_bit else "bitshuffle"
     codecs = () if compressor is None else (BloscCodec(cname=compressor, clevel=compression_level, shuffle=shuffle, typesize=1),)
 
     if sparse:
@@ -477,7 +511,7 @@ def stream_pgen_to_zarr(
                     else:
                         if two_bit:
                             n_missing += int(no_call.sum())
-                        buf[no_call] = 0
+                        buf[no_call] = -1 if two_bit else 0
                     Xz[:, col_offset + start : col_offset + end] = buf
                     del buf
                     pbar.update(width)
@@ -495,14 +529,15 @@ def stream_pgen_to_zarr(
             )
         if n_missing:
             warnings.warn(
-                f"{n_missing:,} missing genotype calls are stored as 0 (homozygous reference).",
+                f"{n_missing:,} genotype calls are missing; the 2-bit store keeps them missing, read back as -1.",
                 UserWarning,
                 stacklevel=2,
             )
         logger.info("Writing obs / var / metadata ...")
         ad.io.write_elem(root, "obs", psam)
         ad.io.write_elem(root, "var", pvar)
-        for gname in ["uns", "obsm", "varm", "obsp", "varp", "layers"]:
+        ad.io.write_elem(root, "uns", {"n_missing": n_missing} if two_bit else {})
+        for gname in ["obsm", "varm", "obsp", "varp", "layers"]:
             root.create_group(gname)
         zarr.consolidate_metadata(root.store)
 

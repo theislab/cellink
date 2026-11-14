@@ -133,6 +133,26 @@ def test_stream_pgen_to_zarr_no_compression(tmp_path):
 
 
 @pytest.mark.slow
+def test_read_pgen_zarr_var_columns(tmp_path):
+    pytest.importorskip("pgenlib")
+    import pandas as pd
+
+    from cellink.io import read_pgen_zarr, stream_pgen_to_zarr
+
+    out_path = tmp_path / "pgen.zarr"
+    stream_pgen_to_zarr(str(DATA / "simulated_genotype_calls.pgen"), str(out_path), chunk_samples=50, chunk_variants=200)
+    full = read_pgen_zarr(str(out_path))
+    lean = read_pgen_zarr(str(out_path), var_columns=["chrom", "pos"])
+    assert list(lean.var.columns) == ["chrom", "pos"]
+    pd.testing.assert_frame_equal(lean.var, full.var[["chrom", "pos"]])
+
+    bare = read_pgen_zarr(str(out_path), backend="zarr", var_columns=[])
+    assert bare.var.shape == (1000, 0)
+    pd.testing.assert_index_equal(bare.var_names, full.var_names)
+    np.testing.assert_array_equal(np.asarray(bare.X[:]), np.asarray(full.X.compute()))
+
+
+@pytest.mark.slow
 def test_stream_pgen_to_zarr_sparse(tmp_path):
     pytest.importorskip("pgenlib")
 
