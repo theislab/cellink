@@ -103,7 +103,7 @@ def compute_celltype_programs(
     results["genescores"] = genescores
 
     if save and out_dir is not None:
-        out_dir = Path(out_dir)
+        out_dir = Path(out_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         for key, df in results.items():
             df.to_csv(out_dir / f"{prefix}_{key}.csv")
@@ -183,7 +183,6 @@ def compute_diseaseprogression_programs(
     contamination = _compute_contamination(disease_subset, celltype_col)
     adata.uns[f"contamination_{celltype_col}"] = contamination
 
-    # Build DEstatus column: "Healthy_<celltype>" or "Disease_<celltype>"
     adata.obs["_DEstatus"] = [
         disease_label_mapping.get(diag, "Unknown") + "_" + ct
         for diag, ct in zip(adata.obs[diagnosis_col], adata.obs[celltype_col], strict=False)
@@ -225,7 +224,7 @@ def compute_diseaseprogression_programs(
         del adata.obs["_DEstatus"]
 
     if save and out_dir is not None:
-        out_dir = Path(out_dir)
+        out_dir = Path(out_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         for key, df in results.items():
             df.to_csv(out_dir / f"{prefix}_{key}.csv")
@@ -242,6 +241,7 @@ def compute_nmf_programs(
     celltype_col: str = "cell_type",
     layer: str | None = "counts",
     normalize: bool = True,
+    min_cells: int = 0,
     random_state: int = 0,
     device: str = "cuda",
     prefix: str = "nmf",
@@ -265,6 +265,9 @@ def compute_nmf_programs(
         Layer to use. If None, uses ``adata.X``.
     normalize
         Divide each matrix by its global maximum (as in original sc-linker).
+    min_cells
+        Drop genes detected (count > 0) in fewer than ``min_cells`` cells; they are left
+        out of ``H`` and ``corr``. The default 0 keeps every gene.
     random_state
         NMF random seed.
     device : str, default ``"cuda"``
@@ -309,11 +312,14 @@ def compute_nmf_programs(
         logger.info(f"Setting n_components = {n_ct} cell types + {n_extra} = {n_components}")
 
     X = adata.layers[layer] if layer and layer in adata.layers else adata.X
-    if sparse.issparse(X):
-        X = X.toarray()
-    X = X.astype(np.float64)
+    if min_cells:
+        keep = np.asarray((X > 0).sum(axis=0)).ravel() >= min_cells
+        if not keep.all():
+            logger.info(f"Dropping {int((~keep).sum())} of {keep.size} genes detected in fewer than {min_cells} cells")
+            adata, X = adata[:, keep], X[:, keep]
+    X = X.astype(np.float32).toarray() if sparse.issparse(X) else np.array(X, dtype=np.float32)
     if normalize:
-        X = X / (np.max(X) + 1e-12)
+        X /= np.max(X) + 1e-12
 
     logger.info(f"Fitting NMF with {n_components} components on {X.shape} matrix")
 
@@ -347,15 +353,11 @@ def compute_nmf_programs(
             _device = "cpu"
             logger.info("torchnmf: using CPU (device='cpu' requested)")
 
-        X_t = torch.tensor(X, dtype=torch.float32, device=_device)
+        X_t = torch.from_numpy(X).to(_device)
         model_t = TorchNMF(X_t.shape, rank=n_components).to(_device)
         model_t.fit(X_t, beta=2, max_iter=200, tol=1e-4)
-        # torchnmf's NMF(Vshape=(M, K), rank) convention means that for
-        # X.shape=(n_cells, n_features), model.H.shape is already (n_cells, rank) and
-        # model.W.shape is already (n_features, rank), so neither needs a transpose.
-        # Note the naming is swapped relative to the W_arr/H_arr convention used below.
-        W_arr = model_t.H.detach().cpu().numpy()  # (n_cells,    n_components)
-        H_arr = model_t.W.detach().cpu().numpy()  # (n_features, n_components)
+        W_arr = model_t.H.detach().cpu().numpy()
+        H_arr = model_t.W.detach().cpu().numpy()
         del X_t, model_t
 
     if W_arr is None:
@@ -366,14 +368,14 @@ def compute_nmf_programs(
         )
         model = NMF(
             n_components=n_components,
-            init="nndsvda",  # truncated-SVD warm start, ~5-10x faster than "random"
-            solver="cd",  # coordinate descent, faster than multiplicative update
+            init="nndsvda",
+            solver="cd",
             max_iter=500,
             tol=1e-4,
             random_state=random_state,
         )
         W_arr = model.fit_transform(X)
-        H_arr = model.components_.T  # (n_features, n_components)
+        H_arr = model.components_.T
 
     W = pd.DataFrame(W_arr, index=adata.obs_names, columns=[f"NMF_{i}" for i in range(n_components)])
     H = pd.DataFrame(H_arr, index=adata.var_names, columns=[f"NMF_{i}" for i in range(n_components)])
@@ -383,7 +385,7 @@ def compute_nmf_programs(
     H, corr = gene_frames["H"], gene_frames["corr"]
 
     if save and out_dir is not None:
-        out_dir = Path(out_dir)
+        out_dir = Path(out_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         W.to_csv(out_dir / f"{prefix}_cellprograms.csv")
         H.to_csv(out_dir / f"{prefix}_geneprograms.csv")
@@ -409,13 +411,16 @@ def compute_joint_nmf_programs(
     """
     Compute joint NMF programs across healthy and disease tissue.
 
-    Decomposes healthy (H) and disease (D) matrices jointly:
+    Decomposes the healthy (H) and disease (D) genes x cells matrices jointly, as in
+    sc-linker (Jagadeesh et al. 2022):
 
         H ≈ [L_shared_H | L_unique_H] x F_H
         D ≈ [L_shared_D | L_unique_D] x F_D
 
-    with a coupling term y/2 ||L_shared_H - L_shared_D||² that forces
-    the shared programs to be similar.
+    where L are gene loadings (genes x programs) and F are cell weights (programs x
+    cells), with a coupling term y/2 ||L_shared_H - L_shared_D||² that forces the
+    gene loadings of the shared programs to be similar. Only genes are paired, so
+    healthy and disease may have different numbers of cells.
 
     Parameters
     ----------
@@ -469,8 +474,8 @@ def compute_joint_nmf_programs(
     )
 
     jnmf = JointNMFWrapper(
-        Xh=Xh,
-        Xd=Xd,
+        Xh=Xh.T,
+        Xd=Xd.T,
         n_shared=n_shared,
         n_healthy_specific=n_healthy_specific,
         n_disease_specific=n_disease_specific,
@@ -482,10 +487,10 @@ def compute_joint_nmf_programs(
     h_cols = [f"Shared_{i}" for i in range(n_shared)] + [f"Healthy_{i}" for i in range(n_healthy_specific)]
     d_cols = [f"Shared_{i}" for i in range(n_shared)] + [f"Disease_{i}" for i in range(n_disease_specific)]
 
-    Wh_df = pd.DataFrame(jnmf.Wh, index=adata_healthy.obs_names, columns=h_cols)
-    Wd_df = pd.DataFrame(jnmf.Wd, index=adata_disease.obs_names, columns=d_cols)
-    Hh_df = pd.DataFrame(jnmf.Hh.T, index=common_genes, columns=h_cols)
-    Hd_df = pd.DataFrame(jnmf.Hd.T, index=common_genes, columns=d_cols)
+    Wh_df = pd.DataFrame(jnmf.Hh.T, index=adata_healthy.obs_names, columns=h_cols)
+    Wd_df = pd.DataFrame(jnmf.Hd.T, index=adata_disease.obs_names, columns=d_cols)
+    Hh_df = pd.DataFrame(jnmf.Wh, index=common_genes, columns=h_cols)
+    Hd_df = pd.DataFrame(jnmf.Wd, index=common_genes, columns=d_cols)
 
     gene_frames, _ = _maybe_remap_ensg_to_hgnc(
         {"Hh": Hh_df, "Hd": Hd_df}, adata_healthy, context="compute_joint_nmf_programs"
@@ -504,7 +509,7 @@ def compute_joint_nmf_programs(
     }
 
     if save and out_dir is not None:
-        out_dir = Path(out_dir)
+        out_dir = Path(out_dir).expanduser()
         out_dir.mkdir(parents=True, exist_ok=True)
         for key, df in results.items():
             df.to_csv(out_dir / f"{prefix}_{key}.csv")
@@ -698,22 +703,19 @@ def _compute_genescores(score_mtx: pd.DataFrame) -> pd.DataFrame:
 
 
 def _compute_nmf_gene_correlations(X: np.ndarray, W: np.ndarray, var_names, nmf_cols) -> pd.DataFrame:
-    """Pearson correlation between gene expression and NMF cell program weights."""
-    nrow, ncol = X.shape
-    correlations = []
+    """Pearson correlation between gene expression and NMF cell program weights.
+
+    Genes that are zero in every cell have no variance and get correlation 0.
+    """
+    nrow = X.shape[0]
     Xsp = sparse.csc_matrix(X)
+    xm = np.asarray(Xsp.sum(axis=0, dtype=np.float64)).ravel() / nrow
+    xs_sq = np.asarray(Xsp.power(2).sum(axis=0, dtype=np.float64)).ravel() - nrow * xm * xm
+    xs = np.sqrt(np.maximum(xs_sq, 1e-12))
 
-    for i in range(W.shape[1]):
-        y = W[:, i]
-        yy = y - y.mean()
-        ys = yy / (np.sqrt(np.dot(yy, yy)) + 1e-12)
+    yy = np.asarray(W, dtype=np.float64)
+    yy = yy - yy.mean(axis=0)
+    ys = yy / (np.sqrt((yy * yy).sum(axis=0)) + 1e-12)
 
-        xm = np.asarray(Xsp.mean(axis=0)).ravel()
-        xs_sq = np.add.reduceat(Xsp.data**2, Xsp.indptr[:-1]) - nrow * xm * xm
-        xs_sq = np.maximum(xs_sq, 1e-12)
-        xs = np.sqrt(xs_sq)
-
-        correl = np.add.reduceat(Xsp.data * ys[Xsp.indices], Xsp.indptr[:-1]) / xs
-        correlations.append(correl)
-
-    return pd.DataFrame(np.vstack(correlations).T, columns=nmf_cols, index=var_names)
+    correl = np.asarray(Xsp.T @ ys) / xs[:, None]
+    return pd.DataFrame(correl, columns=nmf_cols, index=var_names)

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from cellink.at import utils
-from cellink.at.acat import compute_acat
+from cellink.at.acat import acat_test, compute_acat
 from cellink.at.gwas import GWAS
 
 logging.basicConfig(level=logging.INFO)
@@ -172,3 +172,23 @@ def test_acat_testing():
     acat_pvp = compute_acat(pvs=pvps)
     logger.info(f"acat_pv: {acat_pv}, acat_pvp: {acat_pvp}")
     assert acat_pv < acat_pvp, "P-value is not smaller than permutated p-value"
+
+
+def test_acat_ignores_nan_pvalues():
+    assert acat_test(np.array([0.01, np.nan, 0.5])) == pytest.approx(acat_test(np.array([0.01, 0.5])))
+    assert np.isnan(acat_test(np.array([np.nan, np.nan])))
+    assert acat_test(np.array([0.2])) == pytest.approx(0.2)
+
+
+def test_acat_rejects_non_positive_weights():
+    with pytest.raises(AssertionError, match="positive"):
+        acat_test(np.array([0.01, 0.5]), weights=np.array([-1.0, 2.0]))
+    with pytest.raises(AssertionError, match="positive"):
+        acat_test(np.array([0.01, 0.5]), weights=np.array([0.0, 1.0]))
+
+
+def test_acat_drops_weights_of_nan_pvalues_and_normalises():
+    weighted = acat_test(np.array([0.01, np.nan, 0.5]), weights=np.array([2.0, 7.0, 2.0]))
+    assert weighted == pytest.approx(acat_test(np.array([0.01, 0.5])))
+    rows = compute_acat(np.array([[0.01, np.nan, 0.5]]), weights=np.array([1.0, 1.0, 1.0]))
+    assert rows[0] == pytest.approx(acat_test(np.array([0.01, 0.5])))

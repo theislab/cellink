@@ -89,6 +89,25 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> int:
     return n_missing
 
 
+def _align_bool_series(index, names: pd.Index, what: str):
+    """Align a boolean pandas Series to ``names`` by label; pass any other selection through.
+
+    AnnData applies a boolean Series by position and the constructor sorts the cells by donor,
+    so a labelled Series is reindexed to ``names``. A Series with a default RangeIndex carries no
+    labels and is applied by position.
+    """
+    if not (isinstance(index, pd.Series) and pd.api.types.is_bool_dtype(index.dtype)):
+        return index
+    if isinstance(index.index, pd.RangeIndex) or index.index.equals(names):
+        return index.to_numpy(dtype=bool, na_value=False)
+    if not index.index.is_unique:
+        raise ValueError(f"Boolean mask over {what} has duplicate labels.")
+    missing = names.difference(index.index)
+    if len(missing):
+        raise KeyError(f"Boolean mask over {what} lacks {len(missing)} of their names, e.g. {list(missing[:5])}.")
+    return index.reindex(names).to_numpy(dtype=bool, na_value=False)
+
+
 def _write_dense_array_zarr_chunked(
     f: zarr.Group, path: str, X, chunks: tuple[int, int] | None, genotype_encoding: str | None = None
 ) -> None:
@@ -451,6 +470,10 @@ class DonorData:
         C_obs: slice = slice(None),
         C_var: slice = slice(None),
     ):
+        G_obs = _align_bool_series(G_obs, self.G.obs_names, "donors")
+        G_var = _align_bool_series(G_var, self.G.var_names, "donor-level variables")
+        C_obs = _align_bool_series(C_obs, self.C.obs_names, "cells")
+        C_var = _align_bool_series(C_var, self.C.var_names, "cell-level variables")
         with _genotype_view():
             _G = self.G[G_obs, G_var]
         _C = self.C[C_obs, C_var]
@@ -470,6 +493,12 @@ class DonorData:
             (idx,) if isinstance(idx, str) else idx for idx in key
         )  # needed because Mudata[str] looks up modalities
         key = key + (slice(None),) * (4 - len(key))
+        key = (
+            _align_bool_series(key[0], self.G.obs_names, "donors"),
+            _align_bool_series(key[1], self.G.var_names, "donor-level variables"),
+            _align_bool_series(key[2], self.C.obs_names, "cells"),
+            _align_bool_series(key[3], self.C.var_names, "cell-level variables"),
+        )
         # Only slice if key is not slice(None)
         with _genotype_view():
             _G = self.G[key[0]] if key[0] is not slice(None) else self.G

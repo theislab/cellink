@@ -89,3 +89,19 @@ def test_build_pca_informed_prior_respects_max_pcs_per_category_cap():
 
     assert len(prior) == n
     assert prior.sum() == pytest.approx(1.0)
+
+
+def test_pca_prior_missing_scores_count_as_no_evidence():
+    rng = np.random.default_rng(0)
+    scores = pd.DataFrame(rng.normal(5, 1, size=(50, 3)), columns=["t1", "t2", "t3"])
+    scores.iloc[0] = np.nan
+    prior = build_pca_informed_prior(scores, {c: "A" for c in scores.columns})
+    assert prior.sum() == pytest.approx(1.0)
+    assert prior.iloc[0] < prior.median()
+
+
+def test_pca_prior_single_variant_and_constant_tracks_are_uniform():
+    single = build_pca_informed_prior(pd.DataFrame({"t1": [0.3]}, index=["v"]), {"t1": "A"})
+    assert single.tolist() == [1.0]
+    constant = build_pca_informed_prior(pd.DataFrame({"t1": [2.0] * 4, "t2": [1.0] * 4}), {"t1": "A", "t2": "A"})
+    np.testing.assert_allclose(constant.to_numpy(), 0.25)

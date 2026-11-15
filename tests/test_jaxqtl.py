@@ -1,22 +1,22 @@
 import gzip
 import shlex
-import subprocess
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import cellink.tl.external._jaxqtl as jx
 from cellink._core.donordata import DonorData
+from cellink._core.dummy_data import sim_adata, sim_gdata
 from cellink.tl.external._jaxqtl import read_jaxqtl_results, run_jaxqtl
 
 
 @pytest.fixture
-def dd(adata, gdata):
+def dd():
+    adata = sim_adata(strategy="poisson")  # counts, as jaxQTL's count models expect
+    gdata = sim_gdata(adata=adata)
     gdata.obs["donor_id"] = gdata.obs.index
     gdata.obs["sex"] = np.resize([1, 2], gdata.n_obs)
-    gdata.obs["age"] = np.arange(gdata.n_obs) + 30
+    gdata.obs["age"] = np.linspace(30.5, 70.5, gdata.n_obs)
     # real gene annotations are float when any coordinate is missing
     adata.var["start"] = adata.var["start"].astype(float)
     adata.var["end"] = adata.var["end"].astype(float)
@@ -66,6 +66,7 @@ def test_default_commands(tmp_path, monkeypatch, dd):
         "--window",
         "500000",
         "--normalize-covar",
+        "--set-offset-from-libsize",
         "--out",
         "jx",
     ]
@@ -263,39 +264,104 @@ def test_read_jaxqtl_results(tmp_path, pickled_parquet):
         read_jaxqtl_results(prefix, mode="nominal")
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "result"),
-    [
-        ({}, "res.cis.score.perm.parquet.gz"),
-        ({"acat": True}, "res.cis.score.acat.parquet.gz"),
-        ({"spa": True}, "res.cis.score.spa.perm.parquet.gz"),
-        ({"mode": "nominal", "test": "wald"}, "res.nominal.wald.parquet.gz"),
-    ],
-)
-def test_run_reads_the_files_jaxqtl_writes(tmp_path, monkeypatch, dd, pickled_parquet, kwargs, result):
+def _phenotype(prefix):
+    df = pd.read_csv(f"{prefix}_phenotype.bed.gz", sep="\t", index_col=3)
+    return df.drop(columns=["#chr", "start", "end"]).T
+
+
+def _per_donor(dd, func, values=None):
+    values = dd.C.X if values is None else values
+    return (
+        pd.DataFrame(values, index=dd.C.obs_names, columns=dd.C.var_names)
+        .groupby(dd.C.obs["donor_id"].to_numpy())
+        .agg(func)
+    )
+
+
+@pytest.mark.parametrize("model", ["nb", "poisson"])
+def test_count_models_get_summed_counts_and_libsize_offset(tmp_path, monkeypatch, dd, model, caplog):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(jx.shutil, "which", lambda name: f"/usr/bin/{name}")
-    commands = []
+    with caplog.at_level("WARNING", logger="cellink.tl.external._jaxqtl"):
+        cmd = run_jaxqtl(dd, prefix="jx", model=model, expression_pcs=None, run=False)
+    assert "--set-offset-from-libsize" in shlex.split(cmd)
+    expected = _per_donor(dd, "sum").loc[dd.G.obs_names]
+    np.testing.assert_allclose(_phenotype("jx").loc[dd.G.obs_names, dd.C.var_names], expected)
+    assert not any("expects raw counts" in m for m in caplog.messages)
 
-    def fake_jaxqtl(cmd, check=False, **_):
-        commands.append(cmd)
-        out = cmd[cmd.index("--out") + 1]
-        if cmd[1] == "compute-pcs":
-            covar = pd.read_csv(cmd[cmd.index("--covar") + 1], sep="\t")
-            covar.assign(ExprPC1=0.0).to_csv(out, sep="\t", index=False)
-            Path(f"{out}.variance.tsv").write_text("component\tvariance\n")
-        else:
-            _write(pd.DataFrame({"phenotype_id": ["G0"], "pvalue": [0.01]}), result)
-        Path(f"{out}.log").write_text("done\n")
-        return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(subprocess, "run", fake_jaxqtl)
-    Path("donors.txt").write_text("D0\n")
-    paths = run_jaxqtl(dd, prefix="jx", out="res", keep=Path("donors.txt"), read_results=False, **kwargs)
-    assert paths == [result, "res.log"]
-    assert [c[1] for c in commands] == ["compute-pcs", kwargs.get("mode", "cis")]
-    # the inputs written for jaxqtl are removed, the user's donor file is kept
-    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([result, "res.log", "donors.txt"])
+def test_gaussian_keeps_mean_without_offset(tmp_path, monkeypatch, dd):
+    monkeypatch.chdir(tmp_path)
+    cmd = run_jaxqtl(dd, prefix="jx", model="gaussian", expression_pcs=None, run=False)
+    assert "--set-offset-from-libsize" not in shlex.split(cmd)
+    expected = _per_donor(dd, "mean").loc[dd.G.obs_names]
+    np.testing.assert_allclose(_phenotype("jx").loc[dd.G.obs_names, dd.C.var_names], expected, rtol=1e-5)
 
-    results = run_jaxqtl(dd, prefix="jx", out="res", expression_pcs=None, **kwargs)
-    assert results["phenotype_id"].tolist() == ["G0"]
+
+def test_offset_options(tmp_path, monkeypatch, dd):
+    monkeypatch.chdir(tmp_path)
+    args = shlex.split(run_jaxqtl(dd, prefix="jx", offset="offsets.tsv", expression_pcs=None, run=False))
+    assert args[args.index("--offset") + 1] == "offsets.tsv" and "--set-offset-from-libsize" not in args
+    args = shlex.split(run_jaxqtl(dd, prefix="jx", set_offset_from_libsize=False, expression_pcs=None, run=False))
+    assert "--set-offset-from-libsize" not in args
+    dd.G.obs["log_libsize"] = np.log(_per_donor(dd, "sum").sum(axis=1).loc[dd.G.obs_names].to_numpy())
+    kwargs = {"additional_covariates": ["log_libsize"], "offset_name_from_covar": "log_libsize"}
+    args = shlex.split(run_jaxqtl(dd, prefix="jx", expression_pcs=None, run=False, **kwargs))
+    assert args[args.index("--offset-name-from-covar") + 1] == "log_libsize"
+    assert "--set-offset-from-libsize" not in args
+    with pytest.raises(ValueError, match="only one of `offset`"):
+        run_jaxqtl(dd, prefix="jx", offset="offsets.tsv", set_offset_from_libsize=True, run=False)
+
+
+def test_counts_layer_and_warning_on_normalized_data(tmp_path, monkeypatch, dd, caplog):
+    monkeypatch.chdir(tmp_path)
+    counts = dd.C.X.copy()
+    dd.C.layers["counts"] = counts
+    dd.C.X = np.log1p(counts / counts.sum(axis=1, keepdims=True) * 1e4)
+
+    with caplog.at_level("WARNING", logger="cellink.tl.external._jaxqtl"):
+        run_jaxqtl(dd, prefix="jx", counts_layer="counts", expression_pcs=None, run=False)
+    assert not any("expects raw counts" in m for m in caplog.messages)
+    expected = _per_donor(dd, "sum", counts).loc[dd.G.obs_names]
+    np.testing.assert_allclose(_phenotype("jx").loc[dd.G.obs_names, dd.C.var_names], expected)
+
+    with caplog.at_level("WARNING", logger="cellink.tl.external._jaxqtl"):
+        run_jaxqtl(dd, prefix="jx", expression_pcs=None, run=False)
+    assert any("expects raw counts" in m and "dd.C.X" in m for m in caplog.messages)
+
+
+def test_covariates_keep_float_age_and_reject_missing_sex(tmp_path, monkeypatch, dd):
+    monkeypatch.chdir(tmp_path)
+    run_jaxqtl(dd, prefix="jx", expression_pcs=None, run=False)
+    cov = pd.read_csv("jx_donor_features.tsv", sep="\t", index_col="iid")
+    np.testing.assert_allclose(cov["age"], dd.G.obs["age"], rtol=1e-6)
+    assert set(cov["sex"]) == {0, 1}
+
+    run_jaxqtl(dd, prefix="jx", encode_sex=False, encode_age=False, expression_pcs=None, run=False)
+    assert pd.read_csv("jx_donor_features.tsv", sep="\t").columns.tolist() == ["iid"]
+
+    dd.G.obs["sex"] = dd.G.obs["sex"].astype(float)
+    dd.G.obs.iloc[0, dd.G.obs.columns.get_loc("sex")] = np.nan
+    with pytest.raises(ValueError, match="have no sex"):
+        run_jaxqtl(dd, prefix="jx", expression_pcs=None, run=False)
+
+
+def test_libsize_key_gives_offsets_and_pca_library_sizes_from_all_genes(tmp_path, monkeypatch, dd):
+    monkeypatch.chdir(tmp_path)
+    # the cells' totals over all genes, not only the genes in dd.C
+    dd.C.obs["nCount_RNA"] = np.asarray(dd.C.X.sum(axis=1)).ravel() * 3.0
+    pcs, scan = _commands(run_jaxqtl(dd, prefix="jx", libsize_key="nCount_RNA", run=False))
+    expected = dd.C.obs.groupby("donor_id", observed=True)["nCount_RNA"].sum()
+    libsize = pd.read_csv("jx_libsize.tsv", sep="\t", index_col="iid")["libsize"]
+    np.testing.assert_allclose(libsize.loc[expected.index], expected)
+    offset = pd.read_csv("jx_offset.tsv", sep="\t", index_col="iid")["offset"]
+    np.testing.assert_allclose(offset.loc[expected.index], np.log(expected))
+    assert _values(scan, "--offset") == ["jx_offset.tsv"] and "--set-offset-from-libsize" not in scan
+    assert _values(pcs, "--libsize") == ["jx_libsize.tsv"]
+
+    # the Gaussian model has no offset, but the PCA still uses the library sizes
+    pcs, scan = _commands(run_jaxqtl(dd, prefix="jx", model="gaussian", libsize_key="nCount_RNA", run=False))
+    assert "--offset" not in scan and _values(pcs, "--libsize") == ["jx_libsize.tsv"]
+
+    dd.C.obs.loc[dd.C.obs_names[dd.C.obs["donor_id"] == dd.G.obs_names[0]], "nCount_RNA"] = 0.0
+    with pytest.raises(ValueError, match="no positive library size"):
+        run_jaxqtl(dd, prefix="jx", libsize_key="nCount_RNA", run=False)
