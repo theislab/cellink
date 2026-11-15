@@ -95,9 +95,8 @@ optional-dependencies.ensembl-vep = [
 ]
 
 optional-dependencies.jaxqtl = [
-  # not available via pip; cellink.tl.external.run_jaxqtl shells out to the
-  # jaxqtl CLI binary. Install it following
-  # https://github.com/mancusolab/jaxqtl and ensure it's on $PATH.
+  # cellink.tl.external.run_jaxqtl runs the `jaxqtl` command line tool
+  "jaxqtl>=0.3.1,<0.4",
 ]
 optional-dependencies.ldsc = [
   # gsMap is installed in its own environment, with its `gsmap` executable on $PATH (see the

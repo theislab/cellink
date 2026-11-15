@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning][].
   values
 - `lazy=True` on `io.read_h5_dd` and `io.read_dd`: dense `X` and layers are read from the file when
   computed, as with `io.read_zarr_dd`
+- `jaxqtl` extra
 - Tutorials: DonorData basics, scEPS
 - API reference pages for sc-linker, scPRS, gsMap, MAGMA and cell-level LDSC
 
@@ -51,6 +52,9 @@ and this project adheres to [Semantic Versioning][].
   command that installs it from GitHub (Python 3.12 only). The `tensorqtl` extra installs tensorqtl
   1.0.10, the version cellink's tensorQTL command line is written for, and only on Python < 3.14
 - `DonorData` keeps the order of cells within each donor
+- `tl.external.run_jaxqtl` runs the jaxqtl 0.3 subcommands `cis`, `nominal` and `trans`, with one
+  parameter per jaxqtl option and `compute-pcs` for expression PCs (`expression_pcs`);
+  `tl.external.read_jaxqtl_results` reads the result file of a scan
 
 ### Removed
 
@@ -93,6 +97,8 @@ and this project adheres to [Semantic Versioning][].
   alleles, `io.stream_pgen_to_zarr`, `DonorData.write_zarr_dd`, the tensorQTL wrappers,
   `tl.external.calculate_ld`, `calculate_pcs`, scooby model loading, `run_scdrs(group_analysis=...)`
   and the colocalization and gsMap tutorials
+- `tl.external.run_jaxqtl` writes gene coordinates as integers, reads results from `out` and returns
+  the output paths with `read_results=False`
 
 ### Known limitations
 
