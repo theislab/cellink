@@ -35,7 +35,11 @@ pip install "cellink-tools[pgen,datasets]"
 | `rvat` | Rare-variant association tooling |
 | `scooby` | Scooby/Borzoi sequence-model variant-effect scoring; scooby itself is installed from GitHub (see below) |
 | `scdrs` | Genotype-free cell-type disease relevance scoring (scDRS) |
-| `tensorqtl` | cis-/trans-eQTL mapping via tensorQTL (pinned to 1.0.10) |
+| `tensorqtl` | cis-/trans-eQTL mapping via tensorQTL (pinned to 1.0.10); q-values additionally need R with the Bioconductor `qvalue` package |
+| `jaxqtl` | cis-/trans-eQTL mapping via jaxQTL (`cellink.tl.external.run_jaxqtl`) |
+| `seismic_torch` | PyTorch implementation of seismic cell-type enrichment (`cellink.tl.external.run_seismic_torch`) |
+| `sclinker` | sc-linker gene programs (`cellink.tl.external.compute_nmf_programs`, via `torchnmf`) |
+| `scprs` | Single-cell polygenic risk scores with scPRS (`cellink.tl.external.run_scprs_pipeline`) |
 | `embpy` | Donor-level representation learning via `embpy` |
 | `mixmil` | Mixed-effects multiple-instance learning |
 | `scpoli` | scPoli-based embedding integration |
@@ -60,7 +64,7 @@ pip install "cellink-tools[scooby]" "scooby @ git+https://github.com/gagneurlab/
 `mixmil` needs `torch-scatter`, which has to be built against an installed PyTorch on every
 Python version (`pip install torch-scatter --no-build-isolation` after installing `torch`).
 
-A few external tools this package wraps (`jaxqtl`, SAIGE-QTL, Ensembl VEP, SnpEff,
+A few external tools this package wraps (SAIGE-QTL, Ensembl VEP, SnpEff,
 gsMap) are not installed with pip alongside cellink; gsMap is installed in its own environment
 and called through its `gsmap` command line tool. The corresponding `cellink.tl.external`
 function's docstring and error message link to that tool's installation instructions.

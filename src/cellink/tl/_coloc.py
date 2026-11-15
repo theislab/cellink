@@ -9,6 +9,7 @@ __all__ = ["coloc_abf", "coloc_susie", "DEFAULT_PRIOR_VAR", "DEFAULT_PRIOR_VAR_C
 DEFAULT_P1 = 1e-4
 DEFAULT_P2 = 1e-4
 DEFAULT_P12 = 1e-5
+DEFAULT_P12_SUSIE = 5e-6  # R coloc.susie()/coloc.bf_bf() default, half of coloc.abf()'s
 DEFAULT_PRIOR_VAR = 0.15**2
 DEFAULT_PRIOR_VAR_CC = 0.2**2
 
@@ -29,10 +30,10 @@ def _logsumexp(x: np.ndarray) -> float:
 def _log_h3(l1: np.ndarray, l2: np.ndarray, lsum1: float, lsum2: float) -> float:
     log_all_pairs = lsum1 + lsum2
     log_diag = _logsumexp(l1 + l2)
-    diff = np.exp(log_all_pairs - log_diag) - 1
-    if diff <= 0:
+    if log_diag >= log_all_pairs:
         return -np.inf
-    return log_diag + np.log(diff)
+    # log(exp(a) - exp(b)) as R coloc's logdiff(), without overflowing for strong signals
+    return log_all_pairs + np.log1p(-np.exp(log_diag - log_all_pairs))
 
 
 def coloc_abf(
@@ -115,6 +116,9 @@ def coloc_abf(
     se2 = np.asarray(se2, dtype=float)
     if not (len(beta1) == len(se1) == len(beta2) == len(se2)):
         raise ValueError("beta1, se1, beta2, se2 must all have the same length (one shared set of SNPs).")
+    for name, x in (("beta1", beta1), ("se1", se1), ("beta2", beta2), ("se2", se2)):
+        if not np.all(np.isfinite(x)):  # as R coloc.abf(), which stops on missing values
+            raise ValueError(f"{name} contains missing or infinite values; drop those SNPs first.")
 
     l1 = _log_abf(beta1, se1, prior_var)
     l2 = _log_abf(beta2, se2, prior_var2 if prior_var2 is not None else prior_var)
@@ -154,7 +158,7 @@ def coloc_susie(
     cs2_index: list[int] | np.ndarray,
     p1: float = DEFAULT_P1,
     p2: float = DEFAULT_P2,
-    p12: float = DEFAULT_P12,
+    p12: float = DEFAULT_P12_SUSIE,
     snp_ids: list[str] | None = None,
 ) -> pd.DataFrame:
     """Multiple-causal-variant colocalization against SuSiE credible sets
@@ -181,15 +185,16 @@ def coloc_susie(
         Study 2's SuSiE fit's ``lbf_variable`` matrix, shape
         ``(n_effects2, n_snps)``.
     cs1_index
-        Row indices into ``lbf1`` corresponding to study 1's real credible
-        sets (SuSiE's own ``fit$sets$cs_index``, i.e. the single effects
-        that survived SuSiE's own purity/coverage filtering, not every
-        row of ``lbf_variable``, which includes effects SuSiE fit but did
-        not resolve into a credible set).
+        0-based row indices into ``lbf1`` corresponding to study 1's real
+        credible sets, i.e. SuSiE's own ``fit$sets$cs_index - 1`` (R counts
+        from 1). These are the single effects that survived SuSiE's own
+        purity/coverage filtering, not every row of ``lbf_variable``, which
+        includes effects SuSiE fit but did not resolve into a credible set.
     cs2_index
-        Row indices into ``lbf2`` for study 2's real credible sets.
+        0-based row indices into ``lbf2`` for study 2's real credible sets.
     p1, p2, p12
-        Same priors as ``coloc_abf``.
+        Priors as in ``coloc_abf``; ``p12`` defaults to 5e-6, as in R's
+        ``coloc.susie()``/``coloc.bf_bf()``.
     snp_ids
         Optional SNP labels (length ``n_snps``) for the ``hit1``/``hit2``
         columns (each pair's most likely causal SNP per study). Defaults to
@@ -200,6 +205,8 @@ def coloc_susie(
     pd.DataFrame, one row per (study-1 signal, study-2 signal) pair, with
     columns ``idx1``, ``idx2`` (the row indices from ``cs1_index``/
     ``cs2_index``), ``nsnps``, ``hit1``, ``hit2``, and ``PP0``-``PP4``.
+    Without credible sets in either study the frame has these columns and
+    no rows.
 
     Examples
     --------
@@ -237,4 +244,5 @@ def coloc_susie(
                     **pp,
                 }
             )
-    return pd.DataFrame(rows)
+    columns = ["idx1", "idx2", "nsnps", "hit1", "hit2", "PP0", "PP1", "PP2", "PP3", "PP4"]
+    return pd.DataFrame(rows, columns=columns)

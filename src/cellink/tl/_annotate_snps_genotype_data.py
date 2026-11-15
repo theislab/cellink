@@ -1,8 +1,10 @@
 import glob
 import logging
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Literal
 
 import numpy as np
@@ -28,9 +30,14 @@ Chromosome = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 
 Chromosome_str = Literal[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 
 
+def _expand(path):
+    """Expand a leading '~' in a path argument (None stays None), as a shell would."""
+    return None if path is None else os.path.expanduser(str(path))
+
+
 def run_snpeff(
     command: str = "snpEff",
-    genome_assembly: str = "GRCh38.104",
+    genome_assembly: str = "GRCh38.99",
     input_vcf: str = "variants.vcf",
     output: str = "variants_snpeff_annotated.txt",
     return_annos: bool = True,
@@ -43,10 +50,16 @@ def run_snpeff(
 
     Parameters
     ----------
+    command : str
+        The snpEff executable (``snpEff``, ``snpeff`` or a ``java -jar .../snpEff.jar`` call).
+    genome_assembly : str
+        snpEff genome database name. Defaults to "GRCh38.99" (Ensembl 99), which snpEff 5.x
+        ships. Run ``snpEff databases`` to list the names your snpEff version knows, e.g.
+        "GRCh37.75" for GRCh37 coordinates.
     input_vcf : str
         Path to the input VCF file containing variants to annotate. Defaults to "variants.vcf".
     output : str
-        Path to the file where the annotated variants will be written. Defaults to "variants_vep_annotated.txt".
+        Path to the file where the annotated variants will be written. Defaults to "variants_snpeff_annotated.txt".
     return_annos : bool
         Whether to return the annotations as a Pandas DataFrame after writing them to disk.
         Defaults to False.
@@ -62,7 +75,8 @@ def run_snpeff(
     """
     env = os.environ.copy()
     env["_JAVA_OPTIONS"] = "-Xmx8g"
-    output = str(output)
+    output = _expand(output)
+    input_vcf = _expand(input_vcf)
 
     cmd = [command, genome_assembly, input_vcf]
 
@@ -134,22 +148,35 @@ def _download_favor(
     URLs: pd.DataFrame = None, chromosome: Chromosome | list[Chromosome] | None = None, database_dir: str = None
 ):
     URL = URLs.loc[URLs["chr"] == str(chromosome), "URL"].values[0]
-
-    subprocess.run(
-        ["wget", "--progress=bar:force:noscroll", URL],
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-        cwd=database_dir,
-        check=True,
-    )
+    database_dir = _expand(database_dir)
     file_id = re.search(r"(\d+)", URL).group(1)
-    subprocess.run(
-        ["tar", "-xvf", file_id],
-        capture_output=True,
-        cwd=database_dir,
-        text=True,
-        check=True,
-    )
+
+    # Download and extract in a private directory and move the CSVs into place only when both
+    # steps finished, so an interrupted or concurrent run leaves no partial files in database_dir.
+    tmp_dir = tempfile.mkdtemp(prefix=f".favor_{file_id}_", dir=database_dir)
+    try:
+        subprocess.run(
+            ["wget", "--progress=bar:force:noscroll", "-O", file_id, URL],
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+            cwd=tmp_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["tar", "-xf", file_id],
+            capture_output=True,
+            cwd=tmp_dir,
+            text=True,
+            check=True,
+        )
+        os.remove(os.path.join(tmp_dir, file_id))  # only the extracted CSVs are read
+        for root, _dirs, files in os.walk(tmp_dir):
+            target = os.path.normpath(os.path.join(database_dir, os.path.relpath(root, tmp_dir)))
+            os.makedirs(target, exist_ok=True)
+            for name in files:
+                os.replace(os.path.join(root, name), os.path.join(target, name))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def load_favor_urls(
@@ -171,7 +198,7 @@ def download_favor(
 ):
     logger.info(f"Using config: {config_file}")
     URLs = load_favor_urls(config_file=config_file, version=version, config_dict=config_dict)
-    _download_favor(URLs=URLs, chromosome=chromosome, database_dir=database_dir)
+    _download_favor(URLs=URLs, chromosome=chromosome, database_dir=_expand(database_dir))
 
 
 def run_favor(
@@ -196,6 +223,9 @@ def run_favor(
     config_dict : dict, optional
         Configuration as a dictionary with the same structure as the YAML file; takes
         precedence over ``config_file``.
+    database_dir : str, optional
+        Directory that holds the FAVOR CSV files, or receives them when they are missing. A
+        leading '~' is expanded. Defaults to "~/favor_database/".
     G : anndata.AnnData
         AnnData object with a .var DataFrame containing variant information, including
         'chrom', 'pos', 'a0', and 'a1' columns. Required for chromosome-wise annotation.
@@ -212,14 +242,15 @@ def run_favor(
     if output is None and not return_annos:
         raise ValueError("Please provide an output file name or set return_annos to True.")
 
-    if database_dir is None:
-        database_dir = os.path.expanduser("~/favor_database/")
+    database_dir = _expand("~/favor_database/" if database_dir is None else database_dir)
+    output = _expand(output)
 
     os.makedirs(database_dir, exist_ok=True)
 
     annos = []
     for chromosome in np.unique(G.var["chrom"]):
         if chromosome in range(1, 23) or chromosome in [str(chr) for chr in range(1, 23)]:
+            chrom_value = chromosome  # as stored in G.var, str or int
             chromosome = int(chromosome)
             if (
                 len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) == 0
@@ -241,7 +272,7 @@ def run_favor(
                     config_dict=config_dict,
                 )
 
-            G_var_chrom = G.var[G.var["chrom"] == chromosome]
+            G_var_chrom = G.var[G.var["chrom"] == chrom_value]
 
             if len(glob.glob(os.path.join(database_dir, f"chr{chromosome}_*.csv"))) >= 1:
                 database = pl.concat(
@@ -260,6 +291,9 @@ def run_favor(
                         )
                     ]
                 )
+        else:  # no FAVOR download for this chromosome
+            logger.warning(f"No FAVOR download configured for chromosome {chromosome}; skipping its variants.")
+            continue
 
         database = database.drop(["chromosome", "position", "ref_vcf", "alt_vcf"])
 
@@ -269,9 +303,16 @@ def run_favor(
                 .astype(str)
                 .str.cat([G_var_chrom["pos"].astype(str), G_var_chrom["a0"], G_var_chrom["a1"]], sep="-")
             }
-        )
+        ).with_row_index("_order")
 
-        result_chrom = snp_df.join(database, on="variant_vcf", how="left")
+        # keep only the queried variants while scanning (a chromosome's FAVOR table has up to ~300 GB of CSV)
+        variant_ids = snp_df.select("variant_vcf").collect().to_series().to_list()
+        database = database.filter(pl.col("variant_vcf").is_in(variant_ids))
+
+        # polars joins do not keep the left frame's order by default; return variants in G.var order
+        result_chrom = (
+            snp_df.join(database, on="variant_vcf", how="left").sort("_order", maintain_order=True).drop("_order")
+        )
         annos.append(result_chrom.collect())
 
     annos = pl.concat(annos)
@@ -318,6 +359,7 @@ def run_vep(
     """
     logger.info(f"using config {config_file}")
     config = load_config(config_file, config_dict)
+    input_vcf, output = _expand(input_vcf), _expand(output)
 
     vep_input_format = "vcf"
 
@@ -346,8 +388,8 @@ def run_vep(
     base_cmd = base_cmd + additional_flags
 
     if offline:
-        cache_dir = config["cache_dir"]
-        vep_plugin_dir = config.get("vep_plugin_dir", f"{cache_dir}/Plugins/")
+        cache_dir = _expand(config["cache_dir"])
+        vep_plugin_dir = _expand(config.get("vep_plugin_dir", f"{cache_dir}/Plugins/"))
         params_af = config.get("af_flags", "")  # "--af_gnomade"
         offline_cmd = [
             "--offline",
@@ -356,7 +398,7 @@ def run_vep(
             "--dir_cache",
             cache_dir,
             "--fasta",
-            config["input_fasta"],
+            _expand(config["input_fasta"]),
             "--dir_plugins",
             vep_plugin_dir,
         ]
@@ -435,6 +477,7 @@ def _prep_vep_annos(
     unique_identifier_cols = [AAnn.index, AAnn.gene_id, AAnn.feature_id]
 
     # Read VEP annotation file
+    vep_anno_file = _expand(vep_anno_file)
     logger.info(f"Reading annotation file {vep_anno_file}")
     annos = pd.read_csv(vep_anno_file, sep="\t", skiprows=_get_vep_start_row(vep_anno_file))
 

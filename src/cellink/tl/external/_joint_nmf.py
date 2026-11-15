@@ -17,16 +17,21 @@ _SMALL = 1e-10
 
 class JointNMFWrapper:
     """
-    Joint NMF decomposition for paired healthy / disease single-cell data.
+    Joint NMF decomposition for healthy / disease single-cell data.
+
+    Factorises ``Xh ≈ Wh Hh`` and ``Xd ≈ Wd Hd`` and couples the first ``n_shared``
+    columns of ``Wh`` and ``Wd``. As in sc-linker (Jagadeesh et al. 2022), pass genes x
+    cells matrices, so that the coupled factor ``W`` holds the gene loadings shared by
+    both conditions and ``H`` the per-cell program weights.
 
     Parameters
     ----------
     Xh
-        Dense matrix (cells x genes) for the healthy condition.
+        Dense matrix (genes x cells) for the healthy condition.
     Xd
-        Dense matrix (cells x genes) for the disease condition.
-        Must have the same shape as ``Xh`` (paired cells x genes) since factor
-        alignment correlates loadings across the two conditions cell-by-cell.
+        Dense matrix (genes x cells) for the disease condition. Must have the same
+        rows (genes) as ``Xh``, since the shared loadings are coupled and aligned row
+        by row; the number of cells may differ.
     n_shared
         Number of programs shared between healthy and disease (KC in paper).
     n_healthy_specific
@@ -123,7 +128,7 @@ class JointNMFWrapper:
 
     @property
     def Wh(self) -> np.ndarray:
-        """Healthy cell x factor loadings (dense)."""
+        """Healthy row (gene) x factor loadings (dense); the first ``n_shared`` columns are coupled."""
         return self._Wh.toarray() if issparse(self._Wh) else self._Wh
 
     @Wh.setter

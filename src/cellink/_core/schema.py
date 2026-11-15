@@ -35,7 +35,8 @@ def validate(dd, check_var: bool = True, check_donor_alignment: bool = True) -> 
         The object to check.
     check_var : bool, default=True
         Validate `dd.G.var` against `GENO_VAR_SCHEMA` (chrom/pos/a0/a1 present,
-        correctly typed).
+        correctly typed). When `dd.G` is a MuData, the `var` of every modality with a
+        `chrom` column is validated.
     check_donor_alignment : bool, default=True
         Validate that `dd.G`'s and `dd.C`'s donor axes are the same set, in the
         same order. This is the invariant `DonorData._match_donors` establishes at
@@ -53,10 +54,17 @@ def validate(dd, check_var: bool = True, check_donor_alignment: bool = True) -> 
         mismatch found.
     """
     if check_var:
-        try:
-            GENO_VAR_SCHEMA.validate(dd.G.var)
-        except pa.errors.SchemaError as e:
-            raise DonorDataSchemaError(f"dd.G.var failed schema validation: {e}") from e
+        if hasattr(dd.G, "mod"):  # MuData: the variants live in a modality, such as dd.G['genotype']
+            tables = {f"dd.G['{name}'].var": mod.var for name, mod in dd.G.mod.items() if VAnn.chrom in mod.var}
+            if not tables:
+                raise DonorDataSchemaError(f"No modality of dd.G has a '{VAnn.chrom}' column in its var.")
+        else:
+            tables = {"dd.G.var": dd.G.var}
+        for name, var in tables.items():
+            try:
+                GENO_VAR_SCHEMA.validate(var)
+            except pa.errors.SchemaError as e:
+                raise DonorDataSchemaError(f"{name} failed schema validation: {e}") from e
 
     if check_donor_alignment:
         g_donors = pd.unique(pd.Series(_donor_ids(dd.G, dd.donor_id)))

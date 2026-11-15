@@ -95,9 +95,8 @@ optional-dependencies.ensembl-vep = [
 ]
 
 optional-dependencies.jaxqtl = [
-  # not available via pip; cellink.tl.external.run_jaxqtl shells out to the
-  # jaxqtl CLI binary. Install it following
-  # https://github.com/mancusolab/jaxqtl and ensure it's on $PATH.
+  # cellink.tl.external.run_jaxqtl runs the `jaxqtl` command line tool
+  "jaxqtl>=0.3.1,<0.4",
 ]
 optional-dependencies.ldsc = [
   # gsMap is installed in its own environment, with its `gsmap` executable on $PATH (see the
@@ -130,6 +129,9 @@ optional-dependencies.saigeqtl = [
 optional-dependencies.scdrs = [
   "scdrs>=1.0.2",
 ]
+optional-dependencies.sclinker = [
+  "torchnmf>=0.3.5",
+]
 optional-dependencies.scooby = [
   "accelerate>=1",
   "borzoi-pytorch>=0.4",
@@ -156,6 +158,8 @@ optional-dependencies.snpeff = [
   # "snpeff",
 ]
 optional-dependencies.tensorqtl = [
+  # q-values (mode="cis") need rpy2 plus R with the Bioconductor qvalue package (e.g. from conda)
+  "rpy2>=3.6; python_version<'3.14'",
   # Python 3.12 and 3.13 only
   "tensorqtl==1.0.10; python_version<'3.14'",
   #"plink2"

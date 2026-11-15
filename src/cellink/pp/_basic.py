@@ -5,6 +5,13 @@ import numpy as np
 from cellink._core import DonorData
 
 
+def _replace_levels(dd: DonorData, subset: DonorData) -> None:
+    """Make `dd` hold the levels of `subset`, so an in-place filter reaches the caller's object."""
+    if subset is not dd:
+        dd._G, dd._C = subset._G, subset._C
+        dd._var_dims_to_sync = subset._var_dims_to_sync
+
+
 def cell_level_obs_filter(
     dd: DonorData,
     cell_level_key: str = None,
@@ -19,12 +26,14 @@ def cell_level_obs_filter(
     Parameters
     ----------
     inplace
-        Perform computation inplace or return result.
+        Subset `dd` in place and return None, or return the subset.
+    copy
+        With ``inplace=False``, return a copy instead of an object that shares data with `dd`.
+        Ignored when ``inplace`` is True.
 
     Returns
     -------
-    Depending on `inplace`, returns the following arrays or directly subsets
-    and annotates the data matrix.
+    None if `inplace` is True (then `dd` is subset), otherwise the subset DonorData.
 
     Example
     -------
@@ -32,16 +41,18 @@ def cell_level_obs_filter(
     >>> cell_type = "CD8"
     >>> cl.pp.cell_level_obs_filter(dd, celltype_key, cell_type, inplace=False, copy=True)
     """
+    subset = dd
     if isinstance(cell_level_values, str):
-        dd = dd.sel(C_obs=dd.C.obs[cell_level_key] == cell_level_values)
+        subset = dd.sel(C_obs=dd.C.obs[cell_level_key] == cell_level_values)
     elif isinstance(cell_level_values, list):
-        dd = dd.sel(C_obs=dd.C.obs[cell_level_key].isin(cell_level_values))
+        subset = dd.sel(C_obs=dd.C.obs[cell_level_key].isin(cell_level_values))
     elif isinstance(cell_level_values, np.ndarray):
-        dd = dd.sel(C_obs=np.isin(dd.C.obs[cell_level_key].values, cell_level_values))
+        subset = dd.sel(C_obs=np.isin(dd.C.obs[cell_level_key].values, cell_level_values))
 
     if inplace:
+        _replace_levels(dd, subset)
         return None
-    return dd.copy() if copy else dd
+    return subset.copy() if copy else subset
 
 
 def donor_level_obs_filter(
@@ -58,12 +69,14 @@ def donor_level_obs_filter(
     Parameters
     ----------
     inplace
-        Perform computation inplace or return result.
+        Subset `dd` in place and return None, or return the subset.
+    copy
+        With ``inplace=False``, return a copy instead of an object that shares data with `dd`.
+        Ignored when ``inplace`` is True.
 
     Returns
     -------
-    Depending on `inplace`, returns the following arrays or directly subsets
-    and annotates the data matrix.
+    None if `inplace` is True (then `dd` is subset), otherwise the subset DonorData.
 
     Example
     -------
@@ -71,16 +84,18 @@ def donor_level_obs_filter(
     >>> disease_key = "COVID-19"
     >>> cl.pp.cell_level_obs_filter(dd, donor_key, disease_key, inplace=False, copy=True)
     """
+    subset = dd
     if isinstance(donor_level_values, str):
-        dd = dd.sel(G_obs=dd.G.obs[donor_level_key] == donor_level_values)
+        subset = dd.sel(G_obs=dd.G.obs[donor_level_key] == donor_level_values)
     elif isinstance(donor_level_values, list):
-        dd = dd.sel(G_obs=dd.G.obs[donor_level_key].isin(donor_level_values))
+        subset = dd.sel(G_obs=dd.G.obs[donor_level_key].isin(donor_level_values))
     elif isinstance(donor_level_values, np.ndarray):
-        dd = dd.sel(G_obs=np.isin(dd.G.obs[donor_level_key].values, donor_level_values))
+        subset = dd.sel(G_obs=np.isin(dd.G.obs[donor_level_key].values, donor_level_values))
 
     if inplace:
+        _replace_levels(dd, subset)
         return None
-    return dd.copy() if copy else dd
+    return subset.copy() if copy else subset
 
 
 def donor_level_var_filter(
@@ -97,12 +112,14 @@ def donor_level_var_filter(
     Parameters
     ----------
     inplace
-        Perform computation inplace or return result.
+        Subset `dd` in place and return None, or return the subset.
+    copy
+        With ``inplace=False``, return a copy instead of an object that shares data with `dd`.
+        Ignored when ``inplace`` is True.
 
     Returns
     -------
-    Depending on `inplace`, returns the following arrays or directly subsets
-    and annotates the data matrix.
+    None if `inplace` is True (then `dd` is subset), otherwise the subset DonorData.
 
     Example
     -------
@@ -110,16 +127,18 @@ def donor_level_var_filter(
     >>> chromosome_value = 2
     >>> cl.pp.cell_level_obs_filter(dd, chromosome_key, chromosome_value, inplace=False, copy=True)
     """
+    subset = dd
     if isinstance(donor_level_values, str):
-        dd = dd.sel(G_var=dd.G.var[donor_level_key] == donor_level_values)
+        subset = dd.sel(G_var=dd.G.var[donor_level_key] == donor_level_values)
     elif isinstance(donor_level_values, list):
-        dd = dd.sel(G_var=dd.G.var[donor_level_key].isin(donor_level_values))
+        subset = dd.sel(G_var=dd.G.var[donor_level_key].isin(donor_level_values))
     elif isinstance(donor_level_values, np.ndarray):
-        dd = dd.sel(G_var=np.isin(dd.G.var[donor_level_key].values, donor_level_values))
+        subset = dd.sel(G_var=np.isin(dd.G.var[donor_level_key].values, donor_level_values))
 
     if inplace:
+        _replace_levels(dd, subset)
         return None
-    return dd.copy() if copy else dd
+    return subset.copy() if copy else subset
 
 
 def low_abundance_filter(
@@ -149,7 +168,8 @@ def low_abundance_filter(
     inplace
         Whether to update `adata` or return a copy of the new AnnData object.
     copy
-        Whether to modify a copied input object. Not compatible with inplace=False.
+        With ``inplace=False``, return a copy instead of a view of `adata`. Ignored when
+        ``inplace`` is True.
 
     Returns
     -------
@@ -170,12 +190,11 @@ def low_abundance_filter(
     abundance_filter = abundance >= abundance_threshold
     abundance_filter = abundance_filter.compute() if isinstance(abundance_filter, da.Array) else abundance_filter
 
-    adata = adata[:, abundance_filter].copy()
-
     if inplace:
-        adata.X = adata.X
+        adata._inplace_subset_var(abundance_filter)
         return None
-    return adata.copy() if copy else adata
+    subset = adata[:, abundance_filter]
+    return subset.copy() if copy else subset
 
 
 def missing_values_filter(
@@ -196,7 +215,8 @@ def missing_values_filter(
     inplace
         Whether to update `adata` or return a copy of the new AnnData object.
     copy
-        Whether to modify copied input object. Not compatible with inplace=False.
+        With ``inplace=False``, return a copy instead of a view of `adata`. Ignored when
+        ``inplace`` is True.
 
     Returns
     -------
@@ -213,12 +233,11 @@ def missing_values_filter(
     valid_features = missing_ratio <= max_missing_ratio
     valid_features = valid_features.compute() if isinstance(valid_features, da.Array) else valid_features
 
-    adata = adata[:, valid_features]
-
     if inplace:
-        adata.X = adata.X
+        adata._inplace_subset_var(valid_features)
         return None
-    return adata.copy() if copy else adata
+    subset = adata[:, valid_features]
+    return subset.copy() if copy else subset
 
 
 def log_transform(
@@ -243,7 +262,8 @@ def log_transform(
     inplace
         Whether to update `adata` or return a copy of the new AnnData object.
     copy
-        Whether to modify copied input object. Not compatible with inplace=False.
+        With ``inplace=False``, write the result into a copy of `adata` and leave `adata`
+        unchanged. Ignored when ``inplace`` is True.
 
     Returns
     -------
@@ -286,7 +306,8 @@ def normalize(
     inplace
         Whether to update `adata` or return a copy of the new AnnData object.
     copy
-        Whether to modify copied input object. Not compatible with inplace=False.
+        With ``inplace=False``, write the result into a copy of `adata` and leave `adata`
+        unchanged. Ignored when ``inplace`` is True.
 
     Returns
     -------
