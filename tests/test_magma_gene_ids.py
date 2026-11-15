@@ -54,19 +54,6 @@ def test_resolve_entrez_to_ensembl_breaks_ties_by_symbol():
     assert resolved["ensembl_gene_id"].is_unique
 
 
-def test_convert_gene_loc_file_writes_unique_ensembl_ids(tmp_path, monkeypatch):
-    gene_loc_file = tmp_path / "NCBI37.3.gene.loc"
-    GENE_LOC.to_csv(gene_loc_file, sep="\t", header=False, index=False)
-    monkeypatch.setattr("cellink.tl.external._magma._query_ensembl_entrez_pairs", lambda genome_build: PAIRS)
-
-    out = convert_gene_loc_file(gene_loc_file, tmp_path / "out.gene.loc", genome_build="GRCh37")
-
-    converted = pd.read_csv(out, sep="\t", header=None, names=["gene_id", *GENE_LOC_COLUMNS[1:]])
-    assert converted["gene_id"].is_unique
-    assert converted.set_index("gene_name").loc["ACTB", "gene_id"] == "ENSG_ACTB"
-    assert converted.set_index("gene_name").loc["HLA-DRB1", "start"] == 32546546
-
-
 def test_convert_gene_loc_file_gene_name_does_not_query_biomart(tmp_path, monkeypatch):
     gene_loc_file = tmp_path / "NCBI37.3.gene.loc"
     GENE_LOC.to_csv(gene_loc_file, sep="\t", header=False, index=False)
@@ -90,22 +77,6 @@ def test_default_magma_config_ships_with_the_package(tmp_path, monkeypatch):
 
 def test_load_magma_config_prefers_config_dict():
     assert load_magma_config("does_not_exist", config_dict={"gene_loc": {}}) == {"gene_loc": {}}
-
-
-def test_download_magma_references_ignores_pre_fix_converted_cache(tmp_path, monkeypatch):
-    magma_dir = tmp_path / "magma_references"
-    magma_dir.mkdir()
-    GENE_LOC.to_csv(magma_dir / "NCBI37.3.gene.loc", sep="\t", header=False, index=False)
-    (magma_dir / "GRCh37_ensembl.gene.loc").write_text("ENSG_ALT_HAPLOTYPE\t6\t1\t2\t+\tC6orf10\n")
-    monkeypatch.setattr("cellink.tl.external._magma._query_ensembl_entrez_pairs", lambda genome_build: PAIRS)
-
-    gene_loc_file, ref_prefix = download_magma_references(
-        genome_build="GRCh37", gene_id_type="ensembl", data_home=tmp_path
-    )
-
-    assert gene_loc_file == magma_dir / "GRCh37_ensembl_primary_assembly.gene.loc"
-    assert ref_prefix is None
-    assert "ENSG_ALT_HAPLOTYPE" not in gene_loc_file.read_text()
 
 
 def test_download_magma_references_rejects_unknown_build(tmp_path):

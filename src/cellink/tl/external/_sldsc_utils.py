@@ -10,7 +10,7 @@ from anndata import AnnData
 from scipy import sparse
 from tqdm import tqdm
 
-from cellink.resources._utils import retry_with_backoff
+from ._biomart import query_biomart
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +106,6 @@ def preprocess_for_sldsc(
         If celltype_col is not present in adata.obs.
     ValueError
         If required annotation columns are missing and fetch_annotation=False.
-    ImportError
-        If pybiomart is not installed and fetch_annotation=True.
 
     Examples
     --------
@@ -311,7 +309,7 @@ def generate_sldsc_genesets(
     (symbols or Ensembl IDs). Writes one .GeneSet per cell type containing top N%
     genes by specificity, using accession (typically Ensembl gene IDs).
     """
-    out_dir = Path(out_dir)
+    out_dir = Path(out_dir).expanduser()
 
     # ---- Safety checks ----
     if specificity_df.index.name != "gene":
@@ -436,7 +434,7 @@ def _fetch_ensembl_annotation(
     genome_build: Literal["GRCh37", "GRCh38"] = "GRCh37", gene_identifier_mode: str = "ensembl"
 ) -> pd.DataFrame:
     """
-    Fetch gene annotations from Ensembl using pybiomart.
+    Fetch gene annotations from Ensembl BioMart.
 
     Parameters
     ----------
@@ -450,23 +448,8 @@ def _fetch_ensembl_annotation(
     pd.DataFrame
         Gene annotations with columns: gene, chrom, start, end, gene_biotype.
     """
-    try:
-        from pybiomart import Server
-    except ImportError as e:
-        raise ImportError(
-            "pybiomart is required for fetching gene annotations. " "Install it with: pip install pybiomart"
-        ) from e
-
-    if genome_build == "GRCh37":
-        logger.info("Querying Ensembl BioMart (GRCh37)...")
-        server = Server(host="http://grch37.ensembl.org")
-    elif genome_build == "GRCh38":
-        logger.info("Querying Ensembl BioMart (GRCh38)...")
-        server = Server(host="http://www.ensembl.org")
-    else:
+    if genome_build not in ("GRCh37", "GRCh38"):
         raise ValueError(f"Invalid genome_build: {genome_build}. Must be 'GRCh37' or 'GRCh38'")
-
-    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
 
     attributes = [
         "hgnc_symbol",
@@ -479,30 +462,8 @@ def _fetch_ensembl_annotation(
     ]
 
     logger.info(f"Fetching gene annotations from {genome_build}...")
-    anno = retry_with_backoff(lambda: dataset.query(attributes=attributes, use_attr_names=True))
-
-    anno.columns = [c.strip() for c in anno.columns]
-
-    anno = anno.rename(
-        columns={
-            # BioMart labels
-            "HGNC symbol": "hgnc_symbol",
-            "Gene name": "external_gene_name",
-            "Gene stable ID": "ensembl_gene_id",
-            "Chromosome/scaffold name": "chrom",
-            "Gene start (bp)": "start",
-            "Gene end (bp)": "end",
-            "Gene type": "gene_biotype",
-            # Attribute-name style
-            "hgnc_symbol": "hgnc_symbol",
-            "external_gene_name": "external_gene_name",
-            "ensembl_gene_id": "ensembl_gene_id",
-            "chromosome_name": "chrom",
-            "start_position": "start",
-            "end_position": "end",
-            "gene_biotype": "gene_biotype",
-        }
-    )
+    anno = query_biomart(attributes, genome_build=genome_build, dtype={"chromosome_name": str})
+    anno = anno.rename(columns={"chromosome_name": "chrom", "start_position": "start", "end_position": "end"})
 
     if gene_identifier_mode == "name":
         anno["gene"] = anno["hgnc_symbol"].replace("", pd.NA)
@@ -644,8 +605,6 @@ def generate_gene_coord_file(
     ------
     FileExistsError
         If out_path exists and overwrite=False.
-    ImportError
-        If pybiomart is not installed.
 
     Examples
     --------
@@ -656,7 +615,7 @@ def generate_gene_coord_file(
     ...     "gene_coords_grch38.txt", gene_identifier_mode="name", genome_build="GRCh38"
     ... )
     """
-    out_path = Path(out_path)
+    out_path = Path(out_path).expanduser()
 
     if out_path.exists() and not overwrite:
         raise FileExistsError(f"Output file {out_path} already exists. Set overwrite=True to proceed.")

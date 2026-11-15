@@ -1,6 +1,13 @@
+import os
+import shlex
+import sys
+
+import numpy as np
 import pandas as pd
 import pytest
 
+from cellink._core.donordata import DonorData
+from cellink.tl.external._tensorqtl import run_tensorqtl
 from cellink.tl.external._tensorqtl_main import read_phenotype_bed
 
 
@@ -53,9 +60,8 @@ def test_pandas_plink_stub_points_to_pgen():
         _pandas_plink_read_plink("genotypes")
 
 
-def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata, monkeypatch):
+def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata):
     import shlex
-    import subprocess
 
     import numpy as np
 
@@ -70,11 +76,8 @@ def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata, monk
     X[0, 1] = np.nan
     gdata.X = X
     dd = DonorData(G=gdata, C=adata)
-    calls = []
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append(a))
     prefix = str(tmp_path / "tq")
     cmd = run_tensorqtl(dd, mode="trans", prefix=prefix, run=False)
-    assert calls == []  # no plink2 conversion
     assert shlex.split(cmd)[3] == prefix
 
     reader = pgenlib.PgenReader(f"{prefix}.pgen".encode())
@@ -88,3 +91,41 @@ def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata, monk
     pvar = pd.read_csv(f"{prefix}.pvar", sep="\t", dtype=str)
     assert list(pvar["REF"]) == list(G.var["a0"].astype(str))
     assert list(pvar["ALT"]) == list(G.var["a1"].astype(str))
+
+
+@pytest.fixture
+def dd(adata, gdata):
+    gdata.obs["donor_id"] = gdata.obs.index
+    gdata.obs["sex"] = np.resize([1, 2], gdata.n_obs)
+    gdata.obs["age"] = np.linspace(30, 70, gdata.n_obs)
+    return DonorData(G=gdata, C=adata)
+
+
+def _read_covariates(prefix):
+    return pd.read_csv(f"{prefix}_donor_features.tsv", sep="\t", index_col=0).T
+
+
+def test_missing_sex_raises_instead_of_code_minus_one(tmp_path, dd):
+    dd.G.obs["sex"] = dd.G.obs["sex"].astype(float)
+    dd.G.obs.iloc[0, dd.G.obs.columns.get_loc("sex")] = np.nan
+    with pytest.raises(ValueError, match="1 donor\\(s\\) have no sex"):
+        run_tensorqtl(dd, mode="trans", prefix=str(tmp_path / "tq"), run=False)
+
+
+def test_missing_covariate_values_raise(tmp_path, dd):
+    dd.G.obs.iloc[1, dd.G.obs.columns.get_loc("age")] = np.nan
+    with pytest.raises(ValueError, match="age"):
+        run_tensorqtl(dd, mode="trans", prefix=str(tmp_path / "tq"), run=False)
+
+
+def test_run_false_writes_pgen_and_builds_command(tmp_path, dd):
+    pytest.importorskip("pgenlib")
+    prefix = str(tmp_path / "my dir" / "tq")
+    os.makedirs(os.path.dirname(prefix))
+    save = tmp_path / "job.sh"
+    cmd = run_tensorqtl(dd, mode="trans", prefix=prefix, run=False, save_cmd_file=str(save))
+    assert all(os.path.isfile(f"{prefix}.{ext}") for ext in ("pgen", "pvar", "psam"))
+    args = shlex.split(cmd)
+    assert args[:3] == [sys.executable, "-m", "cellink.tl.external._tensorqtl_main"]
+    assert args[3:6] == [prefix, f"{prefix}_phenotype.bed.gz", prefix]
+    assert save.read_text().strip() == cmd

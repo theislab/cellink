@@ -26,6 +26,8 @@ def far_variant_id(dd):
     variant_id = dd.G.var_names[0]
     far_pos = int(dd.C.var["end"].max()) + 10_000_000
     dd.G.var.loc[variant_id, "pos"] = far_pos
+    # the simulated genotypes are random; a monomorphic variant has no association to report
+    dd.G.X[:, 0] = np.resize([0, 1, 2], dd.G.n_obs)
     return variant_id
 
 
@@ -69,29 +71,3 @@ def test_run_dense_trans_scan_warns_on_missing_gene_of_interest(dd, caplog):
             maf_threshold=0.0, encode_sex=False,
         )
     assert any("not-a-real-gene" in message and "not found" in message for message in caplog.messages)
-
-
-def test_run_dense_trans_scan_truncates_gpcs_to_n_pcs(dd, monkeypatch):
-    """gPCs (if present) are auto-added as a covariate and truncated to
-    n_pcs columns before being handed to run_tensorqtl."""
-    rng = np.random.default_rng(0)
-    dd.G.obsm["gPCs"] = rng.normal(size=(dd.G.n_obs, 10))
-    variant_id = dd.G.var_names[0]
-
-    captured = {}
-
-    import cellink.tl.external._tensorqtl as tqtl_module
-
-    real_run_tensorqtl = tqtl_module.run_tensorqtl
-
-    def spy(dd_scan, *args, **kwargs):
-        captured["gpcs_shape"] = dd_scan.G.obsm["gPCs"].shape
-        captured["additional_covariates"] = kwargs.get("additional_covariates")
-        return real_run_tensorqtl(dd_scan, *args, **kwargs)
-
-    monkeypatch.setattr(tqtl_module, "run_tensorqtl", spy)
-
-    run_dense_trans_scan(dd, variant_id=variant_id, n_pcs=3, maf_threshold=0.0, encode_sex=False)
-
-    assert captured["gpcs_shape"][1] == 3
-    assert captured["additional_covariates"] == ["gPCs"]

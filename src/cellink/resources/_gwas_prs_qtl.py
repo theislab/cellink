@@ -1,5 +1,7 @@
 import io
+import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -12,7 +14,7 @@ from urllib.request import urlretrieve
 import pandas as pd
 import requests
 
-from cellink.resources._utils import _cache_df, _download_file, _to_dataframe, get_data_home
+from cellink.resources._utils import _cache_df, _download_file, _part_path, _to_dataframe, get_data_home
 
 
 def _normalize_build(genome_build: str) -> str:
@@ -136,6 +138,7 @@ def get_gwas_catalog_studies(
         "gwas_studies.parquet",
         refresh,
         lambda: _to_dataframe(_fetch(f"{GWAS_API_BASE}/studies", params=params, max_pages=max_pages)),
+        key={"max_pages": max_pages, **params},
     )
 
 
@@ -164,10 +167,19 @@ def get_gwas_catalog_study_summary_stats(
     return_path: bool = False,
     genome_build: str | None = None,
     translate_to_build: str | None = None,
+    data_home: str | Path | None = None,
+    refresh: bool = False,
     **params: Any,
 ) -> pd.DataFrame | Path:
     """
     Download full summary statistics for a GWAS study.
+
+    The file is downloaded once per study and requested ``genome_build`` and reused
+    afterwards without contacting the GWAS Catalog: it is stored under its EBI file
+    name in ``{data_home}/gwas_catalog_summary_stats/{accession_id}/`` together with a
+    small JSON record of its URL and genome build. Downloads are written to a
+    temporary file and renamed when complete, so interrupted or parallel downloads
+    never leave a truncated file behind.
 
     Parameters
     ----------
@@ -186,7 +198,12 @@ def get_gwas_catalog_study_summary_stats(
         After downloading, translate SNP positions to this genome build using liftover.
         Useful when EBI does not host a pre-built file for the requested build.
         Requires the ``liftover`` package (``pip install 'cellink-tools[datasets]'``).
-        Cannot be combined with ``return_path=True``.
+        Cannot be combined with ``return_path=True``. Raises a ``ValueError`` if the
+        build of the downloaded file cannot be detected.
+    data_home : str or Path, optional
+        Directory for the default download location. Defaults to cellink's data directory.
+    refresh : bool, default=False
+        If True, look up and download the file again even if it was downloaded before.
     **params
         Additional query parameters to pass to the API.
 
@@ -197,6 +214,70 @@ def get_gwas_catalog_study_summary_stats(
     """
     if translate_to_build and return_path:
         raise ValueError("translate_to_build requires return_path=False, since liftover operates on an in-memory DataFrame.")
+    normalized_build = _normalize_build(genome_build) if genome_build else None
+
+    cache_dir = get_data_home(data_home) / "gwas_catalog_summary_stats" / accession_id
+    manifest_path = cache_dir / f"request_{normalized_build or 'auto'}.json"
+    cached = None if refresh else _cached_summary_stats(manifest_path, dest)
+    if cached is not None:
+        dest, url, detected_build = cached
+        logging.info(f"Using cached summary statistics {dest} (downloaded from {url}, build {detected_build})")
+    else:
+        url, filename, detected_build = _find_gwas_catalog_summary_stats_file(accession_id, normalized_build, params)
+        dest = Path(dest) if dest else cache_dir / Path(filename).name
+        try:
+            _download_file(url, dest, refresh=refresh)
+        except (OSError, URLError) as e:
+            raise RuntimeError(f"Failed to download summary statistics from {url}: {e}") from e
+        _write_json_atomic(manifest_path, {"url": url, "path": str(dest), "build": detected_build})
+
+    if return_path:
+        return dest
+
+    compression = "gzip" if url.endswith(".gz") else "zip" if url.endswith(".zip") else None
+    data = pd.read_csv(dest, compression=compression, sep=r"\s+")
+    if translate_to_build:
+        if detected_build not in ("GRCh37", "GRCh38"):
+            raise ValueError(
+                f"Could not detect the genome build of the summary statistics of {accession_id} ({url}), so "
+                "translate_to_build cannot be applied. Load them without translate_to_build and call "
+                "liftover_gwas_summary_stats(df, source_build=..., target_build=...) with the build from the study."
+            )
+        data = liftover_gwas_summary_stats(data, source_build=detected_build, target_build=translate_to_build)
+    return data
+
+
+def _cached_summary_stats(manifest_path: Path, dest: str | Path | None) -> tuple[Path, str, str] | None:
+    """Return ``(path, url, build)`` of a complete earlier download for the same request, if any."""
+    try:
+        manifest = json.loads(manifest_path.read_text())
+        path = Path(manifest["path"])
+        url, build = manifest["url"], manifest["build"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not path.exists() or (dest is not None and Path(dest).resolve() != path.resolve()):
+        return None
+    return path, url, build
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = _part_path(path)
+    try:
+        part.write_text(json.dumps(data))
+        os.replace(part, path)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def _find_gwas_catalog_summary_stats_file(
+    accession_id: str, normalized_build: str | None, params: dict[str, Any]
+) -> tuple[str, str, str]:
+    """List the study's EBI FTP directories and pick the summary-statistics file.
+
+    Returns ``(url, filename, build)``, where ``build`` is ``"GRCh38"``, ``"GRCh37"`` or
+    ``"unknown"``.
+    """
     study_meta = _fetch(f"{GWAS_API_BASE}/studies/{accession_id}", params=params, paginate=False)
 
     if "full_summary_stats" not in study_meta:
@@ -204,8 +285,6 @@ def get_gwas_catalog_study_summary_stats(
 
     base_url = study_meta["full_summary_stats"]
     harmonised_url = f"{base_url}/harmonised"
-
-    normalized_build = _normalize_build(genome_build) if genome_build else None
 
     def build_priority(filename):
         """Assign priority score to filename based on genome build."""
@@ -396,32 +475,7 @@ def get_gwas_catalog_study_summary_stats(
     if not url:
         raise ValueError(f"Could not find summary statistics file for {accession_id}")
 
-    if url.endswith(".gz"):
-        suffix, compression = ".gz", "gzip"
-    elif url.endswith(".zip"):
-        suffix, compression = ".zip", "zip"
-    else:
-        suffix, compression = "", None
-    if not dest:
-        data_home = get_data_home()
-        dest = data_home / f"{accession_id}_summary_stats.tsv{suffix}"
-
-    logging.info(f"Downloading {url} to {dest}")
-
-    try:
-        urlretrieve(url, dest)
-    except (OSError, URLError) as e:
-        raise RuntimeError(f"Failed to download summary statistics from {url}: {e}") from e
-
-    if return_path:
-        return dest
-
-    data = pd.read_csv(dest, compression=compression, sep=r"\s+")
-    if translate_to_build:
-        data = liftover_gwas_summary_stats(
-            data, source_build=detected_build or "GRCh38", target_build=translate_to_build
-        )
-    return data
+    return url, filename, detected_build
 
 
 def liftover_gwas_summary_stats(
@@ -448,19 +502,32 @@ def liftover_gwas_summary_stats(
     pos_col : str, default='base_pair_location'
         Name of the position column.
     drop_failed : bool, default=True
-        If True, rows whose positions could not be lifted over are dropped.
-        If False, failed positions are set to ``pd.NA``.
+        If True, rows whose positions could not be lifted over (including rows with a
+        missing chromosome or position) are dropped. If False, their positions are set
+        to ``pd.NA``.
 
     Returns
     -------
     pd.DataFrame
-        Copy of ``df`` with ``pos_col`` replaced by translated positions.
+        Copy of ``df`` with ``pos_col`` replaced by translated positions (``Int64``)
+        and ``chrom_col`` by the chromosome each variant lifts to, which can differ
+        from the source chromosome. Chromosome labels keep a ``chr`` prefix only if
+        the input had one; numeric chromosome columns (e.g. ``1.0`` read from a
+        column with NAs) come back as ``Int64`` when every label is numeric, as text
+        otherwise.
 
     Raises
     ------
     ImportError
         If the ``liftover`` package is not installed.
+    ValueError
+        If ``source_build`` or ``target_build`` is not a known build (e.g. ``"unknown"``).
     """
+    if source_build is None or str(source_build).lower() == "unknown":
+        raise ValueError(
+            "The genome build of the summary statistics is unknown, so their positions cannot be lifted over. "
+            "Pass source_build='GRCh37' or 'GRCh38' once you know the build."
+        )
     _UCSC = {"GRCh37": "hg19", "GRCh38": "hg38"}
     src = _UCSC[_normalize_build(source_build)]
     tgt = _UCSC[_normalize_build(target_build)]
@@ -479,22 +546,35 @@ def liftover_gwas_summary_stats(
 
     converter = get_lifter(src, tgt, one_based=True)
 
-    chroms = df[chrom_col].astype(str).tolist()
-    positions = df[pos_col].tolist()
-    results = [converter[c][p] for c, p in zip(chroms, positions, strict=False)]
-    new_positions = [r[0][1] if r else None for r in results]
+    chroms = df[chrom_col].astype("string").str.strip().str.replace(r"\.0+$", "", regex=True)
+    positions = pd.to_numeric(df[pos_col], errors="coerce")
+    new_chroms, new_positions = [], []
+    for chrom, pos in zip(chroms, positions, strict=True):
+        hits = [] if pd.isna(chrom) or pd.isna(pos) else converter[chrom][int(pos)]
+        if hits:
+            lifted = str(hits[0][0])
+            new_chroms.append(lifted if chrom.startswith("chr") else lifted.removeprefix("chr"))
+            new_positions.append(int(hits[0][1]))
+        else:
+            new_chroms.append(chrom)
+            new_positions.append(pd.NA)
 
     out = df.copy()
-    out[pos_col] = new_positions
+    new_chroms = pd.Series(new_chroms, index=out.index, dtype="string")
+    if pd.api.types.is_numeric_dtype(df[chrom_col]) and new_chroms.dropna().str.isdigit().all():
+        out[chrom_col] = new_chroms.astype("Int64")
+    else:
+        out[chrom_col] = new_chroms.astype(object).where(new_chroms.notna(), None)
+    out[pos_col] = pd.array(new_positions, dtype=pd.Int64Dtype())
+    n_failed = int(out[pos_col].isna().sum())
     if drop_failed:
-        n_failed = sum(p is None for p in new_positions)
         if n_failed:
             logging.warning(
                 f"liftover: dropped {n_failed:,} rows with no mapping from {source_build} to {target_build}"
             )
         out = out.dropna(subset=[pos_col])
-    else:
-        out[pos_col] = pd.array(new_positions, dtype=pd.Int64Dtype())
+    elif n_failed:
+        logging.warning(f"liftover: {n_failed:,} rows have no mapping from {source_build} to {target_build}")
 
     return out.reset_index(drop=True)
 
@@ -523,6 +603,7 @@ def get_gwas_catalog_genes(data_home: str | Path | None = None, refresh: bool = 
         "gwas_genes.parquet",
         refresh,
         lambda: _to_dataframe(_fetch(f"{GWAS_API_BASE}/genes", params=params)),
+        key=params,
     )
 
 
@@ -573,6 +654,7 @@ def get_pgs_catalog_scores(
         "pgs_scores.parquet",
         refresh,
         lambda: _to_dataframe(_fetch(f"{PGS_API_BASE}/score/all", params=params, max_pages=max_pages)),
+        key={"max_pages": max_pages, **params},
     )
 
 

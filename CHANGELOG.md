@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning][].
 - `lazy=True` on `io.read_h5_dd` and `io.read_dd`: dense `X` and layers are read from the file when
   computed, as with `io.read_zarr_dd`
 - `jaxqtl` extra
+- `sclinker` extra
+- `n_jobs` on `tl.external.run_magma_pipeline`, `tl.external.genescores_to_annotations` and
+  `tl.external.run_sclinker_heritability`
+- `data_home` and `refresh` on `resources.get_gwas_catalog_study_summary_stats`
+- `tl.external` exports `download_magma_references`, `get_gene_annotation` and `run_scprs`
 - Tutorials: DonorData basics, scEPS
 - API reference pages for sc-linker, scPRS, gsMap, MAGMA and cell-level LDSC
 
@@ -55,6 +60,26 @@ and this project adheres to [Semantic Versioning][].
 - `tl.external.run_jaxqtl` runs the jaxqtl 0.3 subcommands `cis`, `nominal` and `trans`, with one
   parameter per jaxqtl option and `compute-pcs` for expression PCs (`expression_pcs`);
   `tl.external.read_jaxqtl_results` reads the result file of a scan
+- `tl.external.run_jaxqtl` fits its count models to summed counts with a log library-size offset;
+  `libsize_key` takes the library sizes from a per-cell total over all genes (e.g. `nCount_RNA`)
+- `tl.external.compute_joint_nmf_programs` couples the gene loadings; sc-linker bedgraphs keep the
+  largest score of overlapping intervals
+- `tl.external.compute_nmf_programs` follows sc-linker (Jagadeesh et al. 2022): it factorizes the
+  log-normalized expression in `adata.X` (not the `counts` layer) with scikit-learn's NMF and random
+  initialization (torchnmf only with `device`), fits on the highly variable genes when they are
+  annotated, correlates every expressed gene with the factors, collapses factors whose contributions
+  correlate above 0.8 (`collapse_threshold`) and writes gene scores (`{prefix}_genescores.csv`)
+- `tl.external.estimate_ld_scores_from_donor_data` uses a 1000 kb window
+- `tl.coloc_susie` defaults to `p12=5e-6`
+- `at.acat_test` ignores NaN p-values, rejects non-positive weights and rescales the weights to sum to 1
+- `pp.variant_qc` applies `hwe_pval_threshold`
+- sc-linker gene coordinates have one span per Ensembl gene
+- `resources.get_onek1k` lifts positions to hg19 correctly and names genotype PCs `gPCs_1` to
+  `gPCs_N`
+- `resources.get_dummy_onek1k` loads a new tutorial dataset (300 donors, at most 420 cells per
+  donor)
+- External tool commands run without a shell; BioMart queries use HTTPS with retries; downloads are
+  atomic; the `tensorqtl` extra installs rpy2
 
 ### Removed
 
@@ -99,6 +124,34 @@ and this project adheres to [Semantic Versioning][].
   and the colocalization and gsMap tutorials
 - `tl.external.run_jaxqtl` writes gene coordinates as integers, reads results from `out` and returns
   the output paths with `read_results=False`
+- `resources.liftover_gwas_summary_stats` with float chromosome labels and NA positions
+- Per-query caches of `get_gwas_catalog_studies`, `get_gwas_catalog_genes`, `get_pgs_catalog_scores`
+  and `get_1000genomes_merge_alleles`
+- `tl.external.run_tensorqtl`: `maf_threshold` in the Python API, `read_results=False`, early error
+  without R or qvalue
+- Covariates with missing values, including donor sex, raise in `run_tensorqtl`, `run_jaxqtl` and
+  `run_saigeqtl`; `run_saigeqtl` restricts cis tests to the gene window
+- Singularity runs set `--pwd /data`
+- LDSC helpers accept `ld_wind_kb` or `ld_wind_snp` alone and pass `maf_min`
+- MAGMA input preparation: p-value clipping, allele order, prefixes with dots
+- `tl.external.load_gsmap_results` reads only the requested trait
+- `tl.external.compute_nmf_programs` gave genes without counts the correlations of other genes
+- `tl.coloc_abf` input checks and very strong signals; `tl.coloc_susie` with no credible sets
+- Edge cases in `tl.build_pca_informed_prior`, `tl.subset_gene` and `tl.subset_genomic_region`
+- `cellink.pp` filters with `inplace=True` filter the input
+- `DonorData.sel` aligns boolean Series by label
+- `ml.DonorMILModel` with `cell_mask` and multi-class targets
+- `pl.expression_by_genotype`, `pl.manhattan`, `pl.qq` and `pl.enrichment_scatter`
+- `validate` checks MuData genotypes
+- Path arguments of the MAGMA, gsMap, sc-linker and S-LDSC helpers expand `~`
+- An interrupted extraction of a 1000 Genomes archive is redone instead of being used as complete;
+  data extracted by an earlier version is extracted once more
+- sc-linker's `bedgraph_to_snp_annotation` without bedtools uses the same coordinates as bedtools
+  and is vectorized
+- Tutorials: colocalization, scdrs_seismic, clumping_pruning, pseudobulk_eqtl, the jaxqtl/tensorQTL
+  and SAIGE-QTL eQTL tutorials, cell_level_ldsc_analysis (genome builds, LDSC-SEG control gene set),
+  sclinker (RA GWAS, gene names, AllCoding control), magma_analysis_tutorial (MAGMA build for the
+  operating system, also macOS) and run_dataloader; every tutorial runs in under an hour
 
 ### Known limitations
 

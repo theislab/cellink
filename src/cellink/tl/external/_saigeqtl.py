@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 from pathlib import Path
 from typing import Literal
 
@@ -13,6 +14,11 @@ from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
 
 logger = logging.getLogger(__name__)
+
+
+def _q(value) -> str:
+    """Quote one command argument, so the runner's ``shlex.split`` keeps it whole."""
+    return shlex.quote(str(value))
 
 
 class SAIGEQTLRunner(BaseToolRunner):
@@ -117,8 +123,8 @@ def make_group_file(
 
     Parameters
     ----------
-    dd : DonorData, optional
-        DonorData object. If provided, will export to PLINK format.
+    dd : DonorData
+        DonorData object whose genotypes (`dd.G`) are exported to PLINK format for the group file.
     region_file : str
         Path to region file (chr, start, end; no header)
     output_prefix : str
@@ -142,23 +148,24 @@ def make_group_file(
     str
         Path to group file or command string
     """
+    if dd is None:
+        raise ValueError("make_group_file needs `dd`: its genotypes are exported to the PLINK files it reads.")
     if runner is None:
         runner = get_saigeqtl_runner()
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
 
-    if dd is not None:
-        temp_prefix = f"{output_prefix}_temp"
-        to_plink(dd.G, temp_prefix, **plink_export_kwargs)
-        bed_file = f"{temp_prefix}.bed"
-        bim_file = f"{temp_prefix}.bim"
-        fam_file = f"{temp_prefix}.fam"
+    temp_prefix = f"{output_prefix}_temp"
+    to_plink(dd.G, temp_prefix, **plink_export_kwargs)
+    bed_file = f"{temp_prefix}.bed"
+    bim_file = f"{temp_prefix}.bim"
+    fam_file = f"{temp_prefix}.fam"
 
-    cmd = f"{runner.config['rscript_path']} {runner.makegroup_script} --regionFile={region_file} --outputPrefix={output_prefix}"
+    cmd = f"{runner.config['rscript_path']} {runner.makegroup_script} --regionFile={_q(region_file)} --outputPrefix={_q(output_prefix)}"
 
-    cmd += f" --bedFile={bed_file} --bimFile={bim_file} --famFile={fam_file}"
+    cmd += f" --bedFile={_q(bed_file)} --bimFile={_q(bim_file)} --famFile={_q(fam_file)}"
     if allele_order != "alt-first":
-        cmd += f" --AlleleOrder={allele_order}"
+        cmd += f" --AlleleOrder={_q(allele_order)}"
 
     file_paths = [region_file]
     file_paths.extend([bed_file, bim_file, fam_file])
@@ -173,7 +180,7 @@ def make_group_file(
     logger.info("Creating group file")
     runner.run_command(cmd, file_paths=file_paths)
 
-    if dd is not None and remove_intermediate_files:
+    if remove_intermediate_files:
         for ext in [".bed", ".bim", ".fam"]:
             if os.path.isfile(temp_prefix + ext):
                 os.remove(temp_prefix + ext)
@@ -413,7 +420,8 @@ def run_saigeqtl(
     ranges_to_include_file : str, default=""
         File with genomic ranges
     window : int, default=500000
-        Cis-window size in bp
+        Cis-window size in bp. In ``mode="cis"`` without `ranges_to_include_file`, Step 2 tests the
+        variants within this distance of `gene_col` (start clipped at 0).
     chrom : str, optional
         Chromosome
     is_imputed_data : bool, default=False
@@ -446,7 +454,7 @@ def run_saigeqtl(
     Set-Based Test Parameters
     -------------------------
     group_file : str, optional
-        Group file for set-based tests
+        Group file for set-based tests; required with ``analysis_type="set_based"``
     max_maf_in_group_test : str, default="0.0001,0.001,0.01"
         Maximum MAF for masks
     min_maf_in_group_test_exclude : str, optional
@@ -565,13 +573,15 @@ def run_saigeqtl(
 
     if steps == "all":
         steps = [1, 2, 3]
+    if 2 in steps and analysis_type == "set_based" and not group_file:
+        raise ValueError("analysis_type='set_based' needs `group_file` (build one with make_group_file).")
 
     if 1 in steps or 2 in steps:
         if cell_covariates and "X_pca" in cell_covariates and "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA")
             sc.pp.pca(dd.C, n_comps=n_pcs)
 
-        pheno_df = pd.DataFrame(dd.C.X.todense(), columns=dd.C.var.index, index=dd.C.obs[DAnn.donor])
+        pheno_df = pd.DataFrame(asarray(dd.C.X), columns=dd.C.var.index, index=dd.C.obs[DAnn.donor])
         pheno_df.insert(0, "IND_ID", pheno_df.index)
 
         if gene_col not in pheno_df.columns:
@@ -581,6 +591,9 @@ def run_saigeqtl(
         sample_cov_names = []
 
         if encode_sex and "sex" in dd.G.obs.columns:
+            n_missing = int(dd.G.obs["sex"].isna().sum())
+            if n_missing:
+                raise ValueError(f"{n_missing} donor(s) have no sex in dd.G.obs; drop them or pass encode_sex=False.")
             sex_data = dd.G.obs["sex"].astype("category").cat.codes
             sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.G.obs.index))
             sample_cov_names.append("sex")
@@ -669,12 +682,12 @@ def run_saigeqtl(
 
     if 1 in steps:
         step1_cmd = f"{runner.config['rscript_path']} {runner.step1_script}"
-        step1_cmd += f" --phenoFile={prefix}_phenotype.txt"
-        step1_cmd += f" --phenoCol={gene_col}"
+        step1_cmd += f" --phenoFile={_q(prefix)}_phenotype.txt"
+        step1_cmd += f" --phenoCol={_q(gene_col)}"
         step1_cmd += " --sampleIDColinphenoFile=IND_ID"
         step1_cmd += " --traitType=count"
-        step1_cmd += f" --plinkFile={prefix}"
-        step1_cmd += f" --outputPrefix={prefix}"
+        step1_cmd += f" --plinkFile={_q(prefix)}"
+        step1_cmd += f" --outputPrefix={_q(prefix)}"
 
         if tol != 0.02:
             step1_cmd += f" --tol={tol}"
@@ -693,7 +706,7 @@ def run_saigeqtl(
         if memory_chunk != 2:
             step1_cmd += f" --memoryChunk={memory_chunk}"
         if tau_init != "0,0":
-            step1_cmd += f" --tauInit={tau_init}"
+            step1_cmd += f" --tauInit={_q(tau_init)}"
         if not loco_step1:
             step1_cmd += " --LOCO=FALSE"
         if trace_cv_cutoff != 0.0025:
@@ -705,9 +718,9 @@ def run_saigeqtl(
         if relatedness_cutoff != 0:
             step1_cmd += f" --relatednessCutoff={relatedness_cutoff}"
         if cate_var_ratio_min_mac_vec_exclude != "10,20.5":
-            step1_cmd += f" --cateVarRatioMinMACVecExclude={cate_var_ratio_min_mac_vec_exclude}"
+            step1_cmd += f" --cateVarRatioMinMACVecExclude={_q(cate_var_ratio_min_mac_vec_exclude)}"
         if cate_var_ratio_max_mac_vec_include != "20.5":
-            step1_cmd += f" --cateVarRatioMaxMACVecInclude={cate_var_ratio_max_mac_vec_include}"
+            step1_cmd += f" --cateVarRatioMaxMACVecInclude={_q(cate_var_ratio_max_mac_vec_include)}"
         if not is_covariate_transform:
             step1_cmd += " --isCovariateTransform=FALSE"
         if min_maf_for_grm != 0.01:
@@ -745,23 +758,23 @@ def run_saigeqtl(
             step1_cmd += " --MaleOnly=TRUE"
 
         if covar_cols:
-            step1_cmd += f" --covarColList={covar_cols}"
+            step1_cmd += f" --covarColList={_q(covar_cols)}"
         if sample_covar_cols:
-            step1_cmd += f" --sampleCovarColList={sample_covar_cols}"
+            step1_cmd += f" --sampleCovarColList={_q(sample_covar_cols)}"
         if output_prefix_var_ratio:
-            step1_cmd += f" --outputPrefix_varRatio={output_prefix_var_ratio}"
+            step1_cmd += f" --outputPrefix_varRatio={_q(output_prefix_var_ratio)}"
         if sparse_grm_file:
-            step1_cmd += f" --sparseGRMFile={sparse_grm_file}"
+            step1_cmd += f" --sparseGRMFile={_q(sparse_grm_file)}"
         if sparse_grm_sample_id_file:
-            step1_cmd += f" --sparseGRMSampleIDFile={sparse_grm_sample_id_file}"
+            step1_cmd += f" --sparseGRMSampleIDFile={_q(sparse_grm_sample_id_file)}"
         if sex_col:
-            step1_cmd += f" --sexCol={sex_col}"
+            step1_cmd += f" --sexCol={_q(sex_col)}"
         if female_code != "1":
-            step1_cmd += f" --FemaleCode={female_code}"
+            step1_cmd += f" --FemaleCode={_q(female_code)}"
         if male_code != "0":
-            step1_cmd += f" --MaleCode={male_code}"
+            step1_cmd += f" --MaleCode={_q(male_code)}"
         if sample_id_include_file:
-            step1_cmd += f" --SampleIDIncludeFile={sample_id_include_file}"
+            step1_cmd += f" --SampleIDIncludeFile={_q(sample_id_include_file)}"
 
         commands["step1"] = step1_cmd
 
@@ -775,13 +788,13 @@ def run_saigeqtl(
 
         step2_cmd = f"{runner.config['rscript_path']} {runner.step2_script}"
 
-        step2_cmd += f" --bedFile={prefix}.bed"
-        step2_cmd += f" --bimFile={prefix}.bim"
-        step2_cmd += f" --famFile={prefix}.fam"
+        step2_cmd += f" --bedFile={_q(prefix)}.bed"
+        step2_cmd += f" --bimFile={_q(prefix)}.bim"
+        step2_cmd += f" --famFile={_q(prefix)}.fam"
 
-        step2_cmd += f" --GMMATmodelFile={gmmat_model_file}"
-        step2_cmd += f" --varianceRatioFile={variance_ratio_file}"
-        step2_cmd += f" --SAIGEOutputFile={saige_output_file}"
+        step2_cmd += f" --GMMATmodelFile={_q(gmmat_model_file)}"
+        step2_cmd += f" --varianceRatioFile={_q(variance_ratio_file)}"
+        step2_cmd += f" --SAIGEOutputFile={_q(saige_output_file)}"
 
         if min_maf != 0:
             step2_cmd += f" --minMAF={min_maf}"
@@ -792,7 +805,7 @@ def run_saigeqtl(
         if max_missing != 0.15:
             step2_cmd += f" --maxMissing={max_missing}"
         if impute_method != "best_guess":
-            step2_cmd += f" --impute_method={impute_method}"
+            step2_cmd += f" --impute_method={_q(impute_method)}"
         if not loco_step2:
             step2_cmd += " --LOCO=FALSE"
         if spa_cutoff != 2:
@@ -802,7 +815,7 @@ def run_saigeqtl(
         if not is_overwrite_output:
             step2_cmd += " --is_overwrite_output=FALSE"
         if allele_order != "alt-first":
-            step2_cmd += f" --AlleleOrder={allele_order}"
+            step2_cmd += f" --AlleleOrder={_q(allele_order)}"
         if dosage_zerod_cutoff != 0.2:
             step2_cmd += f" --dosage_zerod_cutoff={dosage_zerod_cutoff}"
         if dosage_zerod_mac_cutoff != 10:
@@ -830,40 +843,40 @@ def run_saigeqtl(
             step2_cmd += " --is_EmpSPA=TRUE"
 
         if chrom:
-            step2_cmd += f" --chrom={chrom}"
+            step2_cmd += f" --chrom={_q(chrom)}"
         if ids_to_include_file:
-            step2_cmd += f" --idstoIncludeFile={ids_to_include_file}"
+            step2_cmd += f" --idstoIncludeFile={_q(ids_to_include_file)}"
         if condition:
-            step2_cmd += f" --condition={condition}"
+            step2_cmd += f" --condition={_q(condition)}"
 
         if mode == "cis" and not ranges_to_include_file:
             ranges_file = f"{prefix}_ranges.txt"
-            ranges_df = dd.C.var[["chrom", "start", "end"]].copy()
-            ranges_df["start"] = ranges_df["start"] - window
-            ranges_df["end"] = ranges_df["end"] + window
+            ranges_df = dd.C.var.loc[[gene_col], ["chrom", "start", "end"]].copy()
+            ranges_df["start"] = (ranges_df["start"] - window).clip(lower=0).astype("int64")
+            ranges_df["end"] = (ranges_df["end"] + window).astype("int64")
             ranges_df.to_csv(ranges_file, sep="\t", header=False, index=False)
-            step2_cmd += f" --rangestoIncludeFile={ranges_file}"
+            step2_cmd += f" --rangestoIncludeFile={_q(ranges_file)}"
         elif ranges_to_include_file:
-            step2_cmd += f" --rangestoIncludeFile={ranges_to_include_file}"
+            step2_cmd += f" --rangestoIncludeFile={_q(ranges_to_include_file)}"
 
         if analysis_type == "set_based" and group_file:
-            step2_cmd += f" --groupFile={group_file}"
+            step2_cmd += f" --groupFile={_q(group_file)}"
             if max_maf_in_group_test != "0.0001,0.001,0.01":
-                step2_cmd += f" --maxMAF_in_groupTest={max_maf_in_group_test}"
+                step2_cmd += f" --maxMAF_in_groupTest={_q(max_maf_in_group_test)}"
             if min_maf_in_group_test_exclude:
-                step2_cmd += f" --minMAF_in_groupTest_Exclude={min_maf_in_group_test_exclude}"
+                step2_cmd += f" --minMAF_in_groupTest_Exclude={_q(min_maf_in_group_test_exclude)}"
             if max_mac_in_group_test != "0":
-                step2_cmd += f" --maxMAC_in_groupTest={max_mac_in_group_test}"
+                step2_cmd += f" --maxMAC_in_groupTest={_q(max_mac_in_group_test)}"
             if min_mac_in_group_test_exclude:
-                step2_cmd += f" --minMAC_in_groupTest_Exclude={min_mac_in_group_test_exclude}"
+                step2_cmd += f" --minMAC_in_groupTest_Exclude={_q(min_mac_in_group_test_exclude)}"
             if annotation_in_group_test != "lof,missense;lof,missense;lof;synonymous":
-                step2_cmd += f" --annotation_in_groupTest={annotation_in_group_test}"
+                step2_cmd += f" --annotation_in_groupTest={_q(annotation_in_group_test)}"
             if mac_cutoff_to_collapse_ultra_rare != 10:
                 step2_cmd += f" --MACCutoff_to_CollapseUltraRare={mac_cutoff_to_collapse_ultra_rare}"
             if min_group_mac_in_burden_test != 5:
                 step2_cmd += f" --minGroupMAC_in_BurdenTest={min_group_mac_in_burden_test}"
             if weights_beta != "1;25":
-                step2_cmd += f" --weights.beta={weights_beta}"
+                step2_cmd += f" --weights.beta={_q(weights_beta)}"
             if r_corr != 0:
                 step2_cmd += f" --r.corr={r_corr}"
             if markers_per_chunk_in_group_test != 100:
@@ -871,7 +884,7 @@ def run_saigeqtl(
             if groups_per_chunk != 100:
                 step2_cmd += f" --groups_per_chunk={groups_per_chunk}"
             if weights_for_condition:
-                step2_cmd += f" --weights_for_condition={weights_for_condition}"
+                step2_cmd += f" --weights_for_condition={_q(weights_for_condition)}"
             if is_single_in_group_test:
                 step2_cmd += " --is_single_in_groupTest=TRUE"
             if is_skato:
@@ -888,16 +901,16 @@ def run_saigeqtl(
         gene_pval_output = f"{prefix}_gene_pvalue.txt"
 
         step3_cmd = f"{runner.config['rscript_path']} {runner.step3_script}"
-        step3_cmd += f" --assocFile={assoc_file}"
-        step3_cmd += f" --genePval_outputFile={gene_pval_output}"
+        step3_cmd += f" --assocFile={_q(assoc_file)}"
+        step3_cmd += f" --genePval_outputFile={_q(gene_pval_output)}"
 
         if gene_name:
-            step3_cmd += f" --geneName={gene_name}"
+            step3_cmd += f" --geneName={_q(gene_name)}"
         else:
-            step3_cmd += f" --geneName={gene_col}"
+            step3_cmd += f" --geneName={_q(gene_col)}"
 
         if weight_file:
-            step3_cmd += f" --weightFile={weight_file}"
+            step3_cmd += f" --weightFile={_q(weight_file)}"
 
         commands["step3"] = step3_cmd
 

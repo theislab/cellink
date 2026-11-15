@@ -1,6 +1,8 @@
+import hashlib
 import logging
 import shutil
 import tarfile
+import tempfile
 from pathlib import Path
 
 import pandas as pd
@@ -55,7 +57,9 @@ def check_ancestry_match(
         return
 
     matching_pops = {
-        pop for pop, accepted in _POPULATION_ANCESTRY_MATCH.items() if any(kw in a for a in ancestries_norm for kw in accepted)
+        pop
+        for pop, accepted in _POPULATION_ANCESTRY_MATCH.items()
+        if any(kw in a for a in ancestries_norm for kw in accepted)
     }
 
     if population in matching_pops:
@@ -86,9 +90,14 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
     """
     Extract a tar.gz archive into a directory, optionally refreshing its contents.
 
-    If `refresh` is True and the extraction directory exists, all existing contents
-    will be deleted before extraction. If the directory is empty or `refresh` is True,
-    the tar.gz archive is extracted. Handles nested directories by flattening if necessary.
+    The archive is extracted into a temporary folder inside `extract_path`, its files
+    are moved into `extract_path` (a single top-level folder is flattened), and a
+    marker file ``.{archive name}.extracted`` records that the extraction finished.
+    With the marker present the archive is not extracted again. Without it, e.g.
+    after an interrupted extraction, or with `refresh`, everything in `extract_path`
+    except the archive is deleted first. Members are extracted with the ``"data"``
+    filter, which rejects members that would land outside `extract_path` (absolute
+    paths, ``..``, links pointing outside).
 
     Parameters
     ----------
@@ -97,33 +106,40 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
     extract_path : pathlib.Path
         Directory where the archive should be extracted.
     refresh : bool, default=False
-        If True, deletes existing files/directories in `extract_path` before extraction.
+        If True, extracts the archive again even if an earlier extraction finished.
 
     Returns
     -------
     None
+
+    Raises
+    ------
+    tarfile.FilterError
+        If a member of the archive would be extracted outside `extract_path`.
     """
-    if refresh and extract_path.exists():
-        for item in extract_path.iterdir():
-            if item.is_file():
-                item.unlink()
-            else:
-                shutil.rmtree(item)
+    marker = extract_path / f".{tgz_path.name}.extracted"
+    if marker.exists() and not refresh:
+        return
 
-    existing_contents = [p for p in extract_path.iterdir() if p != tgz_path]
+    for item in extract_path.iterdir():
+        if item == tgz_path:
+            continue
+        if item.is_file() or item.is_symlink():
+            item.unlink()
+        else:
+            shutil.rmtree(item)
 
-    if not existing_contents:
+    tmp_dir = Path(tempfile.mkdtemp(prefix=".extracting-", dir=extract_path))
+    try:
         with tarfile.open(tgz_path, "r:gz") as tar:
-            tar.extractall(path=extract_path)
-
-        contents = [p for p in extract_path.iterdir() if p != tgz_path]
-
-        if len(contents) == 1 and contents[0].is_dir():
-            nested_dir = contents[0]
-
-            for item in nested_dir.iterdir():
-                shutil.move(str(item), str(extract_path))
-            nested_dir.rmdir()
+            tar.extractall(path=tmp_dir, filter="data")
+        contents = list(tmp_dir.iterdir())
+        source = contents[0] if len(contents) == 1 and contents[0].is_dir() else tmp_dir
+        for item in source.iterdir():
+            shutil.move(str(item), str(extract_path / item.name))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    marker.touch()
 
 
 def get_1000genomes_ld_scores(
@@ -163,7 +179,7 @@ def get_1000genomes_ld_scores(
         The GWAS's own declared sample ancestry (e.g. from a GWAS Catalog
         study's ``samples[].sample_ancestry_category``). If given, warns (or
         raises, per ``on_ancestry_mismatch``) when it doesn't plausibly match
-        ``population``, see :func:`check_ancestry_match`. 
+        ``population``, see :func:`check_ancestry_match`.
     on_ancestry_mismatch : str, default="warn"
         ``"warn"`` | ``"error"`` | ``"ignore"``, forwarded to
         :func:`check_ancestry_match`.
@@ -202,7 +218,7 @@ def get_1000genomes_ld_scores(
     prefix = config["ld_scores"]["prefix"]
     tgz_path = DATA / config["ld_scores"][population]["filename"]
 
-    _download_file(config["ld_scores"][population]["url"], tgz_path, checksum=None)
+    _download_file(config["ld_scores"][population]["url"], tgz_path, checksum=None, refresh=refresh)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     if return_path:
@@ -298,7 +314,7 @@ def get_1000genomes_ld_weights(
     prefix = config["ld_weights"][population]["prefix"]
     tgz_path = DATA / config["ld_weights"][population]["filename"]
 
-    _download_file(config["ld_weights"][population]["url"], tgz_path, checksum=None)
+    _download_file(config["ld_weights"][population]["url"], tgz_path, checksum=None, refresh=refresh)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     if return_path:
@@ -384,7 +400,7 @@ def get_1000genomes_plink_files(
     prefix = config["plink_files"][population]["prefix"]
     tgz_path = DATA / config["plink_files"][population]["filename"]
 
-    _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None)
+    _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None, refresh=refresh)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     return DATA, prefix
@@ -460,7 +476,7 @@ def get_1000genomes_frq(
     prefix = config["frq"]["prefix"]
     tgz_path = DATA / config["frq"][population]["filename"]
 
-    _download_file(config["frq"][population]["url"], tgz_path, checksum=None)
+    _download_file(config["frq"][population]["url"], tgz_path, checksum=None, refresh=refresh)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     return DATA, prefix
@@ -509,7 +525,7 @@ def get_1000genomes_hapmap3(
     config = _load_config(config_path, config_dict)
     dest = DATA / config["hapmap3"]["filename"]
 
-    _download_file(config["hapmap3"]["url"], dest, checksum=None)
+    _download_file(config["hapmap3"]["url"], dest, checksum=None, refresh=refresh)
 
     return dest
 
@@ -556,8 +572,9 @@ def get_1000genomes_merge_alleles(
     Returns
     -------
     pathlib.Path
-        Path to a ``merge_alleles_{population}.snplist`` file with columns
-        ``SNP A1 A2``, suitable for ``munge_sumstats(merge_alleles=...)``.
+        Path to a ``merge_alleles_{population}.snplist`` file (for autosomes 1-22;
+        ``merge_alleles_{population}_chr{...}.snplist`` for other chromosome lists)
+        with columns ``SNP A1 A2``, suitable for ``munge_sumstats(merge_alleles=...)``.
 
     Examples
     --------
@@ -565,7 +582,14 @@ def get_1000genomes_merge_alleles(
     >>> munge_sumstats(sumstats_file=..., merge_alleles=str(merge_alleles), ...)
     """
     data_home = get_data_home(data_home)
-    dest = data_home / f"merge_alleles_{population}.snplist"
+    chromosomes = list(chromosomes) if chromosomes else list(range(1, 23))
+    if [str(c) for c in chromosomes] == [str(c) for c in range(1, 23)]:
+        dest = data_home / f"merge_alleles_{population}.snplist"
+    else:
+        chrom_tag = "_".join(map(str, chromosomes))
+        if len(chrom_tag) > 40:
+            chrom_tag = hashlib.sha256(chrom_tag.encode()).hexdigest()[:12]
+        dest = data_home / f"merge_alleles_{population}_chr{chrom_tag}.snplist"
 
     if dest.exists() and not refresh:
         return dest
@@ -576,7 +600,6 @@ def get_1000genomes_merge_alleles(
     hapmap3_path = get_1000genomes_hapmap3(config_path=config_path, data_home=data_home, config_dict=config_dict)
     hapmap3_snps = set(pd.read_csv(hapmap3_path, header=None)[0])
 
-    chromosomes = chromosomes or list(range(1, 23))
     frames = []
     for chrom in chromosomes:
         bim_path = Path(plink_dir) / f"{plink_prefix}{chrom}.bim"
@@ -639,13 +662,12 @@ def merge_1000g_plink_chromosomes(
     >>> # Pass bfile to write_slurm_array_job(plink_bfile=bfile, ...)
     """
     import subprocess
-    import tempfile
 
     output_prefix = Path(output_prefix)
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     chromosomes = chromosomes or list(range(1, 23))
 
-    if output_prefix.with_suffix(".bed").exists():
+    if Path(f"{output_prefix}.bed").exists():
         return output_prefix
 
     plink_dir = Path(plink_dir)

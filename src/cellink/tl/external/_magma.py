@@ -1,13 +1,17 @@
 import logging
+import os
 import subprocess
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from cellink._config import load_config
 from cellink._core import DonorData
-from cellink.resources._utils import _download_file, get_data_home, retry_with_backoff
+from cellink.resources._utils import _download_file, get_data_home
+
+from ._biomart import query_biomart
 
 logger = logging.getLogger(__name__)
 
@@ -38,37 +42,17 @@ def _query_ensembl_entrez_pairs(genome_build: str = "GRCh38") -> pd.DataFrame:
     Alternative haplotypes and patches carry their own gene IDs, which never appear in expression data, so
     they are filtered out server-side; a larger response is silently truncated by the GRCh37 BioMart.
     """
-    try:
-        from pybiomart import Server
-    except ImportError as e:
-        raise ImportError("pybiomart is required for gene ID mapping. Install it with: pip install pybiomart") from e
+    if genome_build not in ("GRCh37", "GRCh38"):
+        raise ValueError(f"Invalid genome_build: {genome_build}")
 
     logger.info(f"Fetching gene ID mappings from Ensembl ({genome_build})")
 
-    if genome_build == "GRCh37":
-        host = "http://grch37.ensembl.org"
-    elif genome_build == "GRCh38":
-        host = "http://www.ensembl.org"
-    else:
-        raise ValueError(f"Invalid genome_build: {genome_build}")
-
     primary_chromosomes = [str(c) for c in range(1, 23)] + ["X", "Y", "MT"]
 
-    server = Server(host=host)
-    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
-    pairs = retry_with_backoff(
-        lambda: dataset.query(
-            attributes=["ensembl_gene_id", "external_gene_name", "entrezgene_id"],
-            filters={"chromosome_name": primary_chromosomes},
-        )
-    )
-
-    pairs = pairs.rename(
-        columns={
-            "Gene stable ID": "ensembl_gene_id",
-            "Gene name": "external_gene_name",
-            "NCBI gene (formerly Entrezgene) ID": "entrezgene_id",
-        }
+    pairs = query_biomart(
+        attributes=["ensembl_gene_id", "external_gene_name", "entrezgene_id"],
+        filters={"chromosome_name": primary_chromosomes},
+        genome_build=genome_build,
     )
     pairs = pairs.dropna(subset=["entrezgene_id"])
     pairs["entrezgene_id"] = pairs["entrezgene_id"].astype(int)
@@ -79,7 +63,7 @@ def get_gene_id_mapping(
     genome_build: str = "GRCh38", gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl"
 ) -> pd.DataFrame:
     """
-    Get gene ID mapping from Ensembl using pybiomart.
+    Get gene ID mapping from Ensembl BioMart.
 
     Only genes on the primary assembly (chromosomes 1-22, X, Y, MT) are returned, and
     Ensembl IDs cross-referenced to more than one Entrez ID are dropped.
@@ -216,7 +200,7 @@ def download_magma_references(
         If None, no reference panel is downloaded (useful when using your own genotypes).
     gene_id_type : str, default='ensembl'
         Gene ID type to use: 'entrez', 'ensembl', or 'gene_name'.
-        Entrez IDs are the original format; conversion to other types requires pybiomart.
+        Entrez IDs are the original format; conversion to other types queries Ensembl BioMart.
     config_file : str, default="magma"
         Name of a config shipped with cellink, or path to a YAML file with the reference URLs.
     config_dict : dict, optional
@@ -378,6 +362,14 @@ def prepare_magma_inputs(
     -------
     snp_loc_file, pval_file, gene_loc_file, ld_ref_prefix
         ld_ref_prefix is None when ld_source=None.
+
+    Notes
+    -----
+    P-values below the smallest normal double (2.2e-308, including 0) are clipped to it,
+    since MAGMA cannot read them. Without an SNP ID column, IDs are built as
+    ``chr_pos_effect_other``; an ID missing from the LD reference .bim whose swapped form
+    ``chr_pos_other_effect`` is present (e.g. a ``chr_pos_ref_alt`` .bim exported from
+    DonorData) is renamed to the swapped form.
     """
     if ld_source == "dd_genotypes" and dd is None:
         raise ValueError("ld_source='dd_genotypes' requires a DonorData object via `dd`")
@@ -386,6 +378,7 @@ def prepare_magma_inputs(
     if ld_source == "external" and external_ld_prefix is None:
         raise ValueError("ld_source='external' requires PLINK file prefix via `external_ld_prefix`")
 
+    output_prefix = str(Path(output_prefix).expanduser())
     output_dir = Path(output_prefix).parent
     output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -407,15 +400,11 @@ def prepare_magma_inputs(
     identifier_columns = ["variant_id", "rsID", "SNP"]
     has_valid_identifier = any(col in df.columns and df[col].notna().any() for col in identifier_columns)
     if not has_valid_identifier:
-        df["SNP"] = (
-            df["chromosome"].astype(str)
-            + "_"
-            + df["base_pair_location"].astype(str)
-            + "_"
-            + df["effect_allele"].astype(str).str.upper()
-            + "_"
-            + df["other_allele"].astype(str).str.upper()
-        )
+        chrom_pos = df["chromosome"].astype(str) + "_" + df["base_pair_location"].astype(str) + "_"
+        effect = df["effect_allele"].astype(str).str.upper()
+        other = df["other_allele"].astype(str).str.upper()
+        df["SNP"] = chrom_pos + effect + "_" + other
+        df["_SNP_swapped"] = chrom_pos + other + "_" + effect
 
     df = df.rename(columns=col_mapping)
 
@@ -429,21 +418,18 @@ def prepare_magma_inputs(
     df = df.dropna(subset=required_cols)
     df["BP"] = df["BP"].astype("int64")
 
-    snp_loc_file = Path(f"{output_prefix}.snp_loc.txt")
-    df[["SNP", "CHR", "BP"]].to_csv(snp_loc_file, sep="\t", header=False, index=False)
-    logger.info(f"Created SNP location file: {snp_loc_file}")
-
-    pval_file = Path(f"{output_prefix}.p_val.txt")
-    df[["SNP", "P"]].to_csv(pval_file, sep="\t", header=False, index=False)
-    logger.info(f"Created p-value file: {pval_file}")
+    p_min = np.finfo(np.float64).tiny
+    df["P"] = df["P"].astype("float64")
+    n_clipped = int((df["P"] < p_min).sum())
+    if n_clipped:
+        logger.info(f"Clipping {n_clipped} p-values below {p_min:.4g} (not readable by MAGMA) to {p_min:.4g}")
+        df["P"] = df["P"].clip(lower=p_min)
 
     ld_ref_prefix = None
 
     if ld_source == "dd_genotypes":
         logger.info("Exporting DonorData genotypes to PLINK format for LD reference")
         ld_ref_prefix = Path(f"{output_prefix}_ld_ref")
-
-        import numpy as np
 
         from cellink.io import to_plink
 
@@ -468,12 +454,10 @@ def prepare_magma_inputs(
         )
 
     elif ld_source == "external":
-        ld_ref_prefix = Path(external_ld_prefix)
+        ld_ref_prefix = Path(external_ld_prefix).expanduser()
 
         missing_plink = [
-            str(ld_ref_prefix.with_suffix(ext))
-            for ext in [".bed", ".bim", ".fam"]
-            if not ld_ref_prefix.with_suffix(ext).exists()
+            f"{ld_ref_prefix}{ext}" for ext in [".bed", ".bim", ".fam"] if not Path(f"{ld_ref_prefix}{ext}").exists()
         ]
         if missing_plink:
             raise FileNotFoundError(f"External LD reference PLINK files not found: {missing_plink}")
@@ -485,7 +469,38 @@ def prepare_magma_inputs(
             "manually when calling run_magma_gene_analysis."
         )
 
+    if "_SNP_swapped" in df.columns and ld_ref_prefix is not None:
+        df["SNP"] = _match_allele_order_to_bim(df["SNP"], df["_SNP_swapped"], Path(f"{ld_ref_prefix}.bim"))
+
+    snp_loc_file = Path(f"{output_prefix}.snp_loc.txt")
+    df[["SNP", "CHR", "BP"]].to_csv(snp_loc_file, sep="\t", header=False, index=False)
+    logger.info(f"Created SNP location file: {snp_loc_file}")
+
+    pval_file = Path(f"{output_prefix}.p_val.txt")
+    df[["SNP", "P"]].to_csv(pval_file, sep="\t", header=False, index=False)
+    logger.info(f"Created p-value file: {pval_file}")
+
     return snp_loc_file, pval_file, gene_loc_file, ld_ref_prefix
+
+
+def _match_allele_order_to_bim(snp_ids: pd.Series, swapped_ids: pd.Series, bim_file: Path) -> pd.Series:
+    """Use the chr_pos_other_effect ID wherever only that allele order is in the LD reference .bim.
+
+    IDs built as chr_pos_effect_other match a chr_pos_ref_alt .bim only when the effect allele is the
+    reference allele; MAGMA silently drops every other SNP. Swapping is skipped when the swapped ID is
+    itself a GWAS SNP, so no ID is written twice.
+    """
+    if not bim_file.exists():
+        logger.warning(f"{bim_file} not found; SNP IDs are not matched to the LD reference allele order")
+        return snp_ids
+    bim_ids = pd.read_csv(bim_file, sep=r"\s+", header=None, usecols=[1], dtype=str).iloc[:, 0]
+    swap = ~snp_ids.isin(bim_ids) & swapped_ids.isin(bim_ids) & ~swapped_ids.isin(snp_ids)
+    n_direct = int(snp_ids.isin(bim_ids).sum())
+    logger.info(
+        f"{n_direct} GWAS SNP IDs match the LD reference .bim as chr_pos_effect_other; "
+        f"{int(swap.sum())} more match with the alleles swapped and are renamed"
+    )
+    return snp_ids.where(~swap, swapped_ids)
 
 
 def run_magma_annotation(
@@ -539,6 +554,7 @@ def run_magma_annotation(
 
     logger.info(f"Running: {' '.join(cmd)}")
 
+    cmd = [str(Path(c).expanduser()) if str(c).startswith("~") else c for c in cmd]
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         logger.info(result.stdout)
@@ -557,6 +573,7 @@ def run_magma_gene_analysis(
     output_prefix: str,
     n_samples: int = None,
     magma_bin: str = "magma",
+    n_jobs: int = 1,
 ) -> Path:
     """
     Run MAGMA gene analysis to compute gene-level statistics.
@@ -575,6 +592,10 @@ def run_magma_gene_analysis(
         Sample size for the GWAS. If not provided, MAGMA will try to infer it.
     magma_bin : str, default='magma'
         Path to MAGMA binary. Can be 'magma' if in PATH, or a full path like './magma/magma'.
+    n_jobs : int, default=1
+        Number of MAGMA processes. Above 1, the genes are split with MAGMA's ``--batch`` and
+        the parts joined with ``--merge``, which gives the same results as one process. MAGMA
+        may use fewer batches for small inputs.
 
     Returns
     -------
@@ -605,6 +626,11 @@ def run_magma_gene_analysis(
 
     logger.info(f"Running: {' '.join(cmd)}")
 
+    cmd = [str(Path(c).expanduser()) if str(c).startswith("~") else c for c in cmd]
+    if n_jobs > 1:
+        _run_magma_gene_analysis_batches(cmd, output_prefix, magma_bin, n_jobs)
+        logger.info(f"Gene analysis complete: {results_file}")
+        return results_file
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         logger.info(result.stdout)
@@ -614,6 +640,42 @@ def run_magma_gene_analysis(
 
     logger.info(f"Gene analysis complete: {results_file}")
     return results_file
+
+
+def _run_magma_gene_analysis_batches(cmd: list[str], output_prefix: str, magma_bin: str, n_jobs: int) -> None:
+    """Run ``cmd`` as ``n_jobs`` MAGMA ``--batch`` processes and merge their ``.genes.out``/``.genes.raw``."""
+    import glob
+    import re
+
+    procs = [
+        subprocess.Popen(
+            [*cmd, "--batch", str(i), str(n_jobs)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        for i in range(1, n_jobs + 1)
+    ]
+    outputs = [proc.communicate()[0] for proc in procs]
+    for proc, out in zip(procs, outputs, strict=True):
+        if proc.returncode != 0 and "is empty" not in out:
+            raise RuntimeError(f"MAGMA gene analysis failed: {out}")
+    batches = sorted(glob.glob(f"{glob.escape(output_prefix)}.batch*_*.genes.out"))
+    totals = {re.search(r"\.batch\d+_(\d+)\.genes\.out$", b).group(1) for b in batches}
+    if not batches or len(totals) != 1:
+        raise RuntimeError(f"MAGMA gene analysis: unexpected batch files {batches}")
+    if totals == {"1"}:
+        for ext in ("genes.out", "genes.raw"):
+            os.replace(f"{output_prefix}.batch1_1.{ext}", f"{output_prefix}.{ext}")
+    else:
+        try:
+            subprocess.run(
+                [magma_bin, "--merge", output_prefix, "--out", output_prefix],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"MAGMA --merge failed: {e.stdout}{e.stderr}") from e
+    for f in glob.glob(f"{glob.escape(output_prefix)}.batch*_*.*"):
+        os.remove(f)
 
 
 def run_magma_pipeline(
@@ -632,6 +694,7 @@ def run_magma_pipeline(
     magma_bin: str = "magma",
     data_home: str | Path | None = None,
     config_dict: dict | None = None,
+    n_jobs: int = 1,
 ) -> Path:
     """
     Complete MAGMA pipeline: prepare inputs, annotate SNPs, and run gene analysis.
@@ -673,6 +736,8 @@ def run_magma_pipeline(
         Path to MAGMA binary.
     data_home : str or Path, optional
         Directory to store downloaded reference files. If None, uses cellink's default data directory.
+    n_jobs : int, default=1
+        MAGMA processes for the gene analysis (see :func:`run_magma_gene_analysis`).
 
     Returns
     -------
@@ -749,6 +814,7 @@ def run_magma_pipeline(
         output_prefix=output_prefix,
         n_samples=n_samples,
         magma_bin=magma_bin,
+        n_jobs=n_jobs,
     )
 
     logger.info(f"MAGMA pipeline complete! Results: {results_file}")

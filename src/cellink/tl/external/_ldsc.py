@@ -1,5 +1,6 @@
 import logging
 import os
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any, Literal
@@ -14,6 +15,11 @@ from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
 
 logger = logging.getLogger(__name__)
+
+
+def _q(value) -> str:
+    """Quote one command argument (paths may contain spaces; commands run without a shell)."""
+    return shlex.quote(str(value))
 
 
 class LDSCRunner(BaseToolRunner):
@@ -103,7 +109,7 @@ def _ensure_out_prefix_dir(out_prefix: str) -> None:
     surfaced from inside the container) if that directory doesn't exist. cellink
     builds the container command itself, so it creates the directory upfront.
     """
-    parent = os.path.dirname(os.path.abspath(out_prefix))
+    parent = os.path.dirname(os.path.abspath(os.path.expanduser(out_prefix)))
     if parent:
         os.makedirs(parent, exist_ok=True)
 
@@ -558,7 +564,7 @@ def munge_sumstats(
             a2_col=a2_col,
         )
 
-    cmd = f"{runner.munge_command} --sumstats {sumstats_file} --out {out_prefix}"
+    cmd = f"{runner.munge_command} --sumstats {_q(sumstats_file)} --out {_q(out_prefix)}"
 
     if n_samples is not None:
         cmd += f" --N {n_samples}"
@@ -590,7 +596,7 @@ def munge_sumstats(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = [sumstats_file]
     if merge_alleles:
@@ -606,16 +612,36 @@ def munge_sumstats(
         return runner._build_container_command(cmd, file_paths)
 
 
+def _ld_window_for_exported_bim(
+    bim_file: str, ld_wind_cm: float | None, ld_wind_kb: int | None, ld_wind_snp: int | None
+) -> tuple[float | None, int | None]:
+    """Use a 1000 kb window instead of a cM window when the exported .bim has no genetic map.
+
+    :func:`~cellink.io.to_plink` writes cM 0 for every variant, so a cM window would span the
+    whole chromosome. Returns the (possibly replaced) ``(ld_wind_cm, ld_wind_kb)``.
+    """
+    if ld_wind_kb is not None or ld_wind_snp is not None:
+        return ld_wind_cm, ld_wind_kb
+    cm = pd.read_csv(bim_file, sep=r"\s+", header=None, usecols=[2]).iloc[:, 0]
+    if len(cm) and (cm == 0).all():
+        logger.warning(
+            f"{bim_file} has cM 0 for every variant (no genetic map), so a cM window would cover the whole "
+            "chromosome; using ld_wind_kb=1000 instead. Pass ld_wind_kb or ld_wind_snp to choose another window."
+        )
+        return None, 1000
+    return ld_wind_cm, ld_wind_kb
+
+
 def _run_ldsc_estimate_ld_scores(
     bfile_prefix: str,
     out_prefix: str,
-    ld_wind_cm: float = 1.0,
+    ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     annot_file: str | None = None,
     thin_annot: bool = False,
     print_snps: str | None = None,
-    maf_min: float = 0.01,
+    maf_min: float | None = None,
     run: bool = True,
     runner: LDSCRunner | None = None,
     **kwargs,
@@ -626,13 +652,15 @@ def _run_ldsc_estimate_ld_scores(
 
     _ensure_out_prefix_dir(out_prefix)
 
-    cmd = f"{runner.ldsc_command} --bfile {bfile_prefix} --l2 --out {out_prefix}"
+    cmd = f"{runner.ldsc_command} --bfile {_q(bfile_prefix)} --l2 --out {_q(out_prefix)}"
 
     flags = [ld_wind_kb, ld_wind_snp, ld_wind_cm]
     non_null_flags = sum(f is not None for f in flags)
 
     if non_null_flags > 1:
         raise ValueError("Only one of ld_wind_kb, ld_wind_snp, or ld_wind_cm may be specified.")
+    if non_null_flags == 0:
+        ld_wind_cm = 1.0
 
     if ld_wind_kb is not None:
         cmd += f" --ld-wind-kb {ld_wind_kb}"
@@ -642,14 +670,14 @@ def _run_ldsc_estimate_ld_scores(
         cmd += f" --ld-wind-cm {ld_wind_cm}"
 
     if annot_file is not None:
-        cmd += f" --annot {annot_file}"
+        cmd += f" --annot {_q(annot_file)}"
         if thin_annot:
             cmd += " --thin-annot"
 
     if print_snps is not None:
-        cmd += f" --print-snps {print_snps}"
+        cmd += f" --print-snps {_q(print_snps)}"
 
-    if maf_min != 0.01:
+    if maf_min is not None:
         cmd += f" --maf {maf_min}"
 
     for flag, value in kwargs.items():
@@ -657,7 +685,7 @@ def _run_ldsc_estimate_ld_scores(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     cmd += " --yes-really"
 
@@ -678,13 +706,13 @@ def _run_ldsc_estimate_ld_scores(
 def estimate_ld_scores_from_bimfile(
     bfile_prefix: str,
     out_prefix: str,
-    ld_wind_cm: float = 1.0,
+    ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     annot_file: str | None = None,
     thin_annot: bool = False,
     print_snps: str | None = None,
-    maf_min: float = 0.01,
+    maf_min: float | None = None,
     run: bool = True,
     runner: LDSCRunner | None = None,
     **kwargs,
@@ -698,8 +726,9 @@ def estimate_ld_scores_from_bimfile(
         Path to PLINK binary files (without .bed/.bim/.fam extension)
     out_prefix : str
         Prefix for output files
-    ld_wind_cm : float, default 1.0
-        LD window size in centiMorgans
+    ld_wind_cm : float, optional
+        LD window size in centiMorgans. Only one of ld_wind_cm, ld_wind_kb, or
+        ld_wind_snp can be specified; 1.0 cM is used when none is given.
     ld_wind_kb : int, optional
         LD window size in kilobases (alternative to ld_wind_cm)
     ld_wind_snp : int, optional
@@ -710,8 +739,10 @@ def estimate_ld_scores_from_bimfile(
         Thin the annot file by removing columns with <1% SNPs
     print_snps : str, optional
         File with SNP IDs to restrict LD score computation
-    maf_min : float, default 0.01
-        Minimum MAF threshold
+    maf_min : float or None, default None
+        Minimum minor allele frequency of the SNPs used for the LD scores, passed to
+        ldsc as ``--maf``. None (default) applies no MAF filter (ldsc's default, also used for
+        the published baseline-LD scores).
     run : bool, default True
         Whether to execute the command or just return it
     runner : LDSCRunner, optional
@@ -774,13 +805,13 @@ def estimate_ld_scores_from_bimfile(
 def estimate_ld_scores_from_donor_data(
     dd: DonorData,
     out_prefix: str = "ldscores",
-    ld_wind_cm: float = 1.0,
+    ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     annot_file: str | None = None,
     thin_annot: bool = False,
     print_snps: str | None = None,
-    maf_min: float = 0.01,
+    maf_min: float | None = None,
     cleanup_files: bool = True,
     plink_export_kwargs: dict | None = None,
     run: bool = True,
@@ -810,10 +841,16 @@ def estimate_ld_scores_from_donor_data(
     dict
         Results dictionary (same as estimate_ld_scores_from_bimfile)
 
+    Notes
+    -----
+    The exported .bim has no genetic map (cM 0 for every variant), so a cM window
+    would span the whole chromosome. Unless ``ld_wind_kb`` or ``ld_wind_snp`` is
+    given, a 1000 kb window is used instead and a warning is logged.
+
     Examples
     --------
     >>> result = estimate_ld_scores_from_donor_data(
-    ...     dd=my_donor_data, out_prefix="my_ldscores", annot_file="immune_genes.annot.gz", ld_wind_cm=1.0
+    ...     dd=my_donor_data, out_prefix="my_ldscores", annot_file="immune_genes.annot.gz", ld_wind_kb=1000
     ... )
     """
     if runner is None:
@@ -824,6 +861,7 @@ def estimate_ld_scores_from_donor_data(
 
     logger.info("Exporting genotype data to PLINK format for LD score estimation")
     to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    ld_wind_cm, ld_wind_kb = _ld_window_for_exported_bim(f"{out_prefix}.bim", ld_wind_cm, ld_wind_kb, ld_wind_snp)
 
     results = estimate_ld_scores_from_bimfile(
         bfile_prefix=out_prefix,
@@ -991,7 +1029,7 @@ def _run_ldsc_heritability(
             )
         ref_ld_flag, w_ld_flag, frqfile_flag = "--ref-ld", "--w-ld", "--frqfile"
 
-    cmd = f"{runner.ldsc_command} --h2 {sumstats_file} {ref_ld_flag} {ref_ld_chr} {w_ld_flag} {w_ld_chr} --out {out_prefix}"
+    cmd = f"{runner.ldsc_command} --h2 {_q(sumstats_file)} {ref_ld_flag} {_q(ref_ld_chr)} {w_ld_flag} {_q(w_ld_chr)} --out {_q(out_prefix)}"
 
     if overlap_annot:
         cmd += " --overlap-annot"
@@ -999,7 +1037,7 @@ def _run_ldsc_heritability(
             logger.warning(f"--overlap-annot requires {frqfile_flag}")
 
     if frqfile_chr is not None:
-        cmd += f" {frqfile_flag} {frqfile_chr}"
+        cmd += f" {frqfile_flag} {_q(frqfile_chr)}"
 
     if not_m_5_50:
         cmd += " --not-M-5-50"
@@ -1027,7 +1065,7 @@ def _run_ldsc_heritability(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = [sumstats_file, ref_ld_chr, w_ld_chr]
     if frqfile_chr:
@@ -1193,9 +1231,7 @@ def _run_ldsc_genetic_correlation(
     _ensure_out_prefix_dir(out_prefix)
 
     sumstats_str = ",".join(sumstats_files)
-    cmd = (
-        f"{runner.ldsc_command} --rg {sumstats_str} --ref-ld-chr {ref_ld_chr} --w-ld-chr {w_ld_chr} --out {out_prefix}"
-    )
+    cmd = f"{runner.ldsc_command} --rg {_q(sumstats_str)} --ref-ld-chr {_q(ref_ld_chr)} --w-ld-chr {_q(w_ld_chr)} --out {_q(out_prefix)}"
 
     if overlap_annot:
         cmd += " --overlap-annot"
@@ -1203,7 +1239,7 @@ def _run_ldsc_genetic_correlation(
             logger.warning("--overlap-annot requires --frqfile-chr")
 
     if frqfile_chr is not None:
-        cmd += f" --frqfile-chr {frqfile_chr}"
+        cmd += f" --frqfile-chr {_q(frqfile_chr)}"
 
     if not_m_5_50:
         cmd += " --not-M-5-50"
@@ -1238,7 +1274,7 @@ def _run_ldsc_genetic_correlation(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = sumstats_files + [ref_ld_chr, w_ld_chr]
     if frqfile_chr:
@@ -1398,19 +1434,19 @@ def _run_ldsc_make_annot(
 
     _ensure_out_prefix_dir(annot_file)
 
-    cmd = f"{runner.make_annot_command} --bimfile {bimfile} --annot-file {annot_file}"
+    cmd = f"{runner.make_annot_command} --bimfile {_q(bimfile)} --annot-file {_q(annot_file)}"
 
     if gene_set_file is not None:
-        cmd += f" --gene-set-file {gene_set_file}"
+        cmd += f" --gene-set-file {_q(gene_set_file)}"
 
         if gene_coord_file is not None:
-            cmd += f" --gene-coord-file {gene_coord_file}"
+            cmd += f" --gene-coord-file {_q(gene_coord_file)}"
 
         if windowsize is not None:
             cmd += f" --windowsize {windowsize}"
 
     if bed_file is not None:
-        cmd += f" --bed-file {bed_file}"
+        cmd += f" --bed-file {_q(bed_file)}"
 
         if nomerge:
             cmd += " --nomerge"
@@ -1420,7 +1456,7 @@ def _run_ldsc_make_annot(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = [bimfile]
     if gene_set_file:
@@ -1781,12 +1817,12 @@ def compute_ld_scores_with_annotations_from_bimfile(
     bfile_prefix: str,
     annot_file: str,
     out_prefix: str,
-    ld_wind_cm: float = 1.0,
+    ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
     thin_annot: bool = False,
-    maf_min: float = 0.01,
+    maf_min: float | None = None,
     yes_really: bool = True,
     run: bool = True,
     runner: LDSCRunner | None = None,
@@ -1817,9 +1853,9 @@ def compute_ld_scores_with_annotations_from_bimfile(
         - {out_prefix}.l2.M (number of SNPs)
         - {out_prefix}.l2.M_5_50 (number of common SNPs)
         - {out_prefix}.log (log file)
-    ld_wind_cm : float, default 1.0
+    ld_wind_cm : float, optional
         LD window size in centiMorgans. Only one of ld_wind_cm, ld_wind_kb,
-        or ld_wind_snp can be specified.
+        or ld_wind_snp can be specified; 1.0 cM is used when none is given.
     ld_wind_kb : int, optional
         LD window size in kilobases (alternative to ld_wind_cm)
     ld_wind_snp : int, optional
@@ -1833,8 +1869,10 @@ def compute_ld_scores_with_annotations_from_bimfile(
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
         Should typically be False for annotations created by make_annot_from_bimfile /
         make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
-    maf_min : float, default 0.01
-        Minimum minor allele frequency threshold
+    maf_min : float or None, default None
+        Minimum minor allele frequency of the SNPs used for the LD scores, passed to
+        ldsc as ``--maf``. None (default) applies no MAF filter (ldsc's default, also used for
+        the published baseline-LD scores).
     yes_really : bool, default True
         Required flag for computing whole-chromosome LD scores
     run : bool, default True
@@ -1897,13 +1935,15 @@ def compute_ld_scores_with_annotations_from_bimfile(
     if runner is None:
         runner = get_ldsc_runner()
 
-    cmd = f"{runner.ldsc_command} --l2 --bfile {bfile_prefix} --annot {annot_file} --out {out_prefix}"
+    cmd = f"{runner.ldsc_command} --l2 --bfile {_q(bfile_prefix)} --annot {_q(annot_file)} --out {_q(out_prefix)}"
 
     flags = [ld_wind_kb, ld_wind_snp, ld_wind_cm]
     non_null_flags = sum(f is not None for f in flags)
 
     if non_null_flags > 1:
         raise ValueError("Only one of ld_wind_kb, ld_wind_snp, or ld_wind_cm may be specified.")
+    if non_null_flags == 0:
+        ld_wind_cm = 1.0
 
     if ld_wind_kb is not None:
         cmd += f" --ld-wind-kb {ld_wind_kb}"
@@ -1916,9 +1956,9 @@ def compute_ld_scores_with_annotations_from_bimfile(
         cmd += " --thin-annot"
 
     if print_snps is not None:
-        cmd += f" --print-snps {print_snps}"
+        cmd += f" --print-snps {_q(print_snps)}"
 
-    if maf_min != 0.01:
+    if maf_min is not None:
         cmd += f" --maf {maf_min}"
 
     if yes_really:
@@ -1929,7 +1969,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = [f"{bfile_prefix}.bed", f"{bfile_prefix}.bim", f"{bfile_prefix}.fam", annot_file]
     if print_snps:
@@ -1962,12 +2002,12 @@ def compute_ld_scores_with_annotations_from_donor_data(
     dd: DonorData,
     annot_file: str,
     out_prefix: str = "ldscores_annot",
-    ld_wind_cm: float = 1.0,
+    ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
     ld_wind_snp: int | None = None,
     print_snps: str | None = None,
     thin_annot: bool = False,
-    maf_min: float = 0.01,
+    maf_min: float | None = None,
     yes_really: bool = True,
     cleanup_files: bool = True,
     plink_export_kwargs: dict | None = None,
@@ -1998,9 +2038,11 @@ def compute_ld_scores_with_annotations_from_donor_data(
         - {out_prefix}.l2.M (number of SNPs)
         - {out_prefix}.l2.M_5_50 (number of common SNPs)
         - {out_prefix}.log (log file)
-    ld_wind_cm : float, default 1.0
+    ld_wind_cm : float, optional
         LD window size in centiMorgans. Only one of ld_wind_cm, ld_wind_kb,
-        or ld_wind_snp can be specified.
+        or ld_wind_snp can be specified. The exported .bim has no genetic map
+        (cM 0 for every variant), so unless ld_wind_kb or ld_wind_snp is given,
+        a 1000 kb window is used instead and a warning is logged.
     ld_wind_kb : int, optional
         LD window size in kilobases (alternative to ld_wind_cm)
     ld_wind_snp : int, optional
@@ -2012,8 +2054,10 @@ def compute_ld_scores_with_annotations_from_donor_data(
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
         Should typically be False for annotations created by make_annot_from_bimfile /
         make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
-    maf_min : float, default 0.01
-        Minimum minor allele frequency threshold
+    maf_min : float or None, default None
+        Minimum minor allele frequency of the SNPs used for the LD scores, passed to
+        ldsc as ``--maf``. None (default) applies no MAF filter (ldsc's default, also used for
+        the published baseline-LD scores).
     yes_really : bool, default True
         Required flag for computing whole-chromosome LD scores
     cleanup_files : bool, default True
@@ -2098,6 +2142,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
 
     logger.info("Exporting genotype data to PLINK format for LD score computation")
     to_plink(dd.G, out_prefix, **plink_export_kwargs)
+    ld_wind_cm, ld_wind_kb = _ld_window_for_exported_bim(f"{out_prefix}.bim", ld_wind_cm, ld_wind_kb, ld_wind_snp)
 
     results = compute_ld_scores_with_annotations_from_bimfile(
         bfile_prefix=out_prefix,
@@ -2277,11 +2322,11 @@ def estimate_celltype_specific_heritability(
         raise ValueError("ref_ld_chr_cts is required")
 
     cmd = (
-        f"{runner.ldsc_command} --h2-cts {sumstats_file} "
-        f"--ref-ld-chr {ref_ld_chr} "
-        f"--w-ld-chr {w_ld_chr} "
-        f"--ref-ld-chr-cts {ref_ld_chr_cts} "
-        f"--out {out_prefix}"
+        f"{runner.ldsc_command} --h2-cts {_q(sumstats_file)} "
+        f"--ref-ld-chr {_q(ref_ld_chr)} "
+        f"--w-ld-chr {_q(w_ld_chr)} "
+        f"--ref-ld-chr-cts {_q(ref_ld_chr_cts)} "
+        f"--out {_q(out_prefix)}"
     )
 
     if print_all_cts:
@@ -2292,7 +2337,7 @@ def estimate_celltype_specific_heritability(
             if value:
                 cmd += f" --{flag}"
         elif value is not None:
-            cmd += f" --{flag} {value}"
+            cmd += f" --{flag} {_q(value)}"
 
     file_paths = [sumstats_file, ref_ld_chr, w_ld_chr, ref_ld_chr_cts]
 

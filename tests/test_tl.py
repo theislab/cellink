@@ -1,6 +1,8 @@
 import shutil
 from pathlib import Path
 
+import anndata as ad
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -149,3 +151,30 @@ def test_subset_multiple_genes(gdata, sample_vep_annos):
     assert "ENSG1" in subset_gdata.uns["variant_annotation_vep"].reset_index()[AAnn.gene_id].values
     assert "ENSG2" in subset_gdata.uns["variant_annotation_vep"].reset_index()[AAnn.gene_id].values
     assert "ENSG3" not in subset_gdata.uns["variant_annotation_vep"].reset_index()[AAnn.gene_id].values
+
+
+def _gdata_with_genes():
+    var = pd.DataFrame({"chrom": ["1"] * 4, "pos": [10, 20, 30, 40]}, index=["v0", "v1", "v2", "v3"])
+    gdata = ad.AnnData(X=np.zeros((2, 4)), var=var)
+    gdata.uns["variant_annotation_vep"] = pd.DataFrame(
+        {"gene_id": ["g1", "g1", "g2", "g3"]}, index=pd.Index(["v0", "v1", "v2", "v3"], name="snp_id")
+    )
+    return gdata
+
+
+@pytest.mark.parametrize(
+    "genes", [["g1", "g2"], ("g1", "g2"), {"g1", "g2"}, np.array(["g1", "g2"]), pd.Index(["g1", "g2"])]
+)
+def test_subset_gene_accepts_list_likes(genes):
+    assert subset_gene(_gdata_with_genes(), genes).n_vars == 3
+
+
+def test_subset_gene_single_string():
+    assert list(subset_gene(_gdata_with_genes(), "g1").var_names) == ["v0", "v1"]
+
+
+def test_subset_genomic_region_without_variants_returns_empty_copy():
+    var = pd.DataFrame({"chrom": pd.Series([], dtype=object), "pos": pd.Series([], dtype=int)})
+    out = subset_genomic_region(ad.AnnData(X=np.zeros((3, 0)), var=var), "1", 0, 100)
+    assert out.n_vars == 0
+    assert not out.is_view
