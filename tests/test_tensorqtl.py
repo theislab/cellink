@@ -105,6 +105,22 @@ def _read_covariates(prefix):
     return pd.read_csv(f"{prefix}_donor_features.tsv", sep="\t", index_col=0).T
 
 
+def test_covariates_have_no_intercept_and_keep_first_donor(tmp_path, dd):
+    prefix = str(tmp_path / "tq")
+    run_tensorqtl(dd, mode="trans", prefix=prefix, run=False)
+    cov = _read_covariates(prefix)
+    assert list(cov.columns) == ["sex", "age"]
+    assert np.allclose(cov["age"].mean(), 0, atol=1e-5)  # z-scored, not truncated
+
+    # tensorQTL's Residualizer: QR of the centered covariates, then project out
+    c = cov.to_numpy(dtype=float)
+    q, _ = np.linalg.qr(c - c.mean(0))
+    y = np.random.default_rng(0).normal(size=len(c))
+    y0 = y - y.mean()
+    residual = y0 - q @ (q.T @ y0)
+    assert abs(residual[0]) > 1e-6
+
+
 def test_missing_sex_raises_instead_of_code_minus_one(tmp_path, dd):
     dd.G.obs["sex"] = dd.G.obs["sex"].astype(float)
     dd.G.obs.iloc[0, dd.G.obs.columns.get_loc("sex")] = np.nan
@@ -116,6 +132,26 @@ def test_missing_covariate_values_raise(tmp_path, dd):
     dd.G.obs.iloc[1, dd.G.obs.columns.get_loc("age")] = np.nan
     with pytest.raises(ValueError, match="age"):
         run_tensorqtl(dd, mode="trans", prefix=str(tmp_path / "tq"), run=False)
+
+
+def test_constant_covariate_is_dropped(tmp_path, dd, caplog):
+    dd.G.obs["sex"] = 1
+    prefix = str(tmp_path / "tq")
+    with caplog.at_level("WARNING", logger="cellink.tl.external._tensorqtl"):
+        run_tensorqtl(dd, mode="trans", prefix=prefix, run=False)
+    assert list(_read_covariates(prefix).columns) == ["age"]
+    assert any("constant covariate" in m for m in caplog.messages)
+
+
+def test_without_covariates_no_covariates_file_is_passed(tmp_path, dd):
+    prefix = str(tmp_path / "tq")
+    cmd = run_tensorqtl(dd, mode="trans", prefix=prefix, encode_sex=False, encode_age=False, run=False)
+    assert "--covariates" not in shlex.split(cmd)
+    assert not os.path.exists(f"{prefix}_donor_features.tsv")
+    with pytest.raises(ValueError, match="needs at least one covariate"):
+        run_tensorqtl(
+            dd, mode="cis_susie", cis_output="x.txt.gz", prefix=prefix, encode_sex=False, encode_age=False, run=False
+        )
 
 
 def test_run_false_writes_pgen_and_builds_command(tmp_path, dd):

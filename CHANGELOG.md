@@ -8,7 +8,19 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.0.2] - 2026-11-15
+
+### Changed
+
+- `tl.external.run_tensorqtl` adds no intercept covariate, which removed the first donor from every
+  test
+
+### Fixed
+
+- `resources.get_gwas_catalog_study_summary_stats` and the eQTL Catalogue loaders give every column
+  one type; a chromosome column mixed integers and strings (#158)
+
+## [0.0.1] - 2026-11-15
 
 ### Added
 
