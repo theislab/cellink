@@ -8,13 +8,12 @@ from cellink.tl._coloc import DEFAULT_PRIOR_VAR, _combine_log_abf, _log_abf
 
 rpy2 = pytest.importorskip("rpy2", reason="rpy2 not installed")
 robjects = pytest.importorskip("rpy2.robjects", reason="rpy2 not installed")
-from rpy2.rinterface_lib.embedded import RRuntimeError
 from rpy2.robjects.packages import PackageNotInstalledError, importr  # noqa: E402
 
 try:
     coloc_r = importr("coloc")
-except (PackageNotInstalledError, RRuntimeError):  # not installed, or an R library that cannot load it
-    pytest.skip("R package 'coloc' not available", allow_module_level=True)
+except PackageNotInstalledError:
+    pytest.skip("R package 'coloc' not installed", allow_module_level=True)
 
 
 def _r_log_abf(beta: np.ndarray, se: np.ndarray, prior_var: float) -> np.ndarray:
@@ -119,7 +118,7 @@ def test_coloc_susie_pairwise_combination_matches_r_coloc(rng):
     for _, row in res.iterrows():
         l1 = lbf1[int(row["idx1"])]
         l2 = lbf2[int(row["idx2"])]
-        r_pp = _r_combine_abf(l1, l2, p1=1e-4, p2=1e-4, p12=5e-6)  # coloc.susie()'s default p12
+        r_pp = _r_combine_abf(l1, l2, p1=1e-4, p2=1e-4, p12=1e-5)
         for key in ["PP0", "PP1", "PP2", "PP3", "PP4"]:
             assert row[key] == pytest.approx(r_pp[key], abs=1e-6), f"idx1={row['idx1']} idx2={row['idx2']} {key}"
 

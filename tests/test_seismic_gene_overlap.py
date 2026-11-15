@@ -60,8 +60,7 @@ def test_run_seismic_mouse_all_uppercase_symbols_raise_before_r(tmp_path):
         )
 
 
-def test_run_seismic_mouse_real_mixed_case_symbols_pass_the_case_check(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)  # run_seismic writes its R inputs to the working directory
+def test_run_seismic_mouse_real_mixed_case_symbols_pass_the_case_check(tmp_path):
     var_names = ["Trp53", "Cd8a", "Actb", "Gapdh", "Myc", "Tp53", "Il6", "Tnf", "Cd4", "Cd3e"]
     adata = _make_adata(var_names)
 

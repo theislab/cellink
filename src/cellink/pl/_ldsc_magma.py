@@ -42,8 +42,7 @@ def enrichment_scatter(
     Parameters
     ----------
     df : pd.DataFrame
-        Must contain ``cell_type_col``, ``phenotype_col``, and ``neglog10p_col``. If a
-        (cell type, phenotype) pair appears more than once, its largest -log10(p) is plotted.
+        Must contain ``cell_type_col``, ``phenotype_col``, and ``neglog10p_col``.
     cell_type_col : str, default "cell_type"
         Column containing cell-type labels.
     phenotype_col : str, default "phenotype"
@@ -104,8 +103,7 @@ def enrichment_scatter(
         ax_ = ax
         fig = ax_.figure
 
-    # one value per (phenotype, cell type) pair; duplicate rows keep their strongest signal
-    lookup = df.groupby([phenotype_col, cell_type_col], observed=True)[neglog10p_col].max()
+    lookup = df.set_index([phenotype_col, cell_type_col])[neglog10p_col]
 
     for ct in cell_types:
         color = ct_color.get(ct, grey)

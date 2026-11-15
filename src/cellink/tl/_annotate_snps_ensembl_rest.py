@@ -6,13 +6,7 @@ from cellink._core.data_fields import VAnn
 
 
 def _split_snp_id(snp_str):
-    """Split ``chrom:pos:a0:a1`` or ``chrom_pos_a0_a1`` into its four parts."""
-    parts = snp_str.split(":")
-    if len(parts) != 4:
-        parts = snp_str.rsplit("_", 3)  # from the right, so a contig name may contain '_'
-    if len(parts) != 4:
-        raise ValueError(f"SNP id {snp_str!r} is neither chrom:pos:a0:a1 nor chrom_pos_a0_a1.")
-    chrom, pos, a0, a1 = parts
+    chrom, pos, a0, a1 = snp_str.split(":")
     return chrom, pos, a0, a1
 
 
@@ -28,8 +22,7 @@ def get_snp_df(variant_codes, server="https://rest.ensembl.org/"):
     Parameters
     ----------
     variant_codes : list of str
-        A list of SNP identifiers as colon-separated chromosome, position, and alleles (e.g., `1:55516888:T:C`),
-        or underscore-separated as cellink's readers name variants (e.g., `1_55516888_T_C`).
+        A list of SNP identifiers as colon-separated chromosome, position, and alleles (e.g., `1:55516888:T:C`).
     server : str, optional
         The URL of the Ensembl REST API server to query. Defaults to the GRCh38 Ensembl server. Pass
         `https://grch37.rest.ensembl.org/` explicitly for GRCh37-coordinate variant codes.
@@ -39,9 +32,8 @@ def get_snp_df(variant_codes, server="https://rest.ensembl.org/"):
     tuple of pd.DataFrame
         A tuple containing:
         - var_df: A dataframe with SNP-related information, including whether the SNP is within a gene and its
-          clinical significance. Each row corresponds to an SNP. Empty when no queried SNP matches a dbSNP record.
+          clinical significance. Each row corresponds to an SNP.
         - gene_df: A dataframe containing information about the genes that overlap with the SNPs, with genes as the index.
-          Empty (index named ``id``) when no queried SNP overlaps a gene.
 
     Notes
     -----
@@ -107,9 +99,7 @@ def get_snp_df(variant_codes, server="https://rest.ensembl.org/"):
 
         return group
 
-    if not var_df.empty:  # empty when no queried SNP is in dbSNP
-        var_df = var_df.groupby(VAnn.index, sort=False).apply(process_df, include_groups=False)
-        var_df = var_df.drop_duplicates(subset=var_df.columns.difference(["rs_id"]))
-    gene_df = pd.DataFrame(genes_list)
-    gene_df = gene_df.set_index("id") if not gene_df.empty else gene_df.rename_axis("id")  # no gene overlap
+    var_df = var_df.groupby(VAnn.index, sort=False).apply(process_df, include_groups=False)
+    var_df = var_df.drop_duplicates(subset=var_df.columns.difference(["rs_id"]))
+    gene_df = pd.DataFrame(genes_list).set_index("id")
     return var_df, gene_df

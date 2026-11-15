@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import functools
-import io
 import logging
 import os
 import re
@@ -13,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ._biomart import query_biomart
+from cellink.resources._utils import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +85,7 @@ def download_sclinker_enhancer_links(
         ``"abc"``         → ``Path`` to ``AllPredictions.AvgHiC.ABC0.015...txt.gz``
         ``"roadmap_eid"`` → ``Path`` to ``Roadmap_map_EID_names.txt``
     """
-    out_dir = Path(out_dir).expanduser()
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     files = {
@@ -155,7 +153,6 @@ def run_sclinker_heritability(
     *,
     annotation_prefixes: dict[str, dict[str, str]] | None = None,
     frqfile_chr: str | None = None,
-    n_jobs: int = 1,
     runner=None,
 ) -> dict[str, dict[str, dict[str, str]]]:
     """
@@ -192,9 +189,6 @@ def run_sclinker_heritability(
         replacing ``ldscores`` with ``annotations`` in ``ld_prefix``.
     frqfile_chr
         Allele frequency file prefix (required with ``--overlap-annot``).
-    n_jobs
-        Number of S-LDSC fits (one per program, strategy and trait) run in parallel; each is
-        one ldsc subprocess. Use at most the number of available cores.
     runner
         ``LDSCRunner`` instance. If None, uses the global runner.
 
@@ -218,10 +212,9 @@ def run_sclinker_heritability(
             "get_1000genomes_frq()."
         )
 
-    out_dir = Path(out_dir).expanduser().resolve()
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     results: dict[str, dict[str, dict[str, str]]] = {}
-    fits: list[tuple[str, str, str, str]] = []
 
     for program, strategies in ld_prefixes.items():
         results[program] = {}
@@ -247,36 +240,21 @@ def run_sclinker_heritability(
 
                 ref_ld = f"{ref_ld_chr},{ld_prefix}"
 
-                fits.append(
-                    (f"{program}/{strategy_name}/{trait}", str(Path(sumstats_file).resolve()), ref_ld, out_prefix)
+                logger.info(f"S-LDSC: {program}/{strategy_name}/{trait}")
+                estimate_heritability(
+                    sumstats_file=str(Path(sumstats_file).resolve()),
+                    ref_ld_chr=ref_ld,
+                    w_ld_chr=w_ld_chr,
+                    out_prefix=out_prefix,
+                    overlap_annot=True,
+                    frqfile_chr=frqfile_chr,
+                    print_coefficients=True,
+                    print_delete_vals=True,
+                    run=True,
+                    runner=runner,
                 )
                 results[program][strategy_name][trait] = f"{out_prefix}.log"
 
-    def _fit(fit: tuple[str, str, str, str]) -> None:
-        label, sumstats, ref_ld, out_prefix = fit
-        logger.info(f"S-LDSC: {label}")
-        estimate_heritability(
-            sumstats_file=sumstats,
-            ref_ld_chr=ref_ld,
-            w_ld_chr=w_ld_chr,
-            out_prefix=out_prefix,
-            overlap_annot=True,
-            frqfile_chr=frqfile_chr,
-            print_coefficients=True,
-            print_delete_vals=True,
-            run=True,
-            runner=runner,
-        )
-
-    if n_jobs == 1:
-        for fit in fits:
-            _fit(fit)
-    else:
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=n_jobs) as pool:
-            for future in [pool.submit(_fit, fit) for fit in fits]:
-                future.result()
     return results
 
 
@@ -534,6 +512,12 @@ _GENE_COORD_CACHE = {
 _VALID_CHRS = {str(c) for c in range(1, 23)} | {"X", "Y", "MT"}
 
 
+_BIOMART_HOSTS = {
+    "GRCh37": "http://grch37.ensembl.org",
+    "GRCh38": "http://www.ensembl.org",
+}
+
+
 def _normalize_sclinker_build(genome_build: str) -> str:
     lower = genome_build.lower()
     if lower in ("grch38", "hg38", "build38"):
@@ -541,46 +525,6 @@ def _normalize_sclinker_build(genome_build: str) -> str:
     if lower in ("grch37", "hg19", "build37"):
         return "GRCh37"
     raise ValueError(f"Invalid genome_build '{genome_build}'. Use 'GRCh38', 'GRCh37', or an alias (hg38/hg19).")
-
-
-def _collapse_gene_coords(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Collapse BioMart rows to one ``GENE CHR START END`` row per Ensembl gene and per HGNC symbol.
-
-    BioMart can return several rows per gene; each Ensembl gene gets its full extent (smallest
-    START, largest END). A symbol shared by several Ensembl genes (e.g. ``Y_RNA``, ``U3``,
-    ``SNORD112``, with hundreds of loci) has no single position and is left out of the symbol
-    table, since its loci span up to a whole chromosome.
-
-    Parameters
-    ----------
-    df
-        BioMart rows with columns ``ensembl_gene_id``, ``hgnc_name``, ``CHR``, ``START``, ``END``.
-
-    Returns
-    -------
-    tuple of pandas.DataFrame
-        ``(ensembl, hgnc)`` tables with columns ``GENE``, ``CHR``, ``START``, ``END``.
-    """
-    names = df["hgnc_name"].where(df["hgnc_name"].notna() & (df["hgnc_name"].astype(str).str.strip() != ""))
-    genes = (
-        df.assign(hgnc_name=names)
-        .groupby("ensembl_gene_id", as_index=False, sort=True)
-        .agg(CHR=("CHR", "first"), START=("START", "min"), END=("END", "max"), hgnc_name=("hgnc_name", "first"))
-    )
-    ensg = genes.rename(columns={"ensembl_gene_id": "GENE"})[["GENE", "CHR", "START", "END"]]
-    named = genes[genes["hgnc_name"].notna()]
-    unique = named.groupby("hgnc_name")["ensembl_gene_id"].transform("size") == 1
-    n_multi = named.loc[~unique, "hgnc_name"].nunique()
-    if n_multi:
-        logger.info(f"Left out {n_multi:,} symbols shared by several Ensembl genes (no single position)")
-    hgnc = (
-        named[unique]
-        .rename(columns={"hgnc_name": "GENE"})[["GENE", "CHR", "START", "END"]]
-        .sort_values("GENE")
-        .reset_index(drop=True)
-    )
-    return ensg.reset_index(drop=True), hgnc
 
 
 def _query_biomart_and_write_gene_coords(data_dir: Path, genome_build: str = "GRCh37") -> None:
@@ -602,13 +546,32 @@ def _query_biomart_and_write_gene_coords(data_dir: Path, genome_build: str = "GR
         so the default keeps everything on one build. Pass
         ``genome_build="GRCh38"`` only if you lift the enhancer links over
         first, and match the LD/bim panel used downstream.
+
+    Requires ``pybiomart`` (``pip install pybiomart``).
     """
+    try:
+        from pybiomart import Server
+    except ImportError as exc:
+        raise ImportError(
+            "pybiomart is required to generate the gene coordinate file.\n" "Install it with:  pip install pybiomart"
+        ) from exc
+
     genome_build = _normalize_sclinker_build(genome_build)
-    logger.info(f"Querying Ensembl BioMart ({genome_build}) for human gene coordinates ...")
-    df = query_biomart(
-        ["ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position"],
-        genome_build=genome_build,
-        dtype={"chromosome_name": str},
+    host = _BIOMART_HOSTS[genome_build]
+    logger.info(f"Querying Ensembl BioMart ({host}, {genome_build}) for human gene coordinates ...")
+    server = Server(host=host)
+    dataset = retry_with_backoff(lambda: server.marts["ENSEMBL_MART_ENSEMBL"].datasets["hsapiens_gene_ensembl"])
+
+    df = retry_with_backoff(
+        lambda: dataset.query(
+            attributes=[
+                "ensembl_gene_id",
+                "external_gene_name",
+                "chromosome_name",
+                "start_position",
+                "end_position",
+            ]
+        )
     )
     df.columns = ["ensembl_gene_id", "hgnc_name", "CHR", "START", "END"]
 
@@ -619,11 +582,30 @@ def _query_biomart_and_write_gene_coords(data_dir: Path, genome_build: str = "GR
     logger.info(f"BioMart returned {len(df):,} gene entries")
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    ensg, hgnc = _collapse_gene_coords(df)
+    def _dedup(frame: pd.DataFrame) -> pd.DataFrame:
+        """
+        Deduplicate on GENE, keeping the widest genomic span per gene.
+
+        BioMart returns one row per transcript, so a single gene can appear
+        many times.  We collapse to one row per unique GENE name: smallest
+        START and largest END across all transcripts, which gives the full
+        gene body extent.  This is what LDSC uses for window-based annotations.
+        """
+        return frame.groupby("GENE", as_index=False).agg(
+            CHR=("CHR", "first"), START=("START", "min"), END=("END", "max")
+        )[["GENE", "CHR", "START", "END"]]
+
+    ensg = df[["ensembl_gene_id", "CHR", "START", "END"]].copy()
+    ensg.columns = ["GENE", "CHR", "START", "END"]
+    ensg = _dedup(ensg)
     ensg_cache = _GENE_COORD_CACHE["ensembl"].format(build=genome_build)
     ensg.to_csv(data_dir / ensg_cache, sep=" ", index=False)
     logger.info(f"Wrote {len(ensg):,} unique ENSG entries ({genome_build}) → {ensg_cache}")
 
+    hgnc = df[df["hgnc_name"].notna() & (df["hgnc_name"].str.strip() != "")]
+    hgnc = hgnc[["hgnc_name", "CHR", "START", "END"]].copy()
+    hgnc.columns = ["GENE", "CHR", "START", "END"]
+    hgnc = _dedup(hgnc)
     hgnc_cache = _GENE_COORD_CACHE["hgnc"].format(build=genome_build)
     hgnc.to_csv(data_dir / hgnc_cache, sep=" ", index=False)
     logger.info(f"Wrote {len(hgnc):,} unique HGNC entries ({genome_build}) → {hgnc_cache}")
@@ -669,11 +651,10 @@ def get_gene_annotation(
         classic 1000G LDSC baseline panel from
         :func:`~cellink.resources.get_1000genomes_plink_files`. The sc-linker
         enhancer-gene link files from :func:`download_sclinker_enhancer_links`
-        (Roadmap + ABC) are on GRCh37 as well (see
-        :data:`SCLINKER_ENHANCER_LINKS_GENOME_BUILD`), so the default keeps the
-        ``100kb`` and ``ABC_Road`` strategies on one build. Pass
-        ``genome_build="GRCh38"`` only together with a GRCh38 bim panel and
-        enhancer links lifted over to GRCh38.
+        (Roadmap + ABC) are on GRCh38; pass ``genome_build="GRCh38"`` here
+        (and use a GRCh38 bim panel) if you want the ``100kb`` strategy to
+        stay on the same build as the ``ABC_Road`` strategy instead of
+        lifting the enhancer links over to GRCh37.
     data_home
         Override for the cellink data directory.
     refresh
@@ -689,13 +670,15 @@ def get_gene_annotation(
     ValueError
         If ``gene_id_type`` is not ``"ensembl"`` or ``"hgnc"``, or
         ``genome_build`` is not a recognized build/alias.
+    ImportError
+        If ``pybiomart`` is not installed and no cached/explicit file exists.
     """
     if gene_id_type not in _GENE_COORD_CACHE:
         raise ValueError(f"gene_id_type must be 'ensembl' or 'hgnc', got {gene_id_type!r}")
     genome_build = _normalize_sclinker_build(genome_build)
 
-    if path is not None and Path(path).expanduser().exists():
-        return Path(path).expanduser()
+    if path is not None and Path(path).exists():
+        return Path(path)
 
     from cellink.resources._utils import get_data_home
 
@@ -776,13 +759,12 @@ def genescores_to_abc_road_bedgraph(
 
     This is the primary sc-linker S2G strategy. For each program (column in
     genescores), creates a bedgraph where each interval's score is the
-    score of its linked gene weighted by the link activity:
+    weighted sum of gene scores linked to that interval:
 
         score(interval) = gene_score C link_activity
 
-    The Roadmap and ABC bedgraphs are merged (union); where intervals overlap,
-    the merged interval keeps the largest score (``bedtools merge -o max``), as
-    in the original sc-linker pipeline.
+    The Roadmap and ABC bedgraphs are merged (union) with scores summed
+    where they overlap.
 
     Parameters
     ----------
@@ -961,8 +943,7 @@ def genescores_to_100kb_bedgraph(
 
     For each gene with a non-zero score, creates a bedgraph interval spanning
     [TSS - window_kb, TES + window_kb]. The score is the gene's probabilistic
-    score (no activity weighting). Overlapping windows are merged and keep the
-    largest score (``bedtools merge -o max``), as in the original sc-linker pipeline.
+    score (no activity weighting).
 
     This is the secondary sc-linker S2G strategy, reported alongside the
     primary ABC_Road strategy.
@@ -1243,7 +1224,6 @@ def genescores_to_annotations(
     use_bedtools: bool = True,
     on_build_mismatch: str = "error",
     bim_genome_build: str | None = None,
-    n_jobs: int = 1,
     **link_kwargs,
 ) -> dict[str, dict[str, str]]:
     """
@@ -1286,9 +1266,6 @@ def genescores_to_annotations(
     bim_genome_build
         Genome build of ``bim_file`` (e.g. ``"GRCh37"``), if known. Strongly
         recommended; see :func:`_check_build_consistency`.
-    n_jobs
-        Number of annotation files (one per program, strategy and chromosome) written in
-        parallel. Use at most the number of available cores.
 
     Returns
     -------
@@ -1300,9 +1277,8 @@ def genescores_to_annotations(
     if chromosomes is None:
         chromosomes = list(range(1, 23))
 
-    out_dir = Path(out_dir).expanduser().resolve()
+    out_dir = Path(out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    bim_prefix = os.path.expanduser(bim_prefix)
 
     logger.info("Computing ABC_Road bedgraphs...")
     abc_road_bgs = genescores_to_abc_road_bedgraph(
@@ -1318,7 +1294,6 @@ def genescores_to_annotations(
     )
 
     annotation_prefixes: dict[str, dict[str, str]] = {}
-    tasks = []  # one annotation file per program, strategy and chromosome
 
     for program in genescores.columns:
         safe_name = _safe_filename(program)
@@ -1354,85 +1329,23 @@ def genescores_to_annotations(
                 bg_chrom.attrs["genome_build"] = bg_df.attrs.get("genome_build")
 
                 if len(bg_chrom) == 0:
-                    tasks.append(
-                        functools.partial(_write_zero_annotation, bim_file, str(strategy_dir / f"{safe_name}.{chrom}"))
-                    )
+                    _write_zero_annotation(bim_file, str(strategy_dir / f"{safe_name}.{chrom}"))
                     continue
 
-                tasks.append(
-                    functools.partial(
-                        bedgraph_to_snp_annotation,
-                        bg_chrom,
-                        bim_file,
-                        out_prefix=str(strategy_dir / f"{safe_name}.{chrom}"),
-                        on_build_mismatch=on_build_mismatch,
-                        bim_genome_build=bim_genome_build,
-                        use_bedtools=use_bedtools,
-                    )
+                bedgraph_to_snp_annotation(
+                    bg_chrom,
+                    bim_file,
+                    out_prefix=str(strategy_dir / f"{safe_name}.{chrom}"),
+                    on_build_mismatch=on_build_mismatch,
+                    bim_genome_build=bim_genome_build,
+                    use_bedtools=use_bedtools,
                 )
 
-            annotation_prefixes[program][strategy_name] = str(strategy_dir / f"{safe_name}.")
-
-    if n_jobs == 1:
-        for task in tasks:
-            task()
-    else:
-        import concurrent.futures
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=n_jobs) as pool:
-            for future in [pool.submit(task) for task in tasks]:
-                future.result()
-    for program, strategies in annotation_prefixes.items():
-        for strategy_name, annot_prefix in strategies.items():
+            annot_prefix = str(strategy_dir / f"{safe_name}.")
+            annotation_prefixes[program][strategy_name] = annot_prefix
             logger.info(f"  {program}/{strategy_name}: annotations at {annot_prefix}*.annot.gz")
 
     return annotation_prefixes
-
-
-def _ld_scores_for_programs(group: list[tuple], ld_scores_dir: Path, compute_fn, runner) -> None:
-    """Run ldsc once for several thin annotations of one chromosome and split the output.
-
-    ``group`` holds ``(program, strategy, chrom, annot_file, bim_file, out_prefix, print_snps)``
-    tuples sharing chromosome, bim file and SNP list. Each (program, strategy) gets the
-    ``{out_prefix}.l2.ldscore.gz`` (column ``L2``), ``.l2.M`` and ``.l2.M_5_50`` files a
-    single-annotation run writes, and a copy of its annotation next to them, where
-    ``--overlap-annot`` looks for it.
-    """
-    from cellink.tl.external._ldsc import _colocate_annot_file
-
-    _, _, chrom, _, bim_file, _, print_snps = group[0]
-    combined_dir = ld_scores_dir / "_combined"
-    combined_dir.mkdir(parents=True, exist_ok=True)
-    columns = {}
-    for k, (_, _, _, annot_file, _, _, _) in enumerate(group):
-        annot = pd.read_csv(annot_file, sep="\t")
-        if annot.shape[1] != 1:
-            raise ValueError(f"{annot_file}: expected a thin annotation with one column, got {list(annot.columns)}")
-        columns[f"P{k}"] = annot.iloc[:, 0].to_numpy()
-    if len({len(v) for v in columns.values()}) != 1:
-        raise ValueError(f"Annotation files for chr{chrom} have different numbers of SNPs")
-    combined_annot = combined_dir / f"combined.{chrom}.annot.gz"
-    pd.DataFrame(columns).to_csv(combined_annot, sep="\t", index=False, compression="gzip")
-    combined_out = combined_dir / f"combined.{chrom}"
-    compute_fn(
-        bfile_prefix=bim_file,
-        annot_file=str(combined_annot),
-        out_prefix=str(combined_out),
-        print_snps=print_snps,
-        thin_annot=True,
-        runner=runner,
-    )
-    ld = pd.read_csv(f"{combined_out}.l2.ldscore.gz", sep="\t")
-    m = Path(f"{combined_out}.l2.M").read_text().split()
-    m_5_50 = Path(f"{combined_out}.l2.M_5_50").read_text().split()
-    if len(m) != len(group) or len(m_5_50) != len(group):
-        raise ValueError(f"{combined_out}.l2.M: expected {len(group)} values")
-    for k, (_, _, _, annot_file, _, out_prefix, _) in enumerate(group):
-        part = ld[["CHR", "SNP", "BP", f"P{k}L2"]].rename(columns={f"P{k}L2": "L2"})
-        part.to_csv(f"{out_prefix}.l2.ldscore.gz", sep="\t", index=False, float_format="%.3f", compression="gzip")
-        Path(f"{out_prefix}.l2.M").write_text(m[k] + "\n")
-        Path(f"{out_prefix}.l2.M_5_50").write_text(m_5_50[k] + "\n")
-        _colocate_annot_file(annot_file, out_prefix)
 
 
 def compute_ld_scores_for_sclinker(
@@ -1450,11 +1363,7 @@ def compute_ld_scores_for_sclinker(
     Compute LD scores for all sc-linker annotations.
 
     Calls ``compute_ld_scores_with_annotations_from_bimfile``
-    once per chromosome: the annotations of all programs and strategies go into one
-    multi-column annotation, since the cost of an ldsc run is the genotype LD computation
-    that all columns share. The result is split back into one ``.l2.ldscore.gz``/``.l2.M``/
-    ``.l2.M_5_50`` set per program and strategy, identical to what one run per annotation
-    writes.
+    for each (program, strategy, chromosome) combination.
 
     Chromosome jobs are dispatched in parallel using a thread pool, each job
     is an independent Singularity/subprocess call so threads work well.
@@ -1477,9 +1386,9 @@ def compute_ld_scores_for_sclinker(
     chromosomes
         Chromosomes to process. For a quick tutorial run use ``[21, 22]``.
     n_jobs
-        Number of ldsc runs (one per chromosome) in parallel. Each is one
-        Singularity/subprocess call; use at most the number of available cores. Set to 1
-        to disable parallelism.
+        Number of chromosomes to process in parallel. Each job is one
+        Singularity subprocess call; ``n_jobs=4`` is a safe default on an
+        HPC node. Set to 1 to disable parallelism.
     runner
         cellink LDSCRunner. If None, uses global runner.
 
@@ -1505,13 +1414,12 @@ def compute_ld_scores_for_sclinker(
     if runner is None:
         runner = get_ldsc_runner()
 
-    ld_scores_dir = Path(ld_scores_dir).expanduser().resolve()
+    ld_scores_dir = Path(ld_scores_dir).resolve()
     ld_scores_dir.mkdir(parents=True, exist_ok=True)
-    bim_prefix = os.path.expanduser(bim_prefix)
 
     print_snps_global: str | None = None
-    if hapmap3_snps_file and Path(hapmap3_snps_file).expanduser().exists():
-        print_snps_global = str(Path(hapmap3_snps_file).expanduser())
+    if hapmap3_snps_file and Path(hapmap3_snps_file).exists():
+        print_snps_global = str(hapmap3_snps_file)
 
     Job = tuple  # (program, strategy_name, annot_prefix, chrom, out_prefix, print_snps)
     jobs: list[Job] = []
@@ -1542,35 +1450,25 @@ def compute_ld_scores_for_sclinker(
 
                 jobs.append((program, strategy_name, chrom, annot_file, bim_file, out_prefix, print_snps))
 
-    # one ldsc run per chromosome covering every program and strategy
-    grouped: dict[int, list[Job]] = {}
-    for job in jobs:
-        grouped.setdefault(job[2], []).append(job)
-    jobs = list(grouped.values())
-
     n_total = len(jobs)
     logger.info(
-        f"Computing LD scores: {n_total} ldsc runs, one per chromosome, each with the annotations of "
-        f"{len(annotation_prefixes)} programs X "
-        f"{sum(len(s) for s in annotation_prefixes.values()) // max(len(annotation_prefixes),1)} strategies, "
-        f"n_jobs={n_jobs}"
+        f"Computing LD scores: {n_total} jobs "
+        f"({len(annotation_prefixes)} programs X "
+        f"{sum(len(s) for s in annotation_prefixes.values()) // max(len(annotation_prefixes),1)} strategies X "
+        f"{len(chromosomes)} chromosomes), n_jobs={n_jobs}"
     )
 
-    def _run_one(group: list[Job]) -> str:
-        _, strategy_name, chrom, _, bim_file, _, print_snps = group[0]
-        if len(group) == 1:
-            program, _, _, annot_file, _, out_prefix, _ = group[0]
-            compute_ld_scores_with_annotations_from_bimfile(
-                bfile_prefix=bim_file,
-                annot_file=annot_file,
-                out_prefix=out_prefix,
-                print_snps=print_snps,
-                thin_annot=True,
-                runner=runner,
-            )
-            return f"{program}/{strategy_name}/chr{chrom}"
-        _ld_scores_for_programs(group, ld_scores_dir, compute_ld_scores_with_annotations_from_bimfile, runner)
-        return f"{len(group)} annotations/chr{chrom}"
+    def _run_one(job: Job) -> str:
+        program, strategy_name, chrom, annot_file, bim_file, out_prefix, print_snps = job
+        compute_ld_scores_with_annotations_from_bimfile(
+            bfile_prefix=bim_file,
+            annot_file=annot_file,
+            out_prefix=out_prefix,
+            print_snps=print_snps,
+            thin_annot=True,
+            runner=runner,
+        )
+        return f"{program}/{strategy_name}/chr{chrom}"
 
     errors: list[str] = []
     completed = 0
@@ -1582,7 +1480,7 @@ def compute_ld_scores_for_sclinker(
                 completed += 1
                 logger.info(f"  [{completed}/{n_total}] done: {label}")
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"chr{job[0][2]}: {exc}")
+                errors.append(f"{job[0]}/{job[1]}/chr{job[2]}: {exc}")
                 logger.error(f"  FAILED: {errors[-1]}")
     else:
         with concurrent.futures.ThreadPoolExecutor(max_workers=n_jobs) as pool:
@@ -1594,7 +1492,7 @@ def compute_ld_scores_for_sclinker(
                     completed += 1
                     logger.info(f"  [{completed}/{n_total}] done: {label}")
                 except Exception as exc:  # noqa: BLE001
-                    errors.append(f"chr{job[0][2]}: {exc}")
+                    errors.append(f"{job[0]}/{job[1]}/chr{job[2]}: {exc}")
                     logger.error(f"  FAILED: {errors[-1]}")
 
     if errors:
@@ -1632,7 +1530,7 @@ def load_sclinker_heritability_results(
         program, strategy, trait, Enrichment, Enrichment_std_error,
         Enrichment_z_score, Coefficient, Coefficient_std_error, tau_star
     """
-    results_dir = Path(results_dir).expanduser()
+    results_dir = Path(results_dir)
     log_files = sorted(results_dir.glob(log_pattern))
 
     if not log_files:
@@ -1744,7 +1642,7 @@ def compute_escore(
 
 
 def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
-    """Merge overlapping intervals using bedtools merge, keeping the largest score (as sc-linker does)."""
+    """Merge overlapping intervals using bedtools merge, summing scores."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".bed", delete=False) as f_in:
         tmp_in = f_in.name
         # Sort by chr, start
@@ -1762,7 +1660,7 @@ def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
             check=True,
         )
         merge_result = subprocess.run(
-            ["bedtools", "merge", "-i", "stdin", "-c", "4", "-o", "max"],
+            ["bedtools", "merge", "-i", "stdin", "-c", "4", "-o", "sum"],
             input=sort_result.stdout,
             capture_output=True,
             text=True,
@@ -1794,7 +1692,7 @@ def _merge_bedgraph_bedtools(bg: pd.DataFrame) -> pd.DataFrame:
 
 
 def _merge_bedgraph_python(bg: pd.DataFrame) -> pd.DataFrame:
-    """Interval merge keeping the largest score, like ``bedtools merge -o max``."""
+    """Interval merge with score summing, numpy-based, no iterrows."""
     out_chrs, out_starts, out_ends, out_scores = [], [], [], []
     for chrom, grp in bg.groupby("chr", sort=False):
         starts = grp["start"].to_numpy(dtype=np.int64)
@@ -1807,7 +1705,7 @@ def _merge_bedgraph_python(bg: pd.DataFrame) -> pd.DataFrame:
         for s, e, sc in zip(starts[1:], ends[1:], scores[1:], strict=False):
             if s <= me:
                 me = max(me, e)
-                msc = max(msc, sc)
+                msc += sc
             else:
                 out_chrs.append(chrom)
                 out_starts.append(ms)
@@ -1874,13 +1772,15 @@ def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
             text=True,
             check=True,
         )
-        if not result.stdout.strip():
-            return np.zeros(len(bim))
-        # one line per (SNP, interval) overlap: column 3 is the SNP's row, column 7 the score
-        hits = pd.read_csv(
-            io.StringIO(result.stdout), sep="\t", header=None, usecols=[3, 7], float_precision="round_trip"
-        )
-        return np.bincount(hits[3].to_numpy(), weights=hits[7].to_numpy(dtype=np.float64), minlength=len(bim))
+        annot_values = np.zeros(len(bim))
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("\t")
+            snp_idx = int(parts[3])
+            score = float(parts[7])
+            annot_values[snp_idx] += score
+        return annot_values
     except subprocess.CalledProcessError:
         logger.warning("bedtools intersect failed; falling back to Python annotation")
         return _annotate_python(bg, bim)
@@ -1893,33 +1793,28 @@ def _annotate_with_bedtools(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
 
 
 def _annotate_python(bg: pd.DataFrame, bim: pd.DataFrame) -> np.ndarray:
-    """SNP annotation from a bedgraph without bedtools.
+    """Pure-Python SNP annotation from bedgraph."""
+    bg = bg.copy()
+    bg["_chr"] = bg["chr"].astype(str).str.replace("^chr", "", regex=True)
+    bim = bim.copy()
+    bim["_chr"] = bim["CHR"].astype(str)
 
-    Each SNP gets the sum of the scores of the intervals covering it. Bedgraph intervals are 0-based and half-open, so ``[start, end)`` covers the 1-based BIM
-    positions ``start + 1`` to ``end``, as in :func:`_annotate_with_bedtools`.
-    """
-    bg_chr = bg["chr"].astype(str).str.replace("^chr", "", regex=True).to_numpy()
-    starts, ends = bg["start"].to_numpy(), bg["end"].to_numpy()
-    scores = bg["score"].to_numpy(dtype=np.float64)
-    bim_chr = bim["CHR"].astype(str).to_numpy()
-    bp = bim["BP"].to_numpy()
     annot_values = np.zeros(len(bim))
 
-    for chrom in pd.unique(bg_chr):
-        snp_idx = np.flatnonzero(bim_chr == chrom)
-        if snp_idx.size == 0:
+    for chrom, bg_chrom in bg.groupby("_chr"):
+        snp_mask = bim["_chr"] == str(chrom)
+        if not snp_mask.any():
             continue
-        order = snp_idx[np.argsort(bp[snp_idx], kind="stable")]
-        pos = bp[order]
-        in_chrom = bg_chr == chrom
-        # SNPs start < BP <= end, as positions into the sorted SNPs
-        lo = np.searchsorted(pos, starts[in_chrom], side="right")
-        hi = np.searchsorted(pos, ends[in_chrom], side="right")
-        sums = np.zeros(pos.size)
-        for a, b, score in zip(lo, hi, scores[in_chrom], strict=True):
-            if b > a:
-                sums[a:b] += score
-        annot_values[order] = sums
+        snp_indices = np.where(snp_mask)[0]
+        snp_pos = bim.loc[snp_mask, "BP"].values
+        starts = bg_chrom["start"].values
+        ends = bg_chrom["end"].values
+        scores = bg_chrom["score"].values
+
+        for idx, pos in zip(snp_indices, snp_pos, strict=False):
+            hits = np.where((starts <= pos) & (pos < ends))[0]
+            if hits.size > 0:
+                annot_values[idx] = scores[hits].sum()
 
     return annot_values
 

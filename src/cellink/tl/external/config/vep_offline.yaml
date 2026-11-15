@@ -7,8 +7,7 @@
 vep_command: vep
 offline: true
 vep_nfork: 5
-# Must match your variants, the VEP cache, input_fasta and the CADD files; cellink's datasets are GRCh38.
-genome_assembly: GRCh38
+genome_assembly: GRCh37
 species: homo_sapiens
 pick_order: "biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq"
 additional_flags:
@@ -31,5 +30,5 @@ vep_plugin_dir: vep/112/Plugins
 af_flags: --af_gnomad
 
 additional_vep_plugin_cmds:
-  cadd: CADD,vep_data/cadd/v1.6/GRCh38/whole_genome_SNVs.tsv.gz,vep_data/cadd/v1.6/GRCh38/gnomad.genomes.r3.0.indel.tsv.gz
+  cadd: CADD,vep_data/cadd/v1.6/GRCh37/whole_genome_SNVs.tsv.gz,vep_data/cadd/v1.6/GRCh37/InDels.tsv.gz
   tss_distance: TSSDistance

@@ -38,8 +38,6 @@ def _to_ensg(index: pd.Index, gmap: "pd.Series | None") -> pd.Index:
 
 
 def _run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    # no shell runs the command, so expand "~" in the binary and path arguments here
-    cmd = [os.path.expanduser(c) if isinstance(c, str) else c for c in cmd]
     logger.info("Running: %s", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.stdout:
@@ -121,7 +119,7 @@ def genesets_dir_to_entrez_gmt(
     Optional: allow_mygene_fallback=True to query mygene.info (needs internet).
     """
     # TODO EXPAND ON DOCUMENTATION SINCE PUBLIC FUNCTION
-    geneset_dir = Path(geneset_dir).expanduser().resolve()
+    geneset_dir = Path(geneset_dir).resolve()
 
     # ---- Default output location: sibling magma_genesets next to ldsc_genesets ----
     if out_gmt is None:
@@ -129,7 +127,7 @@ def genesets_dir_to_entrez_gmt(
         magma_dir.mkdir(parents=True, exist_ok=True)
         out_gmt = magma_dir / output_basename
     else:
-        out_gmt = Path(out_gmt).expanduser()
+        out_gmt = Path(out_gmt)
         out_gmt.parent.mkdir(parents=True, exist_ok=True)
 
     # ---- Find input GeneSet files ----
@@ -340,7 +338,7 @@ def scores_to_gmt(
     scores_to_covar : Convert scores to MAGMA gene property covariate file.
     run_magma_gsa : Run MAGMA gene-set analysis with the GMT.
     """
-    out_file = Path(out_file).expanduser()
+    out_file = Path(out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     gmap = _resolve_gene_map(gene_map)
@@ -434,7 +432,7 @@ def scores_to_covar(
     scores_to_gmt : Convert scores to GMT for gene-set analysis.
     run_magma_gpa : Run MAGMA gene property analysis with the covariate file.
     """
-    out_file = Path(out_file).expanduser()
+    out_file = Path(out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     gmap = _resolve_gene_map(gene_map)
@@ -536,7 +534,7 @@ def run_magma_annotate(
     if not run:
         return {"command": cmd}
 
-    os.makedirs(os.path.dirname(os.path.abspath(os.path.expanduser(out_prefix))), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_prefix)), exist_ok=True)
     _run(cmd)
     annot_file = f"{out_prefix}.genes.annot"
     return {"annot_file": annot_file, "files_created": [annot_file]}
@@ -639,7 +637,7 @@ def run_magma_gene_analysis(
     if not run:
         return {"command": cmd}
 
-    os.makedirs(os.path.dirname(os.path.abspath(os.path.expanduser(out_prefix))), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_prefix)), exist_ok=True)
     _run(cmd)
     gene_results = f"{out_prefix}.genes.raw"
     return {
@@ -722,7 +720,7 @@ def run_magma_gsa(
     if not run:
         return {"command": cmd}
 
-    os.makedirs(os.path.dirname(os.path.abspath(os.path.expanduser(out_prefix))), exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(out_prefix)), exist_ok=True)
     _run(cmd)
     results_file = f"{out_prefix}.gsa.out"
     return {"results_file": results_file, "files_created": [results_file, f"{out_prefix}.log"]}
@@ -807,8 +805,8 @@ def run_magma_gpa(
     scores_to_covar : Build covariate file from a scores DataFrame.
     run_magma_gsa : Gene-set analysis (binary threshold, alternative to GPA).
     """
-    out_prefix = os.path.expanduser(str(out_prefix))
-    os.makedirs(os.path.dirname(os.path.abspath(os.path.expanduser(out_prefix))), exist_ok=True)
+    out_prefix = str(out_prefix)
+    os.makedirs(os.path.dirname(os.path.abspath(out_prefix)), exist_ok=True)
 
     if not univariate:
         cmd = [magma_bin, "--gene-results", gene_results, "--gene-covar", gene_covar, "--out", out_prefix]
