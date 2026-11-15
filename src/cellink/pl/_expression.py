@@ -51,8 +51,9 @@ def expression_by_genotype(
         SNP ID or index to stratify by genotype.
     celltype_key : str
         Column in `.obs` denoting cell type.
-    gene_filter : list
-        Genes to include in the plot.
+    gene_filter : list, optional
+        Genes (names in ``dd.C.var_names``) to include in the plot. Defaults to all genes.
+        A gene that is not in ``dd.C.var_names`` raises a ``KeyError``.
     celltype_filter : list
         Optional list of cell types to include.
     mode : {'cell_type', 'gene'}
@@ -102,8 +103,13 @@ def expression_by_genotype(
 
     if celltype_filter is not None:
         dd_C = dd_C[np.where(dd_C.obs[celltype_key].isin(celltype_filter))[0], :]
-    if gene_filter is not None:
-        dd_C = dd_C[:, dd_C.var.index.get_indexer(gene_filter)]
+    gene_filter = list(dd_C.var_names) if gene_filter is None else list(gene_filter)
+    missing = [gene for gene in gene_filter if gene not in dd_C.var_names]
+    if missing:
+        raise KeyError(f"Genes {missing} not found in DonorData.C.var_names.")
+    dd_C = dd_C[:, dd_C.var.index.get_indexer(gene_filter)]
+    # each cell's donor (plain values, not a Categorical)
+    cell_donors = np.asarray(dd_C.obs[dd.donor_id], dtype=object)
 
     if snp in dd_G.var.index:
         dd_G = dd_G[:, dd_G.var.index.get_indexer([snp])]
@@ -133,17 +139,17 @@ def expression_by_genotype(
         df = pd.DataFrame(
             {
                 "expression": gene_expression,
-                "donor_id": dd_C.obs["donor_id"],
-                "cell_type": dd_C.obs[celltype_key],
+                "donor_id": cell_donors,
+                "cell_type": dd_C.obs[celltype_key].to_numpy(),
                 "gene": gene,
             }
         )
 
-        df = df.groupby(["donor_id", "cell_type", "gene"]).mean().reset_index()
+        df = df.groupby(["donor_id", "cell_type", "gene"], observed=True).mean().reset_index()
         df["genotype"] = df["donor_id"].map(donor_to_genotype)
         merged.append(df)
 
-    merged = pd.concat(merged)
+    merged = pd.concat(merged, ignore_index=True)
 
     genotype_order = [dd_G.var[a0].iloc[0] * 2, dd_G.var[a0].iloc[0] + dd_G.var[a1].iloc[0], dd_G.var[a1].iloc[0] * 2]
     merged["genotype"] = pd.Categorical(merged["genotype"], categories=genotype_order, ordered=True)

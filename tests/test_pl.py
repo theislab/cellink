@@ -86,5 +86,5 @@ def test_expression_by_genotype(tmp_path, adata, gdata):
     print(dd.C.obs)
     print(dd.C.var)
 
-    fig = expression_by_genotype(dd, snp="SNP0", gene_filter=["GO"])
+    fig = expression_by_genotype(dd, snp="SNP0", gene_filter=["G0"])
     assert fig is not None

@@ -4,7 +4,10 @@ import importlib.util
 import logging
 import os
 import pickle
+import shlex
+import shutil
 import subprocess
+import sys
 from typing import Literal
 
 import numpy as np
@@ -43,6 +46,40 @@ def _ensure_tensorqtl_importable() -> None:
     finally:
         if sys.modules.get("pandas_plink") is shim:
             del sys.modules["pandas_plink"]
+
+
+def _check_qvalue_stack() -> None:
+    """Raise unless tensorQTL can compute q-values in this environment.
+
+    tensorQTL's ``mode="cis"`` adds the ``qval`` column through rpy2 and the Bioconductor
+    package qvalue, and its command line silently leaves the column out when they are
+    missing. The check mirrors tensorQTL's own (R on ``PATH``, rpy2) and loads qvalue
+    through rpy2 in a separate interpreter, so a broken R/rpy2 link is caught as well.
+
+    Raises
+    ------
+    RuntimeError
+        If R, rpy2 or the R package qvalue is not usable.
+    """
+    if shutil.which("R") is None:
+        problem = "R is not on PATH"
+    elif importlib.util.find_spec("rpy2") is None:
+        problem = "rpy2 is not installed"
+    else:
+        check = subprocess.run(
+            [sys.executable, "-c", "from rpy2.robjects.packages import importr; importr('qvalue')"],
+            capture_output=True,
+            text=True,
+        )
+        lines = check.stderr.strip().splitlines()
+        problem = f"loading qvalue through rpy2 failed: {lines[-1] if lines else check.returncode}"
+        problem = problem if check.returncode != 0 else None
+    if problem:
+        raise RuntimeError(
+            f"mode='cis' needs R, the Bioconductor package qvalue and rpy2 for tensorQTL's q-values ({problem}), "
+            "the qval column that cis_independent and cis_susie filter on. "
+            "Install them, e.g. `mamba install -c conda-forge -c bioconda r-base bioconductor-qvalue rpy2`."
+        )
 
 
 def read_tensorqtl_results(
@@ -351,6 +388,7 @@ def _run_tensorqtl_python_api(
             prefix,
             covariates_df=covariates_df,
             interaction_df=interaction_term,
+            maf_threshold=maf_threshold,
             maf_threshold_interaction=maf_threshold_interaction,
             window=window,
         )
@@ -373,12 +411,14 @@ def _run_tensorqtl_python_api(
         results = (cis_qtl_pairs, cis_qtl_signif_pairs, cis_qtl_top_assoc)
 
     elif mode == "cis":
+        _check_qvalue_stack()
         results = cis.map_cis(
             genotype_df,
             variant_df,
             phenotype_df,
             phenotype_pos_df,
             covariates_df=covariates_df,
+            maf_threshold=maf_threshold,
             nperm=permutations,
             window=window,
             beta_approx=not disable_beta_approx,
@@ -408,6 +448,7 @@ def _run_tensorqtl_python_api(
             phenotype_df,
             phenotype_pos_df,
             covariates_df=covariates_df,
+            maf_threshold=maf_threshold,
             fdr=fdr,
             fdr_col="qval",
             nperm=permutations,
@@ -581,7 +622,8 @@ def run_tensorqtl(
     pval_threshold : float, default=1e-5
         P-value threshold for reporting significant QTL associations.
     maf_threshold : float, default=0
-        Minimum allele frequency threshold for variants in QTL analysis.
+        Minimum minor allele frequency of the variants tested, in both the command line and the
+        Python API workflow.
     maf_threshold_interaction : float, default=0.05
         MAF threshold for interaction terms in `cis_nominal` mode.
     best_only : bool, default=False
@@ -613,11 +655,12 @@ def run_tensorqtl(
         (mean) into dd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
         additional_covariates; otherwise unused.
     encode_sex : bool, default=True
-        If True, includes donor sex as a covariate.
+        If True, includes donor sex (``dd.G.obs["sex"]``) as a covariate. Raises if any donor has no sex.
     encode_age : bool, default=True
         If True, includes donor age (z-normalized if needed) as a covariate.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model.
+        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model. Covariates
+        with missing values raise a ValueError.
     dtype : str, default="float32"
         Data type to cast covariates and matrices for QTL model input.
     use_python_api : bool, default=False
@@ -626,13 +669,14 @@ def run_tensorqtl(
         CLI-based workflow is used, which exports PLINK, phenotype, and covariate files and calls
         TensorQTL via subprocess.
     run : bool, default=True
-        If True, executes the TensorQTL command. If False, returns the constructed command as a string.
-        Only applies when `use_python_api=False`.
+        If True, executes the TensorQTL command with the current Python interpreter. If False, only
+        writes the input files and returns the constructed command as a string. Only applies when
+        `use_python_api=False`.
     read_results : bool, default=True
         If True, reads and returns the result files. If False, returns the paths to the output files.
         Only applies when `use_python_api=False`.
-    save_cmd_file : bool, default=False
-        If True, saves the constructed TensorQTL command to a file instead of printing.
+    save_cmd_file : str, optional
+        With ``run=False``, also writes the constructed TensorQTL command to this file.
         Only applies when `use_python_api=False`.
     plink_export_kwargs : dict, optional
         Additional keyword arguments for :func:`cellink.io.to_pgen`.
@@ -669,8 +713,12 @@ def run_tensorqtl(
     ------
     ImportError
         If tensorqtl is not installed.
+    RuntimeError
+        If ``mode="cis"`` is run without R, the R package qvalue and rpy2, which tensorQTL needs
+        for the q-values.
     ValueError
-        If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected mode.
+        If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected
+        mode, or a covariate is missing for some donors.
     """
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
@@ -702,6 +750,9 @@ def run_tensorqtl(
     covariate_list.append(pd.DataFrame(np.ones((dd.shape[0], 1)), columns=["intercept"], index=phenotype_df.columns))
 
     if encode_sex:
+        n_missing = int(dd.G.obs["sex"].isna().sum())
+        if n_missing:
+            raise ValueError(f"{n_missing} donor(s) have no sex in dd.G.obs; drop them or pass encode_sex=False.")
         sex_codes = dd.G.obs["sex"].astype("category").cat.codes
         covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
@@ -739,6 +790,9 @@ def run_tensorqtl(
                 raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
 
     covariates_df = pd.concat(covariate_list, axis=1)
+    missing = covariates_df.columns[covariates_df.isna().any()].tolist()
+    if missing:
+        raise ValueError(f"Covariate(s) {missing} are missing for some donors; drop those donors or leave them out.")
 
     if use_python_api:
         if importlib.util.find_spec("tensorqtl") is None:
@@ -778,6 +832,8 @@ def run_tensorqtl(
     if run:
         if importlib.util.find_spec("tensorqtl") is None:
             raise ImportError(missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl`"))
+        if mode == "cis":
+            _check_qvalue_stack()
 
     args = {
         "permutations": permutations,
@@ -836,38 +892,37 @@ def run_tensorqtl(
     if not has_pgen or overwrite_plink_export:
         to_pgen(dd.G, prefix, **{"dosages": None if dosages else False, **plink_export_kwargs})
 
-    # cellink's launcher runs `python -m tensorqtl` after making tensorqtl importable without
-    # pandas-plink (see _ensure_tensorqtl_importable); the arguments are tensorqtl's own
-    cmd = (
-        f"python -m cellink.tl.external._tensorqtl_main {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
-    )
+    # _tensorqtl_main runs tensorqtl's command line (same arguments) with its compatibility fixes,
+    # in the current interpreter, so tensorqtl comes from the environment cellink runs in
+    cmd = [sys.executable, "-m", "cellink.tl.external._tensorqtl_main", geno, pheno, prefix]
+    cmd += ["--covariates", covar, "--mode", mode]
 
     for key, value in args.items():
         if isinstance(value, bool) and value:
-            cmd += f" --{key}"
+            cmd.append(f"--{key}")
         elif value is not None and not isinstance(value, bool):
-            cmd += f" --{key} {value}"
+            cmd += [f"--{key}", str(value)]
 
     if mode == "cis_nominal":
         if interaction_df is not None:
-            cmd += f" --interaction {interaction_df}"
+            cmd += ["--interaction", str(interaction_df)]
         if cis_output is not None:
-            cmd += f" --cis_output {cis_output}"
+            cmd += ["--cis_output", str(cis_output)]
     elif mode == "cis_independent":
         if cis_output is None:
             raise ValueError("cis_output can't be None in mode 'cis_independent'. Please provide a valid path.")
-        cmd += f" --cis_output {cis_output}"
+        cmd += ["--cis_output", str(cis_output)]
     elif mode == "cis_susie":
         if cis_output is None:
             raise ValueError("cis_output can't be None in mode 'cis_susie'. Please provide a valid path.")
-        cmd += f" --cis_output {cis_output}"
+        cmd += ["--cis_output", str(cis_output)]
     elif mode == "trans_susie":
         if susie_loci is None:
             raise ValueError("susie_loci can't be None in mode 'trans_susie'. Please provide a valid path.")
-        cmd += f" --susie_loci {susie_loci}"
+        cmd += ["--susie_loci", str(susie_loci)]
 
     if run:
-        subprocess.run(cmd, check=True, shell=True)
+        subprocess.run(cmd, check=True)
 
         if remove_intermediate_files:
             extensions = [".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
@@ -878,15 +933,18 @@ def run_tensorqtl(
 
         if read_results:
             results = read_tensorqtl_results(prefix, mode, cis_output=cis_output, interaction_df=interaction_df)
+        else:
+            inputs = {prefix + ext for ext in (".pgen", ".psam", ".pvar")}
+            results = sorted(p for p in glob.glob(f"{glob.escape(prefix)}.*") if p not in inputs)
 
         return results
 
     else:
+        cmd = shlex.join(cmd)
         if save_cmd_file:
             with open(save_cmd_file, "w") as f:
                 f.write(cmd + "\n")
-        else:
-            return cmd
+        return cmd
 
 
 def run_dense_trans_scan(
@@ -941,10 +999,10 @@ def run_dense_trans_scan(
         Number of phenotype-variant pairs processed per batch, passed
         through to ``run_tensorqtl``.
     encode_sex : bool, optional
-        If True, includes donor sex as a covariate (donors with missing sex
-        are dropped first, since PLINK export hard-casts sex to int32). If
-        None (default), auto-detected from whether ``dd.G.obs["sex"])`` has
-        any real signal.
+        If True, includes donor sex as a covariate; donors with missing sex
+        are dropped first, since ``run_tensorqtl`` rejects a sex covariate
+        with missing values. If None (default), auto-detected from whether
+        ``dd.G.obs["sex"]`` has any real signal.
     encode_age : bool, default=False
         If True, includes donor age as a covariate. Default False, matching
         this scan's typical use as a discovery/ranking tool rather than a
@@ -992,7 +1050,7 @@ def run_dense_trans_scan(
         )
         logger.info(
             f"run_dense_trans_scan: dropped {n_before - dd_scan.G.n_obs} donor(s) with missing sex "
-            "(needed for sex-covariate PLINK export)."
+            "(sex is a covariate)."
         )
 
     if "gPCs" in dd_scan.G.obsm:

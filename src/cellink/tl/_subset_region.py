@@ -1,3 +1,5 @@
+import pandas as pd
+
 from cellink._core.data_fields import AAnn
 
 
@@ -14,11 +16,14 @@ def subset_genomic_region(gdata, chrom, start, end):
 
     Returns
     -------
-    Subsetted Anndata object containing only variants within the specified genomic region.
+    Subsetted Anndata object containing only variants within the specified genomic region
+    (an empty copy when ``gdata`` has no variants).
     """
     # Ensure that the 'chrom', 'pos' columns are present in gdata.var
     if AAnn.chrom not in gdata.var.columns or AAnn.pos not in gdata.var.columns:
         raise ValueError("gdata.var must contain 'chrom' and 'pos' columns.")
+    if gdata.n_vars == 0:  # no variant to infer the chrom dtype from, and none to keep
+        return gdata.copy()
     # Trying to cast chrom to the same dtype as gdata.var['chrom'] to ensure that subsetting works correctly
     chrom_column_dtype = type(gdata.var[AAnn.chrom].iloc[0])
 
@@ -53,7 +58,8 @@ def subset_gene(gdata, gene_id: str or list, gene_snp_map="variant_annotation_ve
     Parameters
     ----------
     gdata: Anndata object containing the genomic data.
-    gene_id: Gene identifier (e.g., Ensembl gene ID) to subset by.
+    gene_id: Gene identifier (e.g., Ensembl gene ID) to subset by, or several of them as any
+        list-like (list, tuple, set, array, pandas Index).
 
     Returns
     -------
@@ -69,11 +75,9 @@ def subset_gene(gdata, gene_id: str or list, gene_snp_map="variant_annotation_ve
             "gdata.uns[gene_snp_map] must contain 'gene_id' column. Have you added VEP annotations to gdata?"
         )
 
-    # Subset the variants based on the specified gene_id
-    if isinstance(gene_id, list):
-        subset_mask_uns = gdata.uns[gene_snp_map].reset_index()["gene_id"].isin(gene_id)
-    else:
-        subset_mask_uns = gdata.uns[gene_snp_map].reset_index()["gene_id"] == gene_id
+    # Subset the variants based on the specified gene_id; a list-like (not a string) holds several genes
+    gene_ids = list(gene_id) if pd.api.types.is_list_like(gene_id) else [gene_id]
+    subset_mask_uns = gdata.uns[gene_snp_map].reset_index()["gene_id"].isin(gene_ids)
     subset_variants = gdata.uns[gene_snp_map].reset_index()[subset_mask_uns]["snp_id"].unique()
     subset_mask_var = gdata.var_names.isin(subset_variants)
     # Subset the Anndata object

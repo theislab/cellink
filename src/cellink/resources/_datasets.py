@@ -428,10 +428,10 @@ def get_onek1k(
     outputs are not already present.
 
     Additionally, it:
-    - Performs liftover to hg19 coordinates for variant positions.
-    - Computes donor principal components (gPCs) from genotype data.
+    - Lifts the GRCh38 variant positions over to hg19 (`pos_hg19`, `id_hg19`).
+    - Computes donor principal components (`obsm["gPCs"]`, columns `gPCs_1` to `gPCs_30`).
     - Aligns expression data from CellxGene to the genotype data.
-    - Encodes donor metadata such as sex and age.
+    - Encodes donor metadata such as sex (1 = male, 0 = female) and age.
 
     Parameters
     ----------
@@ -546,8 +546,9 @@ def get_onek1k(
         gpcs = pd.read_csv(
             DATA / "pcdir" / "OneK1K.noGP.filtered.pruned.eigenvec", sep=r"\s+", index_col=1, header=None
         ).drop(columns=0)
-        gdata.obsm["gPCs"] = gpcs.loc[gdata.obs_names]
-        gdata.obsm["gPCs"].columns = gdata.obsm["gPCs"].columns.astype(str)
+        gpcs = gpcs.loc[gdata.obs_names]
+        gpcs.columns = [f"gPCs_{i}" for i in range(1, gpcs.shape[1] + 1)]  # PC1 is gPCs_1
+        gdata.obsm["gPCs"] = gpcs
 
         gdata.uns["kinship"] = pd.read_csv(
             DATA / "kinship" / "OneK1K.noGP.filtered.pruned.rel", delimiter="\t", header=None
@@ -582,17 +583,19 @@ def get_dummy_onek1k(
     Download and load the dummy OneK1K dataset.
 
     This function downloads a pre-processed subset of the OneK1K dataset containing:
-    - Full chromosome 22 genotype data
-    - 0.1% sample of SNPs from chromosomes 1-21
-    - ~100 donors (randomly sampled)
-    - All cell types and expression data preserved
-    - **Gene annotations pre-included** (GAnn.start, GAnn.end, GAnn.chrom)
-    - **Only QTL-relevant genes** (chr 1-22, within ±1Mb of any SNP)
 
-    The dummy dataset is ideal for tutorials, testing, and demonstrations as it is
-    ~100x smaller than the full OneK1K dataset while maintaining the same structure
-    and API. Unlike the full dataset, gene annotations are already included,
-    eliminating the need for pybiomart calls in tutorials.
+    - all chromosome 22 variants and 0.1% of the variants of chromosomes 1-21
+    - 300 donors (randomly sampled from the 981 OneK1K donors)
+    - at most 420 randomly sampled cells per donor, all cell types
+    - **gene annotations pre-included** (GAnn.start, GAnn.end, GAnn.chrom, strand)
+    - **only QTL-relevant genes** (chr 1-22, within ±500 kb of any kept variant)
+
+    The dummy dataset is ideal for tutorials, testing, and demonstrations: it is a
+    0.4 GB file with the same structure and API as the full OneK1K dataset, and it
+    keeps OneK1K's genetic signal (e.g. the SMDT1 and FAM118A cis-eQTLs on
+    chromosome 22). Unlike the full dataset, gene annotations are already included,
+    so tutorials need no BioMart queries. It is built by
+    ``docs/tutorials/generate_dummy_onek1k.py``.
 
     Parameters
     ----------
@@ -636,10 +639,10 @@ def get_dummy_onek1k(
     quickly downloaded and loaded without additional preprocessing.
 
     Key differences from full dataset:
-    - Gene annotations are pre-included (no pybiomart needed)
-    - Only genes on chromosomes 1-22 are included
-    - Only genes within ±1Mb of any SNP (QTL-relevant)
-    - Reduces gene count from ~20k to ~5-10k for faster processing
+
+    - Gene annotations are pre-included (no BioMart queries needed)
+    - Only genes on chromosomes 1-22 within ±500 kb of a kept variant are included
+    - ``dd.G.uns["kinship"]`` covers the kept donors only
 
     See Also
     --------

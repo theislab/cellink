@@ -32,25 +32,28 @@ def acat_test(
         are clipped to `tolerance`. Default is 1e-16.
 
     weights : np.ndarray or list of float, optional
-        Non-negative weights for each p-value. If None, equal weights are used.
+        Positive weights for each p-value. If None, equal weights are used. The weights of
+        the p-values that are not NaN are rescaled to sum to 1, as in the ACAT R package.
 
     Returns
     -------
     float
-        The ACAT-combined p-value.
+        The ACAT-combined p-value, or NaN if every p-value is NaN.
 
     """
-    # preparing the input
-    if weights is None:
-        weights = np.ones_like(pvalues) / pvalues.shape[0]
-
-    # sanity checks
-    assert len(weights) == len(pvalues), "Length of weights and p-values differs."
-    assert weights.all() > 0, "All weights must be positive."
-
-    # type casting
     pvalues = ensure_float64_array(pvalues)
-    weights = ensure_float64_array(weights)
+    if weights is not None:
+        weights = ensure_float64_array(weights)
+        assert len(weights) == len(pvalues), "Length of weights and p-values differs."
+        assert (weights > 0).all(), "All weights must be positive."
+
+    # NaN p-values (tests that could not run) are ignored, together with their weights
+    keep = ~np.isnan(pvalues)
+    if not keep.any():
+        return np.nan
+    pvalues = pvalues[keep]
+    weights = np.ones_like(pvalues) if weights is None else weights[keep]
+    weights = weights / weights.sum()
 
     if not any(pvalues < tolerance):
         cct_stat = sum(weights * np.tan((0.5 - pvalues) * np.pi))
@@ -122,5 +125,6 @@ def compute_acat(
             _pvs = _pvs[~is_nan]
             _pvs[_pvs == 0] = tolerance
             _pvs[_pvs == 1] = 1 - tolerance
-            RV[i] = acat_test(_pvs, tolerance=tolerance, weights=weights)
+            _weights = None if weights is None else np.asarray(weights)[~is_nan]
+            RV[i] = acat_test(_pvs, tolerance=tolerance, weights=_weights)
     return RV

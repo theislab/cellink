@@ -94,7 +94,9 @@ def fetch_slot(dd, key, *, axis=None, adatas=("G", "C"), layer=None, raise_on_mu
     neither, or in more than one place (with ``raise_on_multiple=True``),
     raises. Returns a ``pd.Series`` (axis-aligned) or ``pd.DataFrame`` (when
     ``key`` names a whole ``obsm``/``varm`` entry). The result carries
-    ``result.attrs['axis']`` in ``{'obs', 'var'}``.
+    ``result.attrs['axis']`` in ``{'obs', 'var'}``. When ``layer`` is given and
+    ``key`` names a variable (or observation) of an AnnData without that layer,
+    a ``KeyError`` is raised; ``.X`` is read only when ``layer`` is None.
     """
 
     def axis_maps(A, ax):
@@ -135,17 +137,21 @@ def fetch_slot(dd, key, *, axis=None, adatas=("G", "C"), layer=None, raise_on_mu
             j = int(m_idx.group("idx"))
             if base in emb:
                 v = emb[base]
-                if isinstance(v, np.ndarray | scipy.sparse.spmatrix) and v.ndim == 2 and 0 <= j < v.shape[1]:
+                # any scipy sparse matrix or sparse array; slice to (n, 1) so both kinds stay 2-D
+                is_sparse = scipy.sparse.issparse(v)
+                if (isinstance(v, np.ndarray) or is_sparse) and v.ndim == 2 and 0 <= j < v.shape[1]:
                     hits.append(
                         (
                             f".{emb_name}['{base}'][:, {j}]",
-                            _as_series(A, v[:, j], ax, key),
+                            _as_series(A, v[:, [j]] if is_sparse else v[:, j], ax, key),
                         )
                     )
 
         # 3) X / layers vector aligned to this axis
         if key in other:
-            if layer and layer in A.layers:
+            if layer is not None and layer not in A.layers:
+                raise KeyError(f"Layer '{layer}' not found; available layers: {list(A.layers)}.")
+            if layer is not None:
                 arr = A[:, key].layers[layer] if ax == "obs" else A[key, :].layers[layer]
             else:
                 arr = A[:, key].X if ax == "obs" else A[key, :].X

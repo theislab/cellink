@@ -38,3 +38,11 @@ def test_three_way_comma_separated_paths_all_rewritten():
     cmd = "ldsc.py --h2 x.sumstats.gz --ref-ld-chr a/one.,b/two.,c/three. --out out"
     full = runner._build_container_command(cmd, [os.getcwd()])
     assert "--ref-ld-chr /data/a/one.,/data/b/two.,/data/c/three." in full
+
+
+def test_singularity_runs_in_bound_working_directory():
+    """Relative paths in the command must resolve inside the container, as docker's `-w /data` does."""
+    runner = _make_runner()
+    full = runner._build_container_command("ldsc.py --h2 x.sumstats.gz --out out", [os.getcwd()])
+    assert f"-B {os.getcwd()}:/data" in full
+    assert "--pwd /data dummy.sif" in full

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shlex
 import subprocess
 from abc import ABC, abstractmethod
@@ -7,6 +8,21 @@ from abc import ABC, abstractmethod
 from cellink.resources._utils import get_data_home
 
 logger = logging.getLogger(__name__)
+
+
+def _is_within(path: str, root: str) -> bool:
+    """Whether `path` is `root` or lies below it (``/a/gwas_data`` is not within ``/a/gwas``)."""
+    path, root = os.path.abspath(path), os.path.abspath(root)
+    return os.path.commonpath([path, root]) == root
+
+
+def _replace_host_paths(command: str, volumes: dict[str, str]) -> str:
+    """Replace host directories in `command` by their container paths, at path boundaries only."""
+    for host_path, container_path in volumes.items():
+        host_path = os.path.abspath(str(host_path))
+        pattern = rf"(?<![\w./-]){re.escape(host_path)}(?=/|[\s'\",;:]|$)"
+        command = re.sub(pattern, lambda _, c=str(container_path): c, command)
+    return command
 
 
 class BaseToolRunner(ABC):
@@ -77,12 +93,7 @@ class BaseToolRunner(ABC):
                 abs_path = os.path.abspath(file_path)
                 parent_dir = os.path.dirname(abs_path)
 
-                covered = False
-                for host_path in volumes.keys():
-                    host_path = str(host_path)
-                    if abs_path.startswith(host_path):
-                        covered = True
-                        break
+                covered = any(_is_within(abs_path, str(host_path)) for host_path in volumes)
 
                 if not covered:
                     container_path = f"/external_{len(volumes)}"
@@ -99,7 +110,7 @@ class BaseToolRunner(ABC):
 
         for host_path, container_path in volumes.items():
             host_path = str(host_path)
-            if abs_path.startswith(host_path):
+            if _is_within(abs_path, host_path):
                 relative_path = os.path.relpath(abs_path, host_path)
                 return os.path.join(container_path, relative_path).replace("\\", "/")
 
@@ -116,17 +127,16 @@ class BaseToolRunner(ABC):
         volumes = self._infer_volumes_from_paths(*file_paths)
         container_command = self._rewrite_paths_in_command(base_command, volumes)
 
-        # container_command = base_command
-        for host_path, container_path in volumes.items():
-            container_command = str(container_command).replace(str(host_path), str(container_path))
+        # host paths inside tokens such as --bedFile=/abs/path.bed
+        container_command = _replace_host_paths(container_command, volumes)
 
         if self.config["execution_mode"] == "docker":
             volume_args = []
             for host_path, container_path in volumes.items():
                 volume_args.extend(["-v", f"{host_path}:{container_path}"])
 
-            cmd = ["docker", "run", "--rm", *volume_args, "-w", "/data", self.config["docker_image"], container_command]
-            return " ".join(cmd)
+            cmd = ["docker", "run", "--rm", *volume_args, "-w", "/data", self.config["docker_image"]]
+            return f"{shlex.join(cmd)} {container_command}"
 
         elif self.config["execution_mode"] == "singularity":
             bind_args = []
@@ -134,9 +144,10 @@ class BaseToolRunner(ABC):
                 bind_args.extend(["-B", f"{host_path}:{container_path}"])
 
             image = self.config.get("singularity_image", "")
-            cmd = ["singularity", "exec", *bind_args, image, container_command]
+            # like docker's `-w /data`: relative paths in the command refer to the bound working directory
+            cmd = ["singularity", "exec", *bind_args, "--pwd", "/data", image]
 
-            return " ".join(cmd)
+            return f"{shlex.join(cmd)} {container_command}"
 
         return base_command
 
@@ -144,7 +155,7 @@ class BaseToolRunner(ABC):
         """Rewrite a single host path/prefix to its container-side equivalent, if covered by `volumes`."""
         abs_path = os.path.abspath(path)
         for host_path, container_path in volumes.items():
-            if abs_path.startswith(host_path):
+            if _is_within(abs_path, host_path):
                 rel = os.path.relpath(abs_path, host_path)
                 return os.path.join(container_path, rel).replace("\\", "/")
         return path
@@ -165,11 +176,14 @@ class BaseToolRunner(ABC):
 
             rewritten.append(new_token)
 
-        return " ".join(rewritten)
+        return shlex.join(rewritten)
 
     def run_command(self, base_command: str, file_paths: list[str] = None, check: bool = True):
         """
         Execute command with automatic path inference
+
+        The command is split with :func:`shlex.split` and run without a shell, so file names are
+        never interpreted by a shell; callers quote arguments with :func:`shlex.quote`.
 
         Parameters
         ----------
@@ -186,7 +200,7 @@ class BaseToolRunner(ABC):
             file_paths.append(os.getcwd())
 
         if self.config["execution_mode"] == "local":
-            result = subprocess.run(base_command, shell=True, check=False, capture_output=True, text=True)
+            result = subprocess.run(shlex.split(base_command), check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:
@@ -197,7 +211,7 @@ class BaseToolRunner(ABC):
             full_command = self._build_container_command(base_command, file_paths)
 
             logger.info(f"Executing: {full_command}")
-            result = subprocess.run(full_command, shell=True, check=False, capture_output=True, text=True)
+            result = subprocess.run(shlex.split(full_command), check=False, capture_output=True, text=True)
             if result.stdout:
                 logger.info(result.stdout)
             if result.stderr:

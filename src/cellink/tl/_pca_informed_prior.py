@@ -54,7 +54,9 @@ def build_pca_informed_prior(
     -------
     pandas.Series
         One combined prior weight per row of ``scores`` (same index),
-        non-negative, summing to 1 across all variants.
+        non-negative, summing to 1 across all variants. A single variant, or
+        variants whose scores carry no information (every weight 0), get a
+        uniform prior.
 
     Raises
     ------
@@ -93,16 +95,19 @@ def build_pca_informed_prior(
         )
 
     n_variants = len(scores)
+    if n_variants < 2:  # nothing to rank: a single variant takes all the weight
+        return pd.Series(np.ones(n_variants), index=scores.index, name="pca_informed_prior")
     pooled_pcs: list[np.ndarray] = []
 
     for category in sorted(track_categories.loc[used_cols].unique()):
         cat_cols = [c for c in used_cols if track_categories[c] == category]
         X = scores[cat_cols].to_numpy(dtype=np.float64)
-        X = np.nan_to_num(X, nan=0.0)
         n_features = X.shape[1]
         max_components = min(n_variants, n_features)
 
-        Xs = StandardScaler().fit_transform(X)
+        # StandardScaler ignores NaN when fitting; a missing score then becomes 0 on the
+        # standardized scale (no evidence), not an outlier on tracks centred away from 0
+        Xs = np.nan_to_num(StandardScaler().fit_transform(X), nan=0.0)
         pca = PCA(n_components=max_components, random_state=random_state)
         pc_scores = pca.fit_transform(Xs)
         cum_var = np.cumsum(pca.explained_variance_ratio_)
@@ -125,6 +130,7 @@ def build_pca_informed_prior(
 
     pooled = np.stack(pooled_pcs, axis=1)
     combined_l2 = np.linalg.norm(pooled, axis=1)
-    combined_prior = combined_l2 / combined_l2.sum()
+    total = combined_l2.sum()
+    combined_prior = combined_l2 / total if total > 0 else np.full(n_variants, 1.0 / n_variants)
 
     return pd.Series(combined_prior, index=scores.index, name="pca_informed_prior")

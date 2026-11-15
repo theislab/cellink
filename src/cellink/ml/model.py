@@ -20,7 +20,9 @@ class DonorMILModel(pl.LightningModule):
     n_hidden : int, default=128
         Dimension of the hidden representation for donor and cell encoders.
     n_output : int, default=1
-        Number of output units (e.g., 1 for regression, >1 for multi-class classification).
+        Number of output units: 1 for regression (mean squared error loss), more than 1 for
+        multi-class classification with ``n_output`` classes (cross-entropy loss on integer
+        class labels ``0 .. n_output - 1`` in ``donor_y``).
     lr : float, default=1e-3
         Learning rate for the Adam optimizer.
     """
@@ -51,10 +53,13 @@ class DonorMILModel(pl.LightningModule):
         ----------
         batch : dict
             Dictionary containing input features:
-            - "donor_x": Tensor of shape (B, D_donor) with donor-level features.
-            - "cell_x": List of tensors [(N_i, D_cell), ...] with cell-level features
-                        for each donor in the batch, where N_i is the number of cells
-                        for donor i.
+
+            - ``"donor_x"``: tensor of shape ``(B, D_donor)`` with donor-level features.
+            - ``"cell_x"``: list of tensors ``[(N_i, D_cell), ...]`` with cell-level features for
+              each donor in the batch, where ``N_i`` is the number of cells of donor ``i``.
+            - ``"cell_mask"`` (optional): per donor, a boolean tensor of length ``N_i`` that is
+              True for real cells and False for padding rows; padding rows are left out of the
+              attention pooling.
 
         Returns
         -------
@@ -67,9 +72,11 @@ class DonorMILModel(pl.LightningModule):
 
         h_donor = self.donor_encoder(donor_x)  # shape: (B, H)
 
+        cell_mask = batch.get("cell_mask")  # present when bags are padded to a fixed size
         h_cell_list = []
         for i in range(len(cell_x_list)):
-            h_cells = self.cell_encoder(cell_x_list[i])  # shape: (N_i, H)
+            cells = cell_x_list[i] if cell_mask is None else cell_x_list[i][cell_mask[i].bool()]
+            h_cells = self.cell_encoder(cells)  # shape: (N_i, H), real cells only
             attn_scores = self.attention(h_cells)  # shape: (N_i, 1)
             attn_weights = F.softmax(attn_scores.squeeze(-1), dim=0)  # shape: (N_i,)
             h_cell = torch.sum(attn_weights.unsqueeze(-1) * h_cells, dim=0)  # shape: (H,)
@@ -80,6 +87,14 @@ class DonorMILModel(pl.LightningModule):
         combined = torch.cat([h_donor, h_cell], dim=-1)  # shape: (B, H*2)
         logits = self.classifier(combined)  # shape: (B, n_output)
         return logits
+
+    def _loss(self, batch):
+        """Mean squared error for regression (``n_output == 1``), cross-entropy for classification."""
+        logits = self(batch)  # shape: (B, n_output)
+        y = batch["donor_y"].reshape(logits.shape[0], -1)  # one target per donor
+        if self.hparams.n_output > 1:
+            return F.cross_entropy(logits, y[:, 0].long())
+        return F.mse_loss(logits.squeeze(-1), y[:, 0].float())
 
     def training_step(self, batch, batch_idx):
         """
@@ -95,11 +110,9 @@ class DonorMILModel(pl.LightningModule):
         Returns
         -------
         torch.Tensor
-            The computed MSE loss for the batch.
+            The loss for the batch (MSE for regression, cross-entropy for classification).
         """
-        y = batch["donor_y"].float()
-        y_hat = self(batch).squeeze(-1)
-        loss = F.mse_loss(y_hat, y)
+        loss = self._loss(batch)
         self.log("train_loss", loss)
         return loss
 
@@ -119,9 +132,7 @@ class DonorMILModel(pl.LightningModule):
         None
             Logs validation loss to PyTorch Lightning without returning a value.
         """
-        y = batch["donor_y"].float()
-        y_hat = self(batch).squeeze(-1)
-        loss = F.mse_loss(y_hat, y)
+        loss = self._loss(batch)
         self.log("val_loss", loss)
 
     def configure_optimizers(self):

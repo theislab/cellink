@@ -38,9 +38,9 @@ def qq(
     ----------
     pvals_df : pandas.DataFrame
         DataFrame containing p-values and group labels.
-    pval_col : str, default 'pb_adj'
+    pval_col : str, default 'pv_adj'
         Column name in `pvals_df` containing p-values.
-    group_col : str, default 'group'
+    group_col : str or None, default None
         Column name in `pvals_df` used to group p-values for faceted QQ plots.
     figsize : tuple, optional
         Size of the figure. Defaults to matplotlib's `figure.figsize` setting.
@@ -60,6 +60,8 @@ def qq(
         Path to save the figure. If provided, the figure is saved instead of shown.
     dpi : int, default 300
         Resolution of the saved figure in dots per inch.
+    ax : matplotlib.axes.Axes or None, optional
+        Axes to plot into. With several groups, its area is split into one panel per group.
 
     Returns
     -------
@@ -119,6 +121,7 @@ def qq(
             ax.set_title(title, fontsize=titlesize)
         ax.grid(True)
 
+    ax_given = ax is not None
     if n_groups == 1:
         if ax is None:
             fig, ax = plt.subplots(figsize=figsize)
@@ -130,12 +133,16 @@ def qq(
         n_rows = int(np.ceil(n_groups / n_cols))
 
         if ax is None:
-            fig, ax = fig, axes = plt.subplots(
-                n_rows, n_cols, figsize=(figsize[0] * n_cols / 2, figsize[1] * n_rows / 2)
-            )
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize[0] * n_cols / 2, figsize[1] * n_rows / 2))
         else:
-            fig, axes = ax.figure
-        axes = axes.flatten() if n_groups > 1 else [axes]
+            # split the given axes into one panel per group
+            if ax.get_subplotspec() is None:
+                raise ValueError("`ax` must be a subplot (e.g. from plt.subplots) to hold several groups.")
+            fig = ax.figure
+            grid = ax.get_subplotspec().subgridspec(n_rows, n_cols)
+            ax.remove()
+            axes = np.array([fig.add_subplot(grid[r, c]) for r in range(n_rows) for c in range(n_cols)])
+        axes = np.atleast_1d(axes).flatten()
 
         for i, group in enumerate(groups):
             ax = axes[i]
@@ -151,7 +158,7 @@ def qq(
         save_path = save if isinstance(save, str) else "qq.png"
         fig.savefig(save_path, dpi=dpi)
         plt.close(fig)
-    elif show or (show is None and ax is None):
+    elif show or (show is None and not ax_given):
         plt.show()
 
     return fig
@@ -163,7 +170,7 @@ def manhattan(
     chromosome_col: str = VAnn.chrom,
     position_col: str = VAnn.pos,
     point_size: int = 10,
-    significance_threshold: int = None,
+    significance_threshold: float | None = None,
     label_column: str = None,
     figsize: tuple = None,
     labelsize: int = None,
@@ -188,13 +195,14 @@ def manhattan(
     pval_col : str, default "pv_adj"
         Column in `pvals_df` with p-values.
     chromosome_col : str
-        Column name for chromosome numbers (can be numeric or 'X', 'Y').
+        Column name for chromosome numbers (numeric, 'X' or 'Y', optionally with a 'chr' prefix).
+        `pvals_df` is not modified.
     position_col : str
         Column name for base-pair positions.
     point_size : int
         Size of points.
-    significance_threshold : float, default 5e-8
-        Threshold for highlighting significant hits.
+    significance_threshold : float or None, default None
+        Threshold for highlighting significant hits; no highlighting when None.
     label_column : str or None
         Column to use for labeling significant points. Labels are shown above points.
     figsize : tuple, optional
@@ -241,7 +249,9 @@ def manhattan(
     labelsize = labelsize or plt.rcParams.get("axes.labelsize", 8)
     titlesize = titlesize or plt.rcParams.get("axes.titlesize", 14)
 
-    pvals_df[chromosome_col] = pvals_df[chromosome_col].replace({"X": 23, "Y": 24}).astype(int)
+    pvals_df = pvals_df.copy()  # never rewrite the caller's columns
+    chrom = pvals_df[chromosome_col].astype(str).str.removeprefix("chr")
+    pvals_df[chromosome_col] = chrom.replace({"X": "23", "Y": "24"}).astype(int)
     pvals_df = pvals_df.sort_values([chromosome_col, position_col])
 
     pvals_df["-log10(P)"] = -np.log10(pvals_df[pval_col])

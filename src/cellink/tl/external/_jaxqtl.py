@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Sequence
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 import scanpy as sc
 from anndata.utils import asarray
@@ -142,7 +143,8 @@ def run_jaxqtl(
     pcs_libsize_name_from_covar: str | None = None,
     offset: str | None = None,
     offset_name_from_covar: str | None = None,
-    set_offset_from_libsize: bool = False,
+    set_offset_from_libsize: bool | None = None,
+    counts_layer: str | None = None,
     keep: str | Sequence[str] | None = None,
     exclude: str | Sequence[str] | None = None,
     min_indiv_expr_pct: float | None = None,
@@ -181,6 +183,12 @@ def run_jaxqtl(
     the jaxQTL flag; options left at None are not passed, so jaxQTL's defaults apply. The genotypes are
     written as PLINK 1 hard calls (:func:`cellink.io.to_plink`, ``--bfile``).
 
+    The pseudobulk phenotype depends on the model. The count models (``nb``, ``poisson``) get the
+    raw counts summed per donor (from `counts_layer`, or `dd.C.X`), fitted with the log library
+    size as offset, as jaxQTL intends; a warning is logged if the sums are not non-negative
+    integers, which means the data are probably normalized. ``gaussian`` gets the mean of
+    `dd.C.X` per donor.
+
     Parameters
     ----------
     dd : DonorData
@@ -193,7 +201,8 @@ def run_jaxqtl(
     out : str, optional
         Output prefix for the jaxQTL results (``--out``). Defaults to `prefix`.
     model : {'gaussian', 'poisson', 'nb'}, default='nb'
-        Model for the expression (``--model``).
+        Model for the expression (``--model``). ``nb`` and ``poisson`` model summed raw counts,
+        ``gaussian`` the mean expression per donor.
     test : {'score', 'wald'}, default='score'
         Variant test (``--test``). jaxQTL recommends ``score`` for ``cis`` and ``wald`` for ``nominal``.
     robust_se : bool, default=False
@@ -211,7 +220,7 @@ def run_jaxqtl(
     tss_centered : bool, default=False
         Center the cis window on the TSS instead of spanning TSS to TES (``--tss-centered``).
     encode_sex : bool, default=True
-        If True, adds sex as a categorical covariate using `dd.G.obs['sex']`.
+        If True, adds sex as a categorical covariate using `dd.G.obs['sex']`. Raises if any donor has no sex.
     encode_age : bool, default=True
         If True, adds age as a numeric covariate from `dd.G.obs['age']`.
     additional_covariates : list of str, optional
@@ -248,12 +257,19 @@ def run_jaxqtl(
         Covariate column with raw library sizes for the PCA normalization
         (``compute-pcs --libsize-name-from-covar``).
     offset : str, optional
-        Two-column (sample ID, offset) TSV of fixed model offsets, e.g. log library sizes (``--offset``).
+        Two-column (sample ID, offset) TSV of fixed model offsets (``--offset``), e.g. log library sizes
+        computed from all genes when `dd.C` holds only a subset of them.
     offset_name_from_covar : str, optional
         Covariate column used as fixed model offset (``--offset-name-from-covar``).
-    set_offset_from_libsize : bool, default=False
-        Use the log library size of the phenotype counts as offset (``--set-offset-from-libsize``).
-        Only one of `offset`, `offset_name_from_covar` and `set_offset_from_libsize` can be given.
+    set_offset_from_libsize : bool, optional
+        Use the log library size as offset (``--set-offset-from-libsize``). jaxQTL computes it as the
+        donor's total count over the genes written to the phenotype file, i.e. the genes in `dd.C`.
+        Defaults to True for the count models (``nb``, ``poisson``) unless `offset` or
+        `offset_name_from_covar` is given, and to False for ``gaussian``. Only one of `offset`,
+        `offset_name_from_covar` and `set_offset_from_libsize` can be given.
+    counts_layer : str, optional
+        Layer of `dd.C` with raw counts, summed per donor for the count models. Defaults to `dd.C.X`.
+        Not used with ``gaussian``.
     keep : str or sequence of str, optional
         Donors to analyze (``--keep``): a file with one ID per line, or the IDs. Cannot be combined
         with `exclude`.
@@ -325,7 +341,7 @@ def run_jaxqtl(
         If the ``jaxqtl`` executable is not found.
     ValueError
         If an option has an invalid value or options that exclude each other are combined, or a
-        covariate is not found in the DonorData object.
+        covariate is not found in the DonorData object or is missing for some donors.
 
     Notes
     -----
@@ -346,6 +362,9 @@ def run_jaxqtl(
     ):
         if value is not None and value not in _CHOICES[name]:
             raise ValueError(f"{name} must be one of {_CHOICES[name]}, got {value!r}.")
+    count_model = model in ("nb", "poisson")
+    if set_offset_from_libsize is None:
+        set_offset_from_libsize = count_model and offset is None and offset_name_from_covar is None
     exclusive = [
         ("keep", "exclude"),
         ("covar_name", "rm_covar"),
@@ -403,9 +422,22 @@ def run_jaxqtl(
         if "X_pca" not in dd.G.obsm:
             dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
-    dd.aggregate(key_added="PB", sync_var=True, verbose=True)
+    if count_model:
+        # jaxQTL's count models describe raw counts per donor, with log library size as offset
+        dd.aggregate(key_added="PB", layer=counts_layer, func="sum", sync_var=True, verbose=True)
+    else:
+        dd.aggregate(key_added="PB", sync_var=True, verbose=True)
     phenotype_df = dd.G.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
+    if count_model:
+        values = phenotype_df.to_numpy(dtype=float)
+        values = values[np.isfinite(values)]
+        if (values < 0).any() or not np.allclose(values, np.round(values)):
+            logger.warning(
+                f"model={model!r} expects raw counts, but the summed expression is not non-negative "
+                f"integers; {'dd.C.X' if counts_layer is None else f'layer {counts_layer!r}'} is probably "
+                "normalized. Pass `counts_layer` with raw counts or use model='gaussian'."
+            )
 
     pheno = f"{prefix}_phenotype.bed.gz"
     if not os.path.isfile(pheno) or overwrite_phenotype_export:
@@ -426,11 +458,14 @@ def run_jaxqtl(
         covariate_list = []
 
         if encode_sex:
+            n_missing = int(dd.G.obs["sex"].isna().sum())
+            if n_missing:
+                raise ValueError(f"{n_missing} donor(s) have no sex in dd.G.obs; drop them or pass encode_sex=False.")
             sex_codes = dd.G.obs["sex"].astype("category").cat.codes
             covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
         if encode_age:
-            age_values = dd.G.obs[["age"]].values.astype("int")
+            age_values = dd.G.obs[["age"]].values.astype(dtype)
             covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
         for cov in additional_covariates or []:
@@ -458,7 +493,14 @@ def run_jaxqtl(
             else:
                 raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
 
-        covariates_df = pd.concat(covariate_list, axis=1)
+        covariates_df = (
+            pd.concat(covariate_list, axis=1) if covariate_list else pd.DataFrame(index=phenotype_df.columns)
+        )
+        missing = covariates_df.columns[covariates_df.isna().any()].tolist()
+        if missing:
+            raise ValueError(
+                f"Covariate(s) {missing} are missing for some donors; drop those donors or leave them out."
+            )
         covariates_df.index.name = "iid"
         covariates_df.to_csv(covar, sep="\t")
 

@@ -4,7 +4,9 @@
 vep_command: vep
 offline: false
 vep_nfork: 5
-genome_assembly: GRCh37
+# Must match the coordinates of the variants you annotate; cellink's datasets (OneK1K, 1000 Genomes) are GRCh38.
+# For GRCh37 data use GRCh37 (VEP then queries Ensembl's GRCh37 database on port 3337).
+genome_assembly: GRCh38
 species: homo_sapiens
 pick_order: "biotype,canonical,appris,tsl,ccds,rank,length,ensembl,refseq"
 additional_flags:
