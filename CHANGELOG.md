@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 
-- Python >= 3.12 is required; tested on Python 3.12 to 3.15. New minimum versions, e.g. numpy 2.2,
+- Python >= 3.12 is required; tested on Python 3.12 to 3.14. New minimum versions, e.g. numpy 2.2,
   pandas 2.3, scipy 1.15, anndata 0.12.2 and zarr 3.1
 - `io.to_plink` writes PLINK 1 files without pandas-plink; `io.to_plink` and `io.to_pgen` read
   negative values of an integer genotype matrix as missing calls, as in int8 stores read with

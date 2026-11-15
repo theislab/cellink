@@ -1,6 +1,6 @@
 # Installation
 
-cellink requires Python >=3.12 and is tested on Python 3.12, 3.13, 3.14 and 3.15.
+cellink requires Python >=3.12 and is tested on Python 3.12, 3.13 and 3.14.
 
 cellink is published on PyPI as `cellink-tools` (`cellink` on PyPI is an unrelated package):
 
