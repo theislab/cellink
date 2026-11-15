@@ -20,9 +20,9 @@ class JointNMFWrapper:
     Joint NMF decomposition for healthy / disease single-cell data.
 
     Factorises ``Xh ≈ Wh Hh`` and ``Xd ≈ Wd Hd`` and couples the first ``n_shared``
-    columns of ``Wh`` and ``Wd``. As in sc-linker (Jagadeesh et al. 2022), pass genes x
-    cells matrices, so that the coupled factor ``W`` holds the gene loadings shared by
-    both conditions and ``H`` the per-cell program weights.
+    columns of ``Wh`` and ``Wd``. Pass genes x cells matrices, so that the coupled
+    factor ``W`` holds the gene loadings shared by both conditions and ``H`` the
+    per-cell program weights.
 
     Parameters
     ----------

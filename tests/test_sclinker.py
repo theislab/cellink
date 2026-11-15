@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -101,29 +100,74 @@ def test_nmf_gene_correlations_handle_all_zero_genes():
             assert np.isclose(corr[g, k], expected, atol=1e-6)
 
 
-@pytest.mark.parametrize("as_sparse", [False, True])
-def test_nmf_min_cells_drops_rare_genes_float32_and_leaves_adata_alone(monkeypatch, as_sparse):
-    monkeypatch.setitem(sys.modules, "torchnmf", None)  # sklearn backend, quick and deterministic
-    monkeypatch.setitem(sys.modules, "torchnmf.nmf", None)
-    rng = np.random.default_rng(0)
-    X = rng.poisson(2.0, size=(60, 12)).astype(np.float64)
+def _nmf_adata(as_sparse=False, seed=0):
+    rng = np.random.default_rng(seed)
+    X = np.log1p(rng.poisson(2.0, size=(60, 12)).astype(np.float64))
     X[:, 3] = 0
-    X[:3, 7], X[3:, 7] = 1, 0  # detected in 3 cells
+    X[:3, 7], X[3:, 7] = 1, 0
     adata = AnnData(
         X=sparse.csr_matrix(X) if as_sparse else X.copy(),
         obs=pd.DataFrame({"ct": ["a", "b"] * 30}, index=[f"c{i}" for i in range(60)]),
         var=pd.DataFrame(index=[f"G{j}" for j in range(12)]),
     )
-    W, H, corr = compute_nmf_programs(adata, n_components=3, celltype_col="ct", layer=None, min_cells=5, save=False)
-    kept = [f"G{j}" for j in range(12) if j not in (3, 7)]
-    assert list(H.index) == kept and list(corr.index) == kept
-    assert W.shape == (60, 3)
-    X_after = adata.X.toarray() if as_sparse else adata.X
-    np.testing.assert_array_equal(X_after, X)  # not normalised in place
-    assert adata.n_vars == 12
+    adata.layers["counts"] = np.expm1(X)
+    return adata, X
 
-    _, H_all, corr_all = compute_nmf_programs(adata, n_components=3, celltype_col="ct", layer=None, save=False)
-    assert len(H_all) == 12 and np.allclose(corr_all.loc["G3"], 0.0)
+
+@pytest.mark.parametrize("as_sparse", [False, True])
+def test_nmf_fits_sklearn_random_init_on_log_normalized_expression(as_sparse):
+    from sklearn.decomposition import NMF
+
+    adata, X = _nmf_adata(as_sparse)
+    W, H, _ = compute_nmf_programs(adata, n_components=3, celltype_col="ct", collapse_threshold=None, save=False)
+    model = NMF(n_components=3, init="random", random_state=0)
+    np.testing.assert_allclose(W.to_numpy(), model.fit_transform(X / X.max()))
+    np.testing.assert_allclose(H.to_numpy(), model.components_.T)
+    np.testing.assert_array_equal(adata.X.toarray() if as_sparse else adata.X, X)
+
+
+def test_nmf_correlations_cover_every_expressed_gene():
+    adata, X = _nmf_adata()
+    W, _, corr = compute_nmf_programs(adata, n_components=3, celltype_col="ct", collapse_threshold=None, save=False)
+    assert list(corr.index) == [f"G{j}" for j in range(12) if j != 3]
+    for gene in ("G0", "G7"):
+        j = int(gene[1:])
+        expected = [np.corrcoef(X[:, j], W[f])[0, 1] for f in W.columns]
+        np.testing.assert_allclose(corr.loc[gene].to_numpy(), expected, atol=1e-12)
+
+
+def test_nmf_fit_genes_come_from_highly_variable_and_min_cells():
+    adata, _ = _nmf_adata()
+    adata.var["highly_variable"] = [j % 2 == 1 for j in range(12)]
+    _, H, corr = compute_nmf_programs(adata, n_components=2, celltype_col="ct", save=False)
+    assert list(H.index) == [f"G{j}" for j in range(1, 12, 2)]
+    assert len(corr) == 11
+
+    _, H, _ = compute_nmf_programs(
+        adata, n_components=2, celltype_col="ct", use_highly_variable=False, min_cells=5, save=False
+    )
+    assert list(H.index) == [f"G{j}" for j in range(12) if j not in (3, 7)]
+    with pytest.raises(ValueError, match="highly_variable"):
+        compute_nmf_programs(_nmf_adata()[0], n_components=2, use_highly_variable=True, save=False)
+
+
+def test_correlated_factors_are_collapsed():
+    from cellink.tl.external._sclinker import _collapse_correlated_factors
+
+    rng = np.random.default_rng(0)
+    a, b = rng.random(100), rng.random(100)
+    W = np.column_stack([a, b, 2 * a + 0.01 * rng.random(100), np.ones(100)])
+    assert _collapse_correlated_factors(W, 0.8) == [0, 1, 3]
+    assert _collapse_correlated_factors(W, None) == [0, 1, 2, 3]
+
+
+def test_nmf_genescores_clip_negative_correlations_and_scale_to_one(tmp_path):
+    adata, _ = _nmf_adata()
+    _, _, corr = compute_nmf_programs(adata, n_components=3, celltype_col="ct", out_dir=tmp_path, save=True)
+    scores = pd.read_csv(tmp_path / "nmf_genescores.csv", index_col=0)
+    expected = corr.clip(lower=0)
+    pd.testing.assert_frame_equal(scores, expected / expected.max(), check_names=False)
+    assert (scores.max() == 1).all()
 
 
 def test_sclinker_tutorial_imports_resolve():

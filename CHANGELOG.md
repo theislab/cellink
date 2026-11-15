@@ -64,6 +64,11 @@ and this project adheres to [Semantic Versioning][].
   `libsize_key` takes the library sizes from a per-cell total over all genes (e.g. `nCount_RNA`)
 - `tl.external.compute_joint_nmf_programs` couples the gene loadings; sc-linker bedgraphs keep the
   largest score of overlapping intervals
+- `tl.external.compute_nmf_programs` follows sc-linker (Jagadeesh et al. 2022): it factorizes the
+  log-normalized expression in `adata.X` (not the `counts` layer) with scikit-learn's NMF and random
+  initialization (torchnmf only with `device`), fits on the highly variable genes when they are
+  annotated, correlates every expressed gene with the factors, collapses factors whose contributions
+  correlate above 0.8 (`collapse_threshold`) and writes gene scores (`{prefix}_genescores.csv`)
 - `tl.external.estimate_ld_scores_from_donor_data` uses a 1000 kb window
 - `tl.coloc_susie` defaults to `p12=5e-6`
 - `at.acat_test` ignores NaN p-values, rejects non-positive weights and rescales the weights to sum to 1
@@ -130,7 +135,7 @@ and this project adheres to [Semantic Versioning][].
 - LDSC helpers accept `ld_wind_kb` or `ld_wind_snp` alone and pass `maf_min`
 - MAGMA input preparation: p-value clipping, allele order, prefixes with dots
 - `tl.external.load_gsmap_results` reads only the requested trait
-- `tl.external.compute_nmf_programs`: correlations of undetected genes, lower memory, `min_cells`
+- `tl.external.compute_nmf_programs` gave genes without counts the correlations of other genes
 - `tl.coloc_abf` input checks and very strong signals; `tl.coloc_susie` with no credible sets
 - Edge cases in `tl.build_pca_informed_prior`, `tl.subset_gene` and `tl.subset_genomic_region`
 - `cellink.pp` filters with `inplace=True` filter the input
