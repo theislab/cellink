@@ -235,7 +235,7 @@ def get_gwas_catalog_study_summary_stats(
         return dest
 
     compression = "gzip" if url.endswith(".gz") else "zip" if url.endswith(".zip") else None
-    data = pd.read_csv(dest, compression=compression, sep=r"\s+")
+    data = pd.read_csv(dest, compression=compression, sep=r"\s+", low_memory=False)
     if translate_to_build:
         if detected_build not in ("GRCh37", "GRCh38"):
             raise ValueError(
@@ -967,7 +967,7 @@ def get_eqtl_catalog_dataset_associations(
             _download_file(url, dest)
         if return_path:
             return dest
-        df = pd.read_csv(dest, sep="\t")
+        df = pd.read_csv(dest, sep="\t", low_memory=False)
 
     for key, value in params.items():
         if key not in df.columns:
@@ -1029,7 +1029,7 @@ def get_eqtl_catalog_credible_sets(
     if return_path:
         return dest
 
-    df = pd.read_csv(dest, sep="\t")
+    df = pd.read_csv(dest, sep="\t", low_memory=False)
     for key, value in params.items():
         if key not in df.columns:
             raise KeyError(f"'{key}' is not a column of the credible sets. Available: {list(df.columns)}")
@@ -1078,7 +1078,7 @@ def get_eqtl_catalog_lbf(
         _download_file(url, dest)
     if return_path:
         return dest
-    return pd.read_csv(dest, sep="\t")
+    return pd.read_csv(dest, sep="\t", low_memory=False)
 
 
 if __name__ == "__main__":

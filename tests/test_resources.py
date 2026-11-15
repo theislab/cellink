@@ -1,6 +1,7 @@
 import gzip
 import http.server
 import io
+import json
 import logging
 import socket
 import tarfile
@@ -204,3 +205,22 @@ def test_failed_extraction_leaves_no_marker(tmp_path):
     with pytest.raises(tarfile.FilterError):
         _ld._extract_or_refresh(archive, target)
     assert sorted(p.name for p in target.iterdir()) == ["evil.tgz"]
+
+
+def test_summary_stats_chromosome_column_has_one_type(tmp_path):
+    accession = "GCST0000001"
+    cache_dir = tmp_path / "gwas_catalog_summary_stats" / accession
+    cache_dir.mkdir(parents=True)
+    path = cache_dir / "study.tsv.gz"
+    rows = [f"{c}\t{p}\t0.5" for c in range(1, 23) for p in range(1, 20_001)] + [
+        f"X\t{p}\t0.5" for p in range(1, 1_001)
+    ]
+    with gzip.open(path, "wt") as f:
+        f.write("chromosome\tbase_pair_location\tp_value\n" + "\n".join(rows) + "\n")
+    manifest = {"url": "https://example.org/study.tsv.gz", "path": str(path), "build": "GRCh38"}
+    (cache_dir / "request_auto.json").write_text(json.dumps(manifest))
+
+    df = _gwas_prs_qtl.get_gwas_catalog_study_summary_stats(accession, data_home=tmp_path)
+
+    assert {type(c) for c in df["chromosome"]} == {str}
+    assert df["chromosome"].iloc[[0, -1]].tolist() == ["1", "X"]

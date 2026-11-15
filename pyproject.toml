@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "cellink-tools"
-version = "0.0.1"
+version = "0.0.2"
 description = "cellink enables genetic analyses on single-cell data"
 readme = "README.md"
 license = { file = "LICENSE" }

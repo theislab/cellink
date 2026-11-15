@@ -659,8 +659,10 @@ def run_tensorqtl(
     encode_age : bool, default=True
         If True, includes donor age (z-normalized if needed) as a covariate.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model. Covariates
-        with missing values raise a ValueError.
+        Additional covariates from `dd.G.obs` or `dd.G.obsm` to include in the model. No intercept
+        column is added: tensorQTL centers expression, genotypes and covariates. Constant
+        covariates are dropped with a warning, and without any covariate tensorQTL only centers
+        (not supported by the SuSiE modes). Covariates with missing values raise a ValueError.
     dtype : str, default="float32"
         Data type to cast covariates and matrices for QTL model input.
     use_python_api : bool, default=False
@@ -746,8 +748,8 @@ def run_tensorqtl(
     phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
     phenotype_pos_df["Geneid"] = phenotype_pos_df.index
 
+    # no intercept column: tensorQTL centers every covariate, which turns a constant column into zeros
     covariate_list = []
-    covariate_list.append(pd.DataFrame(np.ones((dd.shape[0], 1)), columns=["intercept"], index=phenotype_df.columns))
 
     if encode_sex:
         n_missing = int(dd.G.obs["sex"].isna().sum())
@@ -789,10 +791,19 @@ def run_tensorqtl(
             else:
                 raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
 
-    covariates_df = pd.concat(covariate_list, axis=1)
-    missing = covariates_df.columns[covariates_df.isna().any()].tolist()
-    if missing:
-        raise ValueError(f"Covariate(s) {missing} are missing for some donors; drop those donors or leave them out.")
+    covariates_df = pd.concat(covariate_list, axis=1) if covariate_list else None
+    if covariates_df is not None:
+        missing = covariates_df.columns[covariates_df.isna().any()].tolist()
+        if missing:
+            raise ValueError(f"Covariate(s) {missing} are missing for some donors; drop those donors or leave them out.")
+        constant = covariates_df.columns[covariates_df.nunique() <= 1].tolist()
+        if constant:
+            logger.warning(f"Dropping constant covariate(s) {constant}: tensorQTL centers covariates, so they are zero.")
+            covariates_df = covariates_df.drop(columns=constant)
+        if covariates_df.shape[1] == 0:
+            covariates_df = None
+    if covariates_df is None and mode in ("cis_susie", "trans_susie"):
+        raise ValueError(f"mode={mode!r} needs at least one covariate (encode_sex, encode_age or additional_covariates).")
 
     if use_python_api:
         if importlib.util.find_spec("tensorqtl") is None:
@@ -877,7 +888,9 @@ def run_tensorqtl(
             f.write("\t".join(phenotype_write_df.columns.tolist()) + "\n")
             phenotype_write_df.to_csv(f, sep="\t", header=False, index=False)
 
-    if not os.path.isfile(f"{prefix}_donor_features.tsv") or overwrite_covariates_export:
+    if covariates_df is not None and (
+        not os.path.isfile(f"{prefix}_donor_features.tsv") or overwrite_covariates_export
+    ):
         covariates_export_df = covariates_df.copy()
         covariates_export_df.index.name = "iid"
         covariates_export_df = covariates_export_df.T
@@ -893,7 +906,9 @@ def run_tensorqtl(
         to_pgen(dd.G, prefix, **{"dosages": None if dosages else False, **plink_export_kwargs})
 
     cmd = [sys.executable, "-m", "cellink.tl.external._tensorqtl_main", geno, pheno, prefix]
-    cmd += ["--covariates", covar, "--mode", mode]
+    if covariates_df is not None:
+        cmd += ["--covariates", covar]
+    cmd += ["--mode", mode]
 
     for key, value in args.items():
         if isinstance(value, bool) and value:
