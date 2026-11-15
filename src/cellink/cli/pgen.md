@@ -7,7 +7,7 @@
 `pgenlib` is required and installed via the optional extra:
 
 ```bash
-pip install cellink[pgen]
+pip install 'cellink-tools[pgen]'
 ```
 
 ## Basic Usage

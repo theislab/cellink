@@ -63,7 +63,7 @@ def get_model_matrix(
         from formulaic.parser import DefaultFormulaParser
     except ImportError as e:
         raise ImportError(
-            "Resolving a formula/column-name string requires `formulaic`. Install it with:\n\n    pip install cellink[at]"
+            "Resolving a formula/column-name string requires `formulaic`. Install it with:\n\n    pip install 'cellink-tools[at]'"
         ) from e
 
     from cellink.at.formula import FamilyOperatorResolver

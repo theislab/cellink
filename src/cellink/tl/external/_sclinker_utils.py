@@ -1362,7 +1362,7 @@ def compute_ld_scores_for_sclinker(
     """
     Compute LD scores for all sc-linker annotations.
 
-    Calls the existing cellink ``compute_ld_scores_with_annotations_from_bimfile``
+    Calls ``compute_ld_scores_with_annotations_from_bimfile``
     for each (program, strategy, chromosome) combination.
 
     Chromosome jobs are dispatched in parallel using a thread pool, each job

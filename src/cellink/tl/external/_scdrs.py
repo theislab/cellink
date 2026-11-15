@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from pathlib import Path
 from typing import Literal
@@ -17,6 +18,33 @@ try:
     SCDRS_AVAILABLE = True
 except ImportError:
     SCDRS_AVAILABLE = False
+
+
+@contextlib.contextmanager
+def _scdrs_compat():
+    """Run scDRS's group analysis on NumPy>=2 and SciPy>=1.18.
+
+    While the analysis runs, ``np.float_`` is aliased to ``np.float64`` (if missing) and
+    ``scipy.stats.rankdata(..., method="ordinal")`` returns integers; both are undone afterwards.
+    """
+    import scipy.stats
+
+    add_float_alias = not hasattr(np, "float_")
+    rankdata = scipy.stats.rankdata
+
+    def _rankdata(*args, **kwargs):
+        ranks = rankdata(*args, **kwargs)
+        return ranks.astype(np.int64) if kwargs.get("method") == "ordinal" else ranks
+
+    if add_float_alias:
+        np.float_ = np.float64
+    scipy.stats.rankdata = _rankdata
+    try:
+        yield
+    finally:
+        scipy.stats.rankdata = rankdata
+        if add_float_alias:
+            del np.float_
 
 
 def run_scdrs(
@@ -165,7 +193,7 @@ def run_scdrs(
     input_adata = adata
     adata, cell_mask = _log_normalized_copy(input_adata, "scDRS", min_genes, min_cells, obsm_keys=("X_pca",))
 
-    if "X_pca" not in adata.obsm_keys():
+    if "X_pca" not in adata.obsm:
         logger.info(f"Computing PCA with {n_pcs} components")
         sc.pp.highly_variable_genes(adata, n_top_genes=2000)
         pca_view = adata[:, adata.var.highly_variable].copy()
@@ -273,11 +301,12 @@ def run_scdrs(
 
             if group_analysis:
                 logger.info(f"Performing group analysis for {trait}")
-                group_results = scdrs.method.downstream_group_analysis(
-                    adata=adata,
-                    df_full_score=dict_df_score[trait],
-                    group_cols=group_analysis,
-                )
+                with _scdrs_compat():
+                    group_results = scdrs.method.downstream_group_analysis(
+                        adata=adata,
+                        df_full_score=dict_df_score[trait],
+                        group_cols=group_analysis,
+                    )
 
                 for group_col in group_analysis:
                     df_group = group_results[group_col]

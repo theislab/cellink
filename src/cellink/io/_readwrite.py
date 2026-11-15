@@ -96,12 +96,13 @@ def _read_dd(
     f : h5py.File or zarr.Group
         An open HDF5 file handle or Zarr group containing the DonorData object.
     lazy : bool, default=False
-        If True (Zarr only), read `G`/`C` via :func:`lazy_anndata_zarr_callback`
+        If True, read `G`/`C` via :func:`lazy_anndata_zarr_callback`
         so a dense `X` stays Dask-backed instead of being materialized, which
         lets callers select a subset (e.g. one cell type) before ever loading
         the full array into memory.
     backend : {"dask", "zarr"}
-        Backing of a dense `X`/`layers` entry when ``lazy``; see :func:`cellink.io.read_pgen_zarr`.
+        Backing of a dense `X`/`layers` entry of a Zarr store when ``lazy``; see
+        :func:`cellink.io.read_pgen_zarr`. HDF5 datasets become Dask arrays.
     n_threads : int, optional
         Threads for ``backend="zarr"`` genotype reads.
 
@@ -171,7 +172,7 @@ def _read_dd(
     return dd
 
 
-def read_h5_dd(path: str) -> DonorData:
+def read_h5_dd(path: str, lazy: bool = False) -> DonorData:
     """
     Read a DonorData object from an HDF5 file on disk.
 
@@ -179,6 +180,13 @@ def read_h5_dd(path: str) -> DonorData:
     ----------
     path : str
         Path to the HDF5 file containing serialized DonorData.
+    lazy : bool, default=False
+        If True, a dense `X` and dense layers of `G` and `C` are Dask arrays that read
+        their blocks from the file when they are computed, as with :func:`read_zarr_dd`,
+        so a subset can be selected before any genotypes are loaded. Blocks follow the
+        HDF5 chunks, or span at most 4096 rows and columns for unchunked datasets. The
+        file must stay in place while these arrays are used. Sparse matrices, MuData
+        modalities and all annotations are read into memory.
 
     Returns
     -------
@@ -186,7 +194,7 @@ def read_h5_dd(path: str) -> DonorData:
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
     """
     with h5py.File(path, "r") as f:
-        return _read_dd(f)
+        return _read_dd(f, lazy=lazy)
 
 
 def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None) -> DonorData:
@@ -212,12 +220,34 @@ def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads
     -------
     DonorData
         A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
+        Missing genotype calls of a 2-bit `G.X` (see :meth:`cellink.DonorData.write_zarr_dd`)
+        are ``nan`` and `G.X` is float32; with ``backend="zarr"`` `G.X` holds the
+        stored int8 codes, with -1 for missing calls.
     """
     f = zarr.open(path, mode="r")
-    return _read_dd(f, lazy=True, backend=backend, n_threads=n_threads)
+    dd = _read_dd(f, lazy=True, backend=backend, n_threads=n_threads)
+    if backend != "zarr" and isinstance(f["G"], zarr.Group) and "X" in f["G"]:
+        dd.G.X = _two_bit_missing_to_nan(f["G"]["X"], dd.G.X)
+    return dd
 
 
-def read_dd(path: str, fmt: str = None) -> DonorData:
+def _two_bit_missing_to_nan(stored, X):
+    """Return a 2-bit genotype matrix with its missing calls (-1) as nan.
+
+    ``X`` is unchanged unless ``stored`` is 2-bit encoded and may hold missing calls: its
+    ``n_missing`` attribute is above 0, or absent.
+    """
+    from cellink.io._codecs import Pack2Bit
+    from cellink.io._pgen import _missing_to_nan
+
+    if not isinstance(stored, zarr.Array) or not any(isinstance(c, Pack2Bit) for c in stored.filters):
+        return X
+    if stored.attrs.get("n_missing", 1) == 0:
+        return X
+    return _missing_to_nan(X)
+
+
+def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
     """
     Read a DonorData object from disk in either HDF5 or Zarr format.
 
@@ -232,6 +262,9 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
         Path to the DonorData file (`.h5`, `.dd.h5`, `.zarr`, or `.dd.zarr`).
     fmt : {'h5', 'zarr'}, optional
         File format to use. If None (default), inferred from the file extension.
+    lazy : bool, default=False
+        Passed to :func:`read_h5_dd` for HDF5 files. Zarr stores are always read lazily
+        (:func:`read_zarr_dd`).
 
     Returns
     -------
@@ -264,7 +297,7 @@ def read_dd(path: str, fmt: str = None) -> DonorData:
             raise ValueError("Cannot detect format from file extension. Provide `fmt` as 'h5' or 'zarr'.")
 
     if fmt == "h5":
-        return read_h5_dd(path)
+        return read_h5_dd(path, lazy=lazy)
     elif fmt == "zarr":
         return read_zarr_dd(path)
     else:

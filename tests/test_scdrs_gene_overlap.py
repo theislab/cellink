@@ -104,3 +104,26 @@ def test_run_scdrs_nan_age_does_not_drop_entire_age_covariate():
         encode_age=True,
         save_results=False,
     )
+
+
+def test_scdrs_heterogeneity_test_runs_with_compat_shims():
+    """scDRS's Geary's C test runs inside _scdrs_compat, which restores NumPy and SciPy afterwards."""
+    import scdrs
+    import scipy.sparse as sp
+    import scipy.stats
+
+    from cellink.tl.external._scdrs import _scdrs_compat
+
+    had_alias, rankdata = hasattr(np, "float_"), scipy.stats.rankdata
+    rng = np.random.default_rng(0)
+    adata = _make_adata([f"G{i}" for i in range(5)], n_cells=12)
+    adata.obs["group"] = np.repeat(["a", "b"], 6)
+    adata.obsp["connectivities"] = sp.csr_matrix(np.ones((12, 12)) - np.eye(12))
+    df_score = pd.DataFrame(
+        {"norm_score": rng.normal(size=12), **{f"ctrl_norm_score_{i}": rng.normal(size=12) for i in range(5)}},
+        index=adata.obs_names,
+    )
+    with _scdrs_compat():
+        res = scdrs.method.test_gearysc(adata, df_score, groupby="group")
+    assert set(res.index) == {"a", "b"} and np.isfinite(res["pval"]).all()
+    assert hasattr(np, "float_") == had_alias and scipy.stats.rankdata is rankdata

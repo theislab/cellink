@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("torch", reason="run_seismic_torch tests need torch, install with `pip install cellink[seismic_torch]`")
+pytest.importorskip("torch", reason="run_seismic_torch tests need torch, install with the `seismic_torch` extra")
 
 import numpy as np
 import pandas as pd

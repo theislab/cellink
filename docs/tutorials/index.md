@@ -21,6 +21,5 @@ cell_level_ldsc_analysis
 magma_analysis_tutorial
 sclinker
 sceps
-livi
 scooby
 ```

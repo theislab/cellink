@@ -9,7 +9,7 @@ import yaml
 from cellink import resources
 from cellink._config import PACKAGED_CONFIG_DIRS, load_config, packaged_configs, resolve_config_path
 from cellink.tl import _annotate_snps_genotype_data as annotate
-from cellink.tl.external import _ldsc, _livi, _magma, _saigeqtl
+from cellink.tl.external import _ldsc, _magma, _saigeqtl
 
 FUNCTIONS_WITH_CONFIG_DEFAULTS = [
     (resources.get_1000genomes, "config_path"),
@@ -33,7 +33,6 @@ FUNCTIONS_WITH_CONFIG_DEFAULTS = [
     (_ldsc.configure_ldsc_runner, "config_path"),
     (_saigeqtl.SAIGEQTLRunner.__init__, "config_path"),
     (_saigeqtl.configure_saigeqtl_runner, "config_path"),
-    (_livi.configure_livi_runner, "config_path"),
 ]
 
 
@@ -65,16 +64,10 @@ def test_config_dict_takes_precedence_over_the_config_path():
     assert _magma.load_magma_config("does_not_exist", config_dict={"gene_loc": {}}) == {"gene_loc": {}}
 
 
-def test_livi_runner_from_config_dict(tmp_path):
-    runner = _livi.configure_livi_runner(config_dict={"livi_root": str(tmp_path), "device": "cpu"})
-    assert runner.livi_root == tmp_path.resolve()
-    assert runner.device == "cpu"
-
-
 def test_shipped_config_names_are_unique():
     names = [path.stem for config_dir in PACKAGED_CONFIG_DIRS for path in config_dir.glob("*.yaml")]
     assert len(names) == len(set(names))
-    assert {"1000genomes", "magma", "favor", "vep", "ldsc_docker", "saigeqtl_singularity", "livi"} <= set(names)
+    assert {"1000genomes", "magma", "favor", "vep", "ldsc_docker", "saigeqtl_singularity"} <= set(names)
 
 
 def test_name_prefers_shipped_config_over_working_directory(tmp_path, monkeypatch):
@@ -142,25 +135,3 @@ def test_runner_container_configs_by_name(configure, name, mode):
 def test_runner_with_missing_config_path_raises_instead_of_using_defaults(tmp_path):
     with pytest.raises(FileNotFoundError):
         _ldsc.LDSCRunner(str(tmp_path / "typo" / "ldsc.yaml"))
-
-
-def test_livi_runner_takes_unset_arguments_from_config(tmp_path):
-    livi_root = tmp_path / "LIVI"
-    livi_root.mkdir()
-    config = tmp_path / "livi.yaml"
-    config.write_text(f"livi_root: {livi_root}\nexecution_mode: subprocess\ndevice: cpu\n")
-
-    runner = _livi.configure_livi_runner(config_path=config, device="cuda")
-
-    assert runner.livi_root == livi_root.resolve()
-    assert runner.execution_mode == "subprocess"
-    assert runner.python_executable == "python"
-    assert runner.device == "cuda"
-
-
-def test_livi_runner_shipped_defaults_and_missing_root(tmp_path):
-    runner = _livi.configure_livi_runner(tmp_path)
-    assert (runner.execution_mode, runner.python_executable, runner.device) == ("python_api", "python", "auto")
-
-    with pytest.raises(ValueError, match="livi_root is required"):
-        _livi.configure_livi_runner()

@@ -245,7 +245,7 @@ def test_get_model_matrix_dataframe_rejects_donor_agg():
 def test_get_model_matrix_missing_formulaic_raises_helpful_error(monkeypatch):
     _block_module(monkeypatch, "formulaic")
     df = pd.DataFrame({"y": np.arange(5.0)})
-    with pytest.raises(ImportError, match="pip install cellink\\[at\\]"):
+    with pytest.raises(ImportError, match=r"cellink-tools\[at\]"):
         get_model_matrix(df, "y - 1")
 
 

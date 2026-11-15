@@ -150,7 +150,8 @@ def test_write_zarr_dd_2bit_rounds_dosages(tmp_path, adata, gdata):
     assert "cellink_pack2bit" in _codec_names(out / "G" / "X")
     expected = np.nan_to_num(np.rint(dd.G.X), nan=-1).astype(np.int8)
     np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").G.X), expected)
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), expected)
+    # missing calls come back as nan by default
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), np.where(expected < 0, np.nan, expected))
 
 
 @pytest.mark.slow
@@ -228,4 +229,21 @@ def test_write_zarr_dd_2bit_keeps_missing_calls(tmp_path, adata, gdata):
         dd.write_zarr_dd(str(out), x_chunks={"G": (gdata.n_obs, 4)})
     expected = np.where(dd.G.X < 0, -1, dd.G.X)
     np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").G.X), expected)
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), expected)
+    X = read_zarr_dd(str(out)).G.X.compute()
+    assert X.dtype == np.float32
+    np.testing.assert_array_equal(X, np.where(expected < 0, np.nan, expected))
+    assert zarr.open_array(str(out / "G" / "X"), mode="r").attrs["n_missing"] == 1
+
+
+@pytest.mark.slow
+def test_read_zarr_dd_keeps_int8_without_missing_calls(tmp_path, adata, gdata):
+    gdata.X = gdata.X.astype(np.int8)
+    dd = DonorData(G=gdata, C=adata)
+    out = tmp_path / "dd.dd.zarr"
+    dd.write_zarr_dd(str(out), x_chunks={"G": (gdata.n_obs, 4)})
+    X = read_zarr_dd(str(out)).G.X.compute()
+    assert X.dtype == np.int8
+    np.testing.assert_array_equal(X, dd.G.X)
+    # without the n_missing attribute the store may hold missing calls, so X is converted
+    zarr.open_array(str(out / "G" / "X"), mode="r+").attrs.pop("n_missing")
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), dd.G.X.astype(np.float32))

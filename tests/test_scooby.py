@@ -126,3 +126,80 @@ def test_score_variant_effects_scooby_requires_embpy_independently():
         score_variant_effects_scooby(
             snp=None, chromosome_sequence="", model_path_or_name="lauradmartens/onek1k-scooby", cell_embeddings=None
         )
+
+
+def test_from_pretrained_materialized_keeps_non_persistent_buffers(tmp_path):
+    """_from_pretrained_materialized gives real tensors for non-persistent buffers and the checkpoint's weights."""
+    torch = pytest.importorskip("torch")
+    safetensors_torch = pytest.importorskip("safetensors.torch")
+    from cellink.tl.external._scooby import _from_pretrained_materialized
+
+    class _Config:
+        @classmethod
+        def from_pretrained(cls, name):
+            return cls()
+
+    class _Model(torch.nn.Module):
+        config_class = _Config
+
+        def __init__(self, config, width=3):
+            super().__init__()
+            self.lin = torch.nn.Linear(width, 2)
+            self.register_buffer("positions", torch.arange(width, dtype=torch.float32), persistent=False)
+
+    reference = _Model(_Config(), width=3)
+    safetensors_torch.save_file(reference.state_dict(), str(tmp_path / "model.safetensors"))
+
+    model = _from_pretrained_materialized(_Model, str(tmp_path), width=3)
+    assert not any(t.is_meta for t in [*model.parameters(), *model.buffers()])
+    torch.testing.assert_close(model.lin.weight, reference.lin.weight)
+    torch.testing.assert_close(model.positions, torch.arange(3, dtype=torch.float32))
+
+    with pytest.raises(ValueError, match="does not match"):
+        _from_pretrained_materialized(_Model, str(tmp_path), width=4)
+
+
+def test_load_scooby_wrapper_bypasses_from_pretrained(tmp_path):
+    """_load_scooby_wrapper builds the model from the wrapper's resolved checkpoint settings, without from_pretrained."""
+    torch = pytest.importorskip("torch")
+    safetensors_torch = pytest.importorskip("safetensors.torch")
+    from cellink.tl.external._scooby import ScoobyRunner, _load_scooby_wrapper
+
+    class _Config:
+        @classmethod
+        def from_pretrained(cls, name):
+            return cls()
+
+    class _Scooby(torch.nn.Module):
+        config_class = _Config
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            raise AssertionError("from_pretrained must not be used")
+
+        def __init__(self, config, cell_emb_dim, embedding_dim=1920, n_tracks=2, **kwargs):
+            super().__init__()
+            self.init_kwargs = {"cell_emb_dim": cell_emb_dim, "n_tracks": n_tracks, **kwargs}
+            self.lin = torch.nn.Linear(cell_emb_dim, n_tracks)
+
+    class _Wrapper:
+        def __init__(self, name, device=None, cell_emb_dim=None, n_tracks=None):
+            self.model_name, self.model, self.device = name, None, None
+            self.cell_emb_dim, self.n_tracks = cell_emb_dim or 4, n_tracks or 3
+            self.embedding_dim, self.use_transform_borzoi_emb = 1920, True
+
+        def load(self, device):
+            raise AssertionError("ScoobyWrapper.load must not be used")
+
+    reference = _Scooby(_Config(), cell_emb_dim=4, n_tracks=3)
+    safetensors_torch.save_file(reference.state_dict(), str(tmp_path / "model.safetensors"))
+
+    class _Runner(ScoobyRunner):
+        def get_scooby_class(self):
+            return _Scooby
+
+    wrapper = _load_scooby_wrapper(_Wrapper, str(tmp_path), _Runner(device="cpu"))
+    assert wrapper.device == "cpu" and not wrapper.model.training
+    assert wrapper.model.init_kwargs["use_transform_borzoi_emb"] is True
+    assert wrapper.model.init_kwargs["return_center_bins_only"] is True
+    torch.testing.assert_close(wrapper.model.lin.weight, reference.lin.weight)

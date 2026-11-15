@@ -522,7 +522,7 @@ def add_vep_annos_to_gdata(
     # Subset annotations to match the variants in gdata
 
     vep_data = gdata.var.reset_index()[[AAnn.index]].merge(vep_data, how="left", on=AAnn.index)
-    vep_data.set_index([AAnn.index, AAnn.gene_id, AAnn.feature_id], inplace=True)
+    vep_data = vep_data.set_index([AAnn.index, AAnn.gene_id, AAnn.feature_id])
     assert vep_data.index.is_unique
     missing_vars = vep_data[vep_data.isna().all(axis=1)]
     if len(missing_vars) > 0:

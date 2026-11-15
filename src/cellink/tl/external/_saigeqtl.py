@@ -124,7 +124,8 @@ def make_group_file(
     output_prefix : str
         Output file prefix
     allele_order : str, default="alt-first"
-        Allele order for PLINK/BGEN
+        Allele order for PLINK/BGEN. ``to_plink`` writes ALT (``a1``) as the first allele of the
+        .bim file, so with "alt-first" the effects refer to the ALT allele.
     run : bool, default=True
         Whether to execute command
     save_cmd_file : str, optional
@@ -405,7 +406,8 @@ def run_saigeqtl(
     ---------------------------------------
 
     allele_order : str, default="alt-first"
-        Allele order for PLINK/BGEN
+        Allele order for PLINK/BGEN. ``to_plink`` writes ALT (``a1``) as the first allele of the
+        .bim file, so with "alt-first" the effects refer to the ALT allele.
     ids_to_include_file : str, default=""
         File with variant IDs to include
     ranges_to_include_file : str, default=""
@@ -620,7 +622,7 @@ def run_saigeqtl(
             for cov in cell_covariates:
                 if cov in dd.C.obs.columns:
                     cov_data = dd.C.obs[[cov, DAnn.donor]]
-                    cov_data.set_index(DAnn.donor, inplace=True)
+                    cov_data = cov_data.set_index(DAnn.donor)
                     cov_data = cov_data.astype(dtype)
                     cell_cov_list.append(cov_data)
                     cell_cov_names.append(cov)

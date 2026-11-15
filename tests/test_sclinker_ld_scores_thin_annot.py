@@ -32,17 +32,8 @@ def _write_thin_annot(path, n_snps=5):
 
 
 def test_compute_ld_scores_for_sclinker_passes_thin_annot(tmp_path):
-    # Real bug this catches: bedgraph_to_snp_annotation/_write_zero_annotation
-    # (the only annotation writers compute_ld_scores_for_sclinker ever feeds)
-    # always write single-column ANNOT files with no CHR/BP/SNP/CM columns,
-    # but compute_ld_scores_for_sclinker used to call
-    # compute_ld_scores_with_annotations_from_bimfile without thin_annot=True.
-    # Real ldsc.py's AnnotFile parser then raised
-    # "IndexError: positional indexers are out-of-bounds" trying to read
-    # metadata columns that don't exist -- confirmed on a real sc-linker run,
-    # where every single LD score job failed silently (only a logger.warning)
-    # and the run only crashed much later, downstream, when --h2 tried to
-    # read the never-written .l2.ldscore.gz files.
+    # the sc-linker annotation writers write thin annotations (a single ANNOT column, no
+    # CHR/BP/SNP/CM), so compute_ld_scores_with_annotations_from_bimfile gets thin_annot=True
     annot_dir = tmp_path / "annotations" / "myprog" / "ABC_Road_BLD"
     annot_dir.mkdir(parents=True)
     _write_thin_annot(annot_dir / "myprog.1.annot.gz")

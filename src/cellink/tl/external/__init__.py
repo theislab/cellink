@@ -1,6 +1,8 @@
 import importlib
 from typing import Any
 
+from cellink._extras import install_hint, missing_dependency_message
+
 from ._gsmap import format_gsmap_sumstats, load_gsmap_results
 from ._jaxqtl import read_jaxqtl_results, run_jaxqtl
 from ._joint_nmf import JointNMFWrapper
@@ -28,16 +30,6 @@ from ._ldsc2magma import (
     run_magma_gsa,
     scores_to_covar,
     scores_to_gmt,
-)
-from ._livi import (
-    LIVIRunner,
-    configure_livi_runner,
-    get_livi_runner,
-    infer_livi,
-    load_livi_results,
-    run_livi_association_testing,
-    save_livi_results,
-    train_livi,
 )
 from ._magma import run_magma_pipeline
 from ._pc import calculate_pcs
@@ -165,21 +157,6 @@ __all__ = [
     "get_disease_relevant_cells",
     "run_scprs_pipeline",
     ###
-    "LIVIRunner",
-    "configure_livi_runner",
-    "get_livi_runner",
-    "train_livi",
-    "infer_livi",
-    "run_livi_association_testing",
-    "save_livi_results",
-    "load_livi_results",
-    "train_livi_annbatch",
-    "build_annbatch_collection",
-    "read_g_from_dd_store",
-    "CisGenotype",
-    "LIVICisBatchAdapter",
-    "AnnbatchLIVIDataModule",
-    ###
     "ScoobyRunner",
     "configure_scooby_runner",
     "get_scooby_runner",
@@ -199,15 +176,6 @@ __all__ = [
     "load_scooby_wrapper_and_embedder",
     "resolve_snp_and_exon_bins",
 ]
-
-_LIVI_ANNBATCH_NAMES = {
-    "train_livi_annbatch",
-    "build_annbatch_collection",
-    "read_g_from_dd_store",
-    "CisGenotype",
-    "LIVICisBatchAdapter",
-    "AnnbatchLIVIDataModule",
-}
 
 _SEISMIC_TORCH_NAMES = {
     "run_seismic_torch",
@@ -245,7 +213,7 @@ def __getattr__(name: str) -> Any:
         except ImportError as e:
             raise ImportError(
                 "Cannot import `run_mixmil`: this feature requires `torch` and `mixmil`. "
-                "Install with:\n\n    pip install cellink[mixmil]"
+                "Install with:\n\n    pip install 'cellink-tools[mixmil]'"
             ) from e
     if name in _SEISMIC_TORCH_NAMES:
         try:
@@ -254,16 +222,7 @@ def __getattr__(name: str) -> Any:
         except ImportError as e:
             raise ImportError(
                 f"Cannot import `{name}`: this feature requires `torch`. "
-                "Install with:\n\n    pip install cellink[seismic_torch]"
-            ) from e
-    if name in _LIVI_ANNBATCH_NAMES:
-        try:
-            module = importlib.import_module(f"{__name__}._livi_annbatch")
-            return getattr(module, name)
-        except ImportError as e:
-            raise ImportError(
-                f"Cannot import `{name}`: this feature requires `torch`, `pytorch_lightning`, "
-                "and `annbatch`. Install with:\n\n    pip install cellink torch pytorch_lightning annbatch"
+                "Install with:\n\n    pip install 'cellink-tools[seismic_torch]'"
             ) from e
     if name in _SEISMIC_TORCH_NAMES:
         try:
@@ -272,7 +231,7 @@ def __getattr__(name: str) -> Any:
         except ImportError as e:
             raise ImportError(
                 f"Cannot import `{name}`: this feature requires `torch`. "
-                "Install with:\n\n    pip install cellink[seismic_torch]"
+                "Install with:\n\n    pip install 'cellink-tools[seismic_torch]'"
             ) from e
     if name in _SCOOBY_NAMES:
         try:
@@ -280,12 +239,10 @@ def __getattr__(name: str) -> Any:
             return getattr(module, name)
         except ImportError as e:
             raise ImportError(
-                f"Cannot import `{name}`: this feature requires `torch`, `accelerate`, `enformer-pytorch`, "
-                "`borzoi-pytorch`, and `scooby`. Install with:\n\n"
-                "    pip install cellink torch accelerate enformer-pytorch borzoi-pytorch\n"
-                "    pip install git+https://github.com/gagneurlab/scooby.git\n\n"
-                "`score_variant_effects_scooby` additionally requires the separate `embpy` package "
-                "(variant-effect scoring is not part of scooby itself). Install with `pip install cellink[embpy]`."
+                f"Cannot import `{name}`: "
+                + missing_dependency_message("scooby", "scooby", "this feature (with torch and the Borzoi models)")
+                + "\n\n`score_variant_effects_scooby` additionally requires the separate `embpy` package. "
+                f"Install it with: {install_hint('embpy')}"
             ) from e
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

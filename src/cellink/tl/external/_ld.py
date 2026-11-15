@@ -78,7 +78,7 @@ def calculate_ld(
 
     if run:
         subprocess.run(cmd, check=True)
-        ld_df = pd.read_csv(f"{out}.ld", delim_whitespace=True)
+        ld_df = pd.read_csv(f"{out}.ld", sep=r"\s+")
         return ld_df
     else:
         if save_cmd_file:

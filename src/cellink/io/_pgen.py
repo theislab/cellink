@@ -6,11 +6,12 @@ from typing import Literal
 
 import anndata as ad
 import dask.array as da
+import h5py
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import zarr
-from anndata.experimental import read_dispatched
+from anndata.experimental import read_dispatched, read_elem_lazy
 from anndata.io import read_elem
 from dask.base import tokenize
 from tqdm.auto import tqdm
@@ -33,12 +34,17 @@ def _is_matrix_elem(elem_name: str) -> bool:
     return elem_name.endswith("/X") or elem_name.rsplit("/", 1)[0].endswith("/layers")
 
 
-def _lazy_matrix(elem: zarr.Array, backend: Literal["dask", "zarr"], n_threads: int | None):
+def _lazy_matrix(elem: zarr.Array | h5py.Dataset, backend: Literal["dask", "zarr"], n_threads: int | None):
     """Back a dense matrix element with :class:`GenotypeArray` (``"zarr"``) or Dask (``"dask"``).
 
     For int8 genotype stores (blosc, optionally 2-bit packed) the Dask array reads
     each block through :class:`GenotypeArray`; any other array keeps ``da.from_zarr``.
+    An HDF5 dataset becomes a Dask array that reads its blocks from the file when they
+    are computed: the dataset's own chunks, or at most 4096 per axis. ``backend`` and
+    ``n_threads`` do not apply to it.
     """
+    if isinstance(elem, h5py.Dataset):
+        return read_elem_lazy(elem, chunks=elem.chunks or tuple(min(n, 4096) for n in elem.shape))
     g = GenotypeArray.wrap(elem, n_threads)
     if backend == "zarr":
         return g
@@ -75,9 +81,9 @@ def lazy_anndata_zarr_callback(
     var_columns: list[str] | None = None,
 ):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
-    nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store)
-    while keeping a dense ``X``/``layers`` entry lazily backed instead of
-    materializing it.
+    nesting depth, e.g. as ``G``/``C`` inside a larger DonorData zarr store or
+    HDF5 file) while keeping a dense ``X``/``layers`` entry lazily backed instead
+    of materializing it.
 
     ``backend="dask"`` (default) wraps the dense array in a Dask array.
     ``backend="zarr"`` returns a :class:`cellink.io._genotype_array.GenotypeArray`,
@@ -112,6 +118,40 @@ def lazy_anndata_zarr_callback(
         return _lazy_matrix(elem, backend, n_threads)
     else:
         return func(elem)
+
+
+# value stored in the int8 genotype matrix for a missing call (pgenlib reports -9)
+PGEN_MISSING = -1
+
+
+def _missing_to_nan(X):
+    """Return ``X`` as float32 with ``nan`` where it holds the missing-call sentinel."""
+    if sp.issparse(X):
+        X = X.astype(np.float32)
+        X.data[X.data == PGEN_MISSING] = np.nan
+        return X
+    if isinstance(X, da.Array):
+        return da.where(X == PGEN_MISSING, np.float32(np.nan), X.astype(np.float32))
+    X = np.asarray(X).astype(np.float32)
+    X[X == PGEN_MISSING] = np.nan
+    return X
+
+
+def _read_psam_ids(psam_file: Path) -> pd.DataFrame:
+    """Read a ``.psam`` file indexed by sample ID (``{FID}_{IID}`` if it has a FID column, else IID)."""
+    if not psam_file.exists():
+        raise FileNotFoundError(f"PSAM file not found: {psam_file}")
+    psam = pd.read_csv(psam_file, sep="\t", dtype={"#FID": str, "FID": str, "#IID": str, "IID": str})
+    psam.columns = [c.lower().replace("#", "") for c in psam.columns]
+    if "fid" in psam.columns and "iid" in psam.columns:
+        psam["genotype_id"] = psam["fid"].astype(str) + "_" + psam["iid"].astype(str)
+        psam = psam.set_index("genotype_id")
+    elif "iid" in psam.columns:
+        psam.index = psam["iid"].astype(str).to_numpy()
+    else:
+        raise ValueError(f"{psam_file} has no IID column; expected a PLINK2 .psam header such as '#IID' or '#FID IID'.")
+    psam.index = psam.index.astype(str)
+    return psam
 
 
 def read_pgen_zarr(
@@ -170,6 +210,12 @@ def read_pgen_zarr(
       backend) is requested.
     - For sparse X written via `stream_pgen_to_zarr(..., sparse=True)`,
       the matrix is loaded as a SciPy sparse matrix regardless of `backend`.
+    - Stores written with ``genotype_encoding="int8"`` or ``sparse=True`` keep
+      missing genotype calls as ``-1`` (2-bit stores as code 3, decoded as ``-1``). If the
+      store contains any (recorded by `stream_pgen_to_zarr` in
+      ``uns["n_missing"]``), `X` is returned as float32 with ``nan`` for
+      missing calls, except with ``backend="zarr"``, which returns the raw int8
+      array including the ``-1`` values.
     - This function relies on AnnData's experimental dispatched I/O API.
 
     Examples
@@ -185,12 +231,16 @@ def read_pgen_zarr(
     >>> X = adata.X.compute()
     """
     f = zarr.open(str(store), mode="r")
-    return read_dispatched(
+    adata = read_dispatched(
         f,
         callback=lambda func, name, elem, iospec: lazy_anndata_zarr_callback(
             func, name, elem, iospec, backend=backend, n_threads=n_threads, var_columns=var_columns
         ),
     )
+    n_missing = int(adata.uns.get("n_missing", 0))
+    if n_missing and not (backend == "zarr" and isinstance(adata.X, zarr.Array)):
+        adata.X = _missing_to_nan(adata.X)
+    return adata
 
 
 def _read_pvar(pvar_file: Path) -> pd.DataFrame:
@@ -258,8 +308,16 @@ def stream_pgen_to_zarr(
 
     When multiple pgen_path entries are provided, they are treated as disjoint
     variant sets for the SAME set of samples (e.g. rare + common split pgens).
-    Variants are concatenated column-wise; obs (samples) must be identical
-    across all inputs and are taken from the first file.
+    Variants are concatenated column-wise; the sample IDs of every input
+    ``.psam`` must be identical and in the same order (a ``ValueError`` is
+    raised otherwise), and obs is taken from the first file.
+
+    Samples are indexed by ``{FID}_{IID}`` if the ``.psam`` has a FID column,
+    otherwise by IID. Genotypes count ALT alleles (0, 1, 2). With
+    ``genotype_encoding="int8"`` or ``sparse=True``, missing calls are stored as
+    ``-1`` and their number as ``uns["n_missing"]``; :func:`read_pgen_zarr`
+    returns them as ``nan``. The default 2-bit store keeps them missing as well (code 3,
+    see ``genotype_encoding``).
 
     Parameters
     ----------
@@ -293,7 +351,8 @@ def stream_pgen_to_zarr(
         filtering). Use 'csr' if your workload is primarily sample-wise (e.g.
         per-sample operations).
     return_adata : bool
-        If True, return the written `AnnData` (Dask-backed `X` for the dense path).
+        If True, return the written `AnnData` as :func:`read_pgen_zarr` loads it
+        (Dask-backed `X` for the dense path, missing calls as ``nan``).
         Default is False: this is normally a one-off conversion step, so the data
         isn't re-opened/held onto unless asked for. Load it back later with
         :func:`read_pgen_zarr`.
@@ -306,9 +365,11 @@ def stream_pgen_to_zarr(
         nearest integer (halves to even), with a warning if the PGEN carries
         imputed dosages. Dosages themselves are never stored.
         ``"int8"`` stores PLINK's hard calls, one byte each. Calls without a
-        hard call or dosage stay missing in a 2-bit store (code 3, read back as
-        -1, counted in ``uns["n_missing"]``) and are stored as 0 in an int8
-        store. Ignored for ``sparse=True``.
+        hard call or dosage stay missing: ``-1`` in an int8 store, code 3 in a
+        2-bit store; both are counted in ``uns["n_missing"]`` and
+        :func:`read_pgen_zarr` returns them as ``nan`` (``-1`` with
+        ``backend="zarr"``). Ignored for ``sparse=True``, which keeps missing
+        calls missing as well.
 
     Returns
     -------
@@ -319,13 +380,13 @@ def stream_pgen_to_zarr(
         import pgenlib
     except ImportError as e:
         raise ImportError(
-            "pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install cellink[pgen]`."
+            "pgenlib is required for `stream_pgen_to_zarr`. Install with `pip install 'cellink-tools[pgen]'`."
         ) from e
 
     try:
         from zarr.codecs import BloscCodec
     except ImportError as e:
-        raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install cellink[pgen]`.") from e
+        raise ImportError("zarrv3 is required for `read_pgen_zarr`. Install with `pip install 'cellink-tools[pgen]'`.") from e
 
     if genotype_encoding not in ("2bit", "int8"):
         raise ValueError(f"genotype_encoding must be '2bit' or 'int8', got {genotype_encoding!r}")
@@ -380,11 +441,16 @@ def stream_pgen_to_zarr(
     first_base = readers[0][2]
     psam_file = Path(first_base + ".psam")
     logger.info(f"Loading sample metadata from {psam_file} ...")
-    psam = pd.read_csv(psam_file, sep="\t")
-    psam.columns = [c.lower().replace("#", "") for c in psam.columns]
-    if "fid" in psam.columns and "iid" in psam.columns:
-        psam["genotype_id"] = psam["fid"].astype(str) + "_" + psam["iid"].astype(str)
-        psam = psam.set_index("genotype_id")
+    psam = _read_psam_ids(psam_file)
+    if len(psam) != n_samples_total:
+        raise ValueError(f"{psam_file} lists {len(psam)} samples but the .pgen file has {n_samples_total}.")
+    for _, _, base in readers[1:]:
+        other_ids = _read_psam_ids(Path(base + ".psam")).index
+        if not other_ids.equals(psam.index):
+            raise ValueError(
+                f"{base}.psam does not list the same samples in the same order as {psam_file}; "
+                "all input .pgen files must share one sample order (e.g. align them with plink2 --indiv-sort)."
+            )
     psam = psam.iloc[:n_samples].copy()
     psam.columns = psam.columns.astype(str)
     psam.index = psam.index.astype(str)
@@ -414,6 +480,7 @@ def stream_pgen_to_zarr(
         col_chunks: list[np.ndarray] = []
         data_chunks: list[np.ndarray] = []
         col_base = 0
+        n_missing = 0
 
         for (reader, n_raw, base), nv in zip(readers, n_variants_per_file, strict=False):
             pgen_file = Path(base + ".pgen")
@@ -430,8 +497,10 @@ def stream_pgen_to_zarr(
                     width = end - start
                     buf = np.zeros((n_raw, width), dtype=np.int8)
                     reader.read_range(start, end, geno_int_out=buf, sample_maj=1)
-                    buf[buf < 0] = 0
                     buf = buf[:n_samples, :]
+                    is_missing = buf < 0
+                    buf[is_missing] = PGEN_MISSING
+                    n_missing += int(is_missing.sum())
                     r, c = np.nonzero(buf)
                     if len(r):
                         row_chunks.append(r.astype(np.int32, copy=False))
@@ -455,11 +524,17 @@ def stream_pgen_to_zarr(
         X = coo.tocsr() if sparse_format == "csr" else coo.tocsc()
         del coo
         logger.info(f"Sparse X: {X.shape}, nnz={X.nnz:,}, " f"density={X.nnz / (X.shape[0] * X.shape[1]) * 100:.4f}%")
-        adata = ad.AnnData(X=X, obs=psam, var=pvar)
+        adata = ad.AnnData(X=X, obs=psam, var=pvar, uns={"n_missing": n_missing})
+        if n_missing:
+            logger.warning(f"{n_missing:,} missing genotype calls stored as {PGEN_MISSING} (read back as nan).")
         logger.info(f"Writing sparse AnnData → {output_path} ...")
         adata.write_zarr(output_path)
         logger.info(f"✓ Done → {output_path}")
-        return adata if return_adata else None
+        if not return_adata:
+            return None
+        if n_missing:
+            adata.X = _missing_to_nan(adata.X)
+        return adata
 
     else:
         root = zarr.open_group(output_path, mode="w")
@@ -509,9 +584,9 @@ def stream_pgen_to_zarr(
                         buf = np.where(no_call, codes, buf).astype(np.int8)
                         del dos
                     else:
-                        if two_bit:
-                            n_missing += int(no_call.sum())
-                        buf[no_call] = -1 if two_bit else 0
+                        # missing calls stay missing: the int8 sentinel -1, code 3 in a 2-bit store
+                        n_missing += int(no_call.sum())
+                        buf[no_call] = PGEN_MISSING
                     Xz[:, col_offset + start : col_offset + end] = buf
                     del buf
                     pbar.update(width)
@@ -527,18 +602,23 @@ def stream_pgen_to_zarr(
                 UserWarning,
                 stacklevel=2,
             )
-        if n_missing:
+        if n_missing and two_bit:
             warnings.warn(
-                f"{n_missing:,} genotype calls are missing; the 2-bit store keeps them missing, read back as -1.",
+                f"{n_missing:,} genotype calls are missing; the 2-bit store keeps them missing (code 3), and "
+                "read_pgen_zarr returns them as nan (-1 with backend='zarr').",
                 UserWarning,
                 stacklevel=2,
             )
+        elif n_missing:
+            logger.warning(f"{n_missing:,} missing genotype calls stored as {PGEN_MISSING} (read back as nan).")
         logger.info("Writing obs / var / metadata ...")
         ad.io.write_elem(root, "obs", psam)
         ad.io.write_elem(root, "var", pvar)
-        ad.io.write_elem(root, "uns", {"n_missing": n_missing} if two_bit else {})
+        ad.io.write_elem(root, "uns", {"n_missing": n_missing})
+        # empty elements with AnnData's encoding metadata
         for gname in ["obsm", "varm", "obsp", "varp", "layers"]:
-            root.create_group(gname)
+            ad.io.write_elem(root, gname, {})
+        root.attrs.update({"encoding-type": "anndata", "encoding-version": "0.1.0"})
         zarr.consolidate_metadata(root.store)
 
         logger.info(f"✓ Done → {output_path}")
