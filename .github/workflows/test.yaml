@@ -22,35 +22,45 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Every supported Python with the newest dependencies, plus one job with every direct
+        # dependency at its declared lower bound.
         include:
           - os: ubuntu-latest
-            python: "3.11"
-          - os: ubuntu-latest
             python: "3.12"
+            resolution: highest
           - os: ubuntu-latest
             python: "3.13"
+            resolution: highest
+          - os: ubuntu-latest
+            python: "3.14"
+            resolution: highest
+          - os: ubuntu-latest
+            python: "3.12"
+            resolution: lowest-direct
+            name: "Minimum dependency versions"
 
-    name: ${{ matrix.name }} Python ${{ matrix.python }}
+    name: ${{ matrix.name }} Python ${{ matrix.python }} (${{ matrix.resolution }})
 
     env:
       OS: ${{ matrix.os }}
       PYTHON: ${{ matrix.python }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-          cache: "pip"
-          cache-dependency-path: "**/pyproject.toml"
 
-      - name: Install test dependencies
+      - name: Install uv
         run: |
-          python -m pip install --upgrade pip wheel
+          python -m pip install --upgrade pip uv
       - name: Install dependencies
         run: |
-          pip install ${{ matrix.pip-flags }} ".[at,dev,test]"
+          uv pip install --system --resolution ${{ matrix.resolution }} ".[at,datasets,pgen,dev,test]"
+      - name: Show installed versions
+        run: |
+          uv pip list --system
       - name: Test
         env:
           MPLBACKEND: agg

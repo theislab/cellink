@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 # skip the entire module if torch or statsmodels isn't installed
-pytest.importorskip("torch", reason="run_seismic_torch tests need torch, install with `pip install cellink[seismic_torch]`")
+pytest.importorskip("torch", reason="run_seismic_torch tests need torch, install with the `seismic_torch` extra")
 pytest.importorskip("statsmodels", reason="run_seismic_torch tests need statsmodels for the reference OLS fit")
 
 import numpy as np

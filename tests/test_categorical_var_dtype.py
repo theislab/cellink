@@ -53,7 +53,8 @@ def test_write_variants_to_vcf_identical_with_categorical(tmp_path):
 
 
 def test_to_plink_roundtrip_identical_with_categorical(tmp_path):
-    bed_reader = pytest.importorskip("bed_reader")
+    pytest.importorskip("bed_reader")
+    from cellink.io import read_plink
     from cellink.io._export import to_plink
 
     gdata_str, gdata_cat = _str_and_categorical_gdata()
@@ -66,12 +67,16 @@ def test_to_plink_roundtrip_identical_with_categorical(tmp_path):
     to_plink(gdata_str, output_prefix=prefix_str)
     to_plink(gdata_cat, output_prefix=prefix_cat)
 
-    b_str = bed_reader.open_bed(prefix_str + ".bed")
-    b_cat = bed_reader.open_bed(prefix_cat + ".bed")
-    np.testing.assert_array_equal(b_str.read(), b_cat.read())
-    assert list(b_str.chromosome) == list(b_cat.chromosome)
-    assert list(b_str.allele_1) == list(b_cat.allele_1)
-    assert list(b_str.allele_2) == list(b_cat.allele_2)
+    for ext in ("bed", "bim", "fam"):
+        with open(f"{prefix_str}.{ext}", "rb") as f_str, open(f"{prefix_cat}.{ext}", "rb") as f_cat:
+            assert f_str.read() == f_cat.read()
+    b_str = read_plink(prefix_str)
+    b_cat = read_plink(prefix_cat)
+    np.testing.assert_array_equal(np.asarray(b_str.X.compute()), np.asarray(b_cat.X.compute()))
+    np.testing.assert_array_equal(np.asarray(b_str.X.compute()), np.asarray(gdata_str.X))
+    assert list(b_str.var["chrom"]) == list(b_cat.var["chrom"])
+    assert list(b_str.var["a0"]) == list(b_cat.var["a0"])
+    assert list(b_str.var["a1"]) == list(b_cat.var["a1"])
 
 
 def test_tensorqtl_input_generator_cis_matches_plain_string_dtype():
@@ -83,6 +88,9 @@ def test_tensorqtl_input_generator_cis_matches_plain_string_dtype():
     byte-identical cis-window results there directly, not just in cellink's
     own call sites.
     """
+    from cellink.tl.external._tensorqtl import _ensure_tensorqtl_importable
+
+    _ensure_tensorqtl_importable()  # tensorqtl imports pandas-plink at module level
     tensorqtl_genotypeio = pytest.importorskip("tensorqtl.genotypeio")
 
     rng = np.random.default_rng(0)

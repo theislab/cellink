@@ -154,26 +154,3 @@ SAIGE-QTL). See each tool's own documentation for installation instructions.
    tl.external.run_scprs_pipeline
 ```
 
-### LIVI
-
-Donor-level representation learning on paired genotype/expression data. See the
-{doc}`../tutorials/livi` tutorial for a full walkthrough.
-
-```{eval-rst}
-.. autosummary::
-   :toctree: ../generated/
-
-   tl.external.LIVIRunner
-   tl.external.configure_livi_runner
-   tl.external.get_livi_runner
-   tl.external.train_livi
-   tl.external.infer_livi
-   tl.external.run_livi_association_testing
-   tl.external.save_livi_results
-   tl.external.load_livi_results
-```
-
-`train_livi_annbatch`, `build_annbatch_collection`, `read_g_from_dd_store`, `CisGenotype`,
-`LIVICisBatchAdapter` and `AnnbatchLIVIDataModule` provide an `annbatch`-streamed training
-path for datasets too large to fit in memory. They require the extra `torch`,
-`pytorch_lightning` and `annbatch` dependencies.

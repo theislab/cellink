@@ -39,15 +39,15 @@ def _genotype_view():
     return contextlib.nullcontext()
 
 
-def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
+def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> int:
     """Write a genotype matrix as 2-bit packed int8 calls, one column block at a time.
 
     Values are converted with :func:`cellink.io._codecs.to_genotype_codes`:
     floats are rounded to the nearest integer (halves to even), NaN and negative
-    integers are missing and kept as missing (2-bit code 3, read back as -1), and
+    integers are missing and kept as missing (2-bit code 3, decoded as -1), and
     a warning reports the counts of rounded and missing values. Raises ValueError if any value does not round to
     0-2 (integers above 2, floats outside [-0.5, 2.5)); the caller then writes the
-    matrix unencoded.
+    matrix unencoded. Returns the number of missing values.
     """
     from zarr.codecs import BloscCodec
 
@@ -82,10 +82,11 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> None:
     if n_missing:
         warnings.warn(
             f"G.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them missing, "
-            "read back as -1.",
+            "read back as nan (-1 with read_zarr_dd(backend='zarr')).",
             UserWarning,
             stacklevel=4,
         )
+    return n_missing
 
 
 def _write_dense_array_zarr_chunked(
@@ -107,7 +108,7 @@ def _write_dense_array_zarr_chunked(
             )
             chunks = (chunks[0], rounded)
         try:
-            _write_genotypes_2bit(path, X, chunks)
+            n_missing = _write_genotypes_2bit(path, X, chunks)
         except ValueError:
             warnings.warn(
                 "G.X has values outside the 0-2 genotype range; it is written without 2-bit encoding.",
@@ -118,6 +119,7 @@ def _write_dense_array_zarr_chunked(
             arr = zarr.open(path, mode="r+")
             arr.attrs["encoding-type"] = "array"
             arr.attrs["encoding-version"] = "0.2.0"
+            arr.attrs["n_missing"] = n_missing  # read_zarr_dd turns them into nan
             return
     if isinstance(X, da.Array):
         X = X.rechunk(chunks) if chunks is not None else X
@@ -162,8 +164,10 @@ def _write_anndata_zarr_dense_x_chunked(
         ``"2bit"`` stores `X` (not layers) as 2-bit packed genotype calls.
     """
     X = adata.X
-    dense_layers = {k: v for k, v in adata.layers.items() if hasattr(v, "ndim") and not sp.issparse(v)}
-    sparse_layers = {k: v for k, v in adata.layers.items() if k not in dense_layers}
+    # anndata >= 0.13 also lists X as layers[None]; X is written separately below
+    layers = {k: v for k, v in adata.layers.items() if k is not None}
+    dense_layers = {k: v for k, v in layers.items() if hasattr(v, "ndim") and not sp.issparse(v)}
+    sparse_layers = {k: v for k, v in layers.items() if k not in dense_layers}
 
     placeholder = sp.csr_matrix((adata.n_obs, adata.n_vars), dtype=X.dtype)
     shell = AnnData(
@@ -252,10 +256,9 @@ class DonorData:
         if not keep_cells.all():
             C = C[keep_cells]
 
-        # Sort cells by donor order
-        sorted_cells = C.obs.iloc[
-            pd.Categorical(C.obs[self.donor_id], categories=keep_donors, ordered=True).argsort()
-        ].index
+        # Sort cells by donor order; the stable sort keeps the cell order within each donor
+        donor_rank = keep_donors.get_indexer(np.asarray(C.obs[self.donor_id]))
+        sorted_cells = C.obs.index[np.argsort(donor_rank, kind="stable")]
         if not sorted_cells.equals(C.obs_names):
             C = C[sorted_cells]
 
@@ -295,7 +298,11 @@ class DonorData:
             try:
                 write_elem(f, f"uns/{key}", value)
             except (TypeError, NotImplementedError):
-                f.create_dataset(f"uns/{key}", data=value)
+                if is_zarr:
+                    # zarr groups have create_array, h5py groups create_dataset
+                    f.create_array(f"uns/{key}", data=np.asarray(value))
+                else:
+                    f.create_dataset(f"uns/{key}", data=value)
 
     def write_h5_dd(self, path: str) -> None:
         """Write the DonorData object to the specified file path.
@@ -344,8 +351,10 @@ class DonorData:
             - Floating-point values, e.g. imputed dosages, are rounded to the
               nearest integer, halves to even (0.5 becomes 0, 1.5 becomes 2).
               NaN counts as missing.
-            - Missing values stay missing: stored as the 2-bit code 3 and read
-              back as -1.
+            - Missing values stay missing: stored as the 2-bit code 3.
+              :func:`cellink.io.read_zarr_dd` returns them as ``nan`` (and `G.X`
+              as float32); with ``backend="zarr"`` it returns the stored codes,
+              with -1 for missing.
             - A warning reports how many non-integer values were rounded and
               how many values are missing.
             - Every value must round to 0, 1 or 2: integers 0-2, or floats in

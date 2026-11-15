@@ -49,6 +49,18 @@ SGVAR_TO_GDATA = {
 }
 
 
+def _as_str_array(values) -> np.ndarray:
+    """Cast an allele/contig array to fixed-width unicode.
+
+    Handles bytes (``S``), object and numpy's variable-width ``StringDType`` (as zarr
+    returns VCF Zarr string arrays), which is cast through ``object``.
+    """
+    values = np.asarray(values)
+    if values.dtype.kind == "T":
+        values = values.astype(object)
+    return values.astype(str)
+
+
 def _get_snp_index(var: pd.DataFrame) -> pd.Index:
     df = var[[VAnn.chrom, VAnn.pos, VAnn.a0, VAnn.a1]].astype(str)
     index = df.apply("_".join, axis=1)
@@ -111,19 +123,21 @@ def from_sgkit_dataset(
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     X_field
-        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        One of: "GT", "DS", "GP", "AC".
         - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
         - "DS": scalar dosage (call_DS collapsed across alts) -> X
         - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
-        - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
-        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     keep_multiallelic
         if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
+        A field with one value per call (e.g. ``call_DS``) becomes the layer ``DS``; a field with
+        an extra axis (ploidy, alleles or genotypes, e.g. ``call_genotype`` or ``call_AD``) becomes
+        one layer per entry of that axis (``GENOTYPE_0``, ``GENOTYPE_1``, ``AD_0``, ...). Every
+        layer has the shape of ``X``, so it follows any selection of samples and variants.
     """
     var_rename = SGVAR_TO_GDATA if var_rename is None else var_rename
     obs_rename = {} if obs_rename is None else obs_rename
@@ -206,15 +220,15 @@ def from_sgkit_dataset(
     var_df.columns = var_df.columns.str.replace("variant_", "")
 
     if alleles_arr is not None:
-        var_df[VAnn.a0] = alleles_arr[:, 0].astype(str)
+        var_df[VAnn.a0] = _as_str_array(alleles_arr[:, 0])
         if alleles_arr.shape[1] > 1:
-            var_df[VAnn.a1] = alleles_arr[:, 1].astype(str)
+            var_df[VAnn.a1] = _as_str_array(alleles_arr[:, 1])
         if keep_multiallelic and alleles_arr.shape[1] > 2:
             for ai in range(2, alleles_arr.shape[1]):
-                var_df[f"a{ai}"] = alleles_arr[:, ai].astype(str)
+                var_df[f"a{ai}"] = _as_str_array(alleles_arr[:, ai])
 
     if SgVars.contig_label in ds.data_vars:
-        contigs = asarray(ds[SgVars.contig_label])
+        contigs = _as_str_array(asarray(ds[SgVars.contig_label]))
         if "variant_contig" in ds.data_vars:
             vc = asarray(ds["variant_contig"])
             try:
@@ -240,17 +254,18 @@ def from_sgkit_dataset(
             continue
         if load_call_fields is not None and key not in load_call_fields:
             continue
-        if X_field == "GT" and key == SgVars.genotype:
-            continue
         if X_field == "DS" and key == SgVars.dosage:
             continue
-        if X_field == "GP" and key == SgVars.genotype_prob:
+        if X_field == "GP" and key == SgVars.genotype_alt:
             continue
 
-        if da_var.data.T.ndim == 2:
-            adata.layers[key.replace("call_", "").upper()] = da_var.data.T
+        name = key.replace("call_", "").upper()
+        if da_var.data.ndim == 2:
+            adata.layers[name] = da_var.data.T
         else:
-            adata.uns[key.replace("call_", "").upper()] = da_var.data.T
+            # one (samples, variants) layer per ploidy/allele/genotype entry
+            for k in range(da_var.data.shape[-1]):
+                adata.layers[f"{name}_{k}"] = da_var.data[:, :, k].T
 
     adata.uns["n_alt"] = n_alt
     if inferred_ploidy is not None:
@@ -273,15 +288,6 @@ def from_sgkit_dataset(
     adata.uns["has_genotype_probability"] = gp_da is not None
     adata.uns["has_DS"] = ds_da is not None
     adata.uns["has_mask"] = mask_da is not None
-
-    if gt_da is not None:
-        adata.uns["raw_call_genotype"] = gt_da.data
-    if gp_da is not None:
-        adata.uns["raw_call_genotype_probability"] = gp_da.data
-    if ds_da is not None:
-        adata.uns["raw_call_DS"] = ds_da.data
-    if mask_da is not None:
-        adata.uns["raw_call_genotype_mask"] = mask_da.data
 
     return adata
 
@@ -308,25 +314,27 @@ def read_sgkit_zarr(
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     X_field
-        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        One of: "GT", "DS", "GP", "AC".
         - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
         - "DS": scalar dosage (call_DS collapsed across alts) -> X
         - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
-        - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
-        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     keep_multiallelic
         if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
+        A field with one value per call (e.g. ``call_DS``) becomes the layer ``DS``; a field with
+        an extra axis (ploidy, alleles or genotypes, e.g. ``call_genotype`` or ``call_AD``) becomes
+        one layer per entry of that axis (``GENOTYPE_0``, ``GENOTYPE_1``, ``AD_0``, ...). Every
+        layer has the shape of ``X``, so it follows any selection of samples and variants.
     """
     try:
         import sgkit as sg
     except ImportError as e:
         raise ImportError(
-            "sgkit is required for `read_sgkit_zarr`. Install with `pip install cellink[datasets]`."
+            "sgkit is required for `read_sgkit_zarr`. Install with `pip install 'cellink-tools[datasets]'`."
         ) from e
 
     sgkit_dataset = sg.load_dataset(store=path, **kwargs)
@@ -342,6 +350,20 @@ def read_sgkit_zarr(
     return gdata
 
 
+def _fam_quantitative_phenotype(fam_path, sep: str) -> np.ndarray | None:
+    """Return the phenotypes of a ``.fam`` file as float if they are quantitative, else None.
+
+    As in PLINK, a column holding only 1, 2 and the missing codes 0 and -9 is case/control;
+    any other column is quantitative, with -9 and non-numeric values such as ``NA`` missing.
+    """
+    column = pd.read_csv(fam_path, sep=sep, header=None, usecols=[5], dtype=str, keep_default_na=False).iloc[:, 0]
+    values = pd.to_numeric(column, errors="coerce").to_numpy(dtype=np.float64, copy=True)
+    if np.isin(values[~np.isnan(values)], [-9, 0, 1, 2]).all():
+        return None
+    values[values == -9] = np.nan
+    return values
+
+
 def read_plink(
     path: str | Path = None,
     *,
@@ -351,39 +373,77 @@ def read_plink(
     hard_call=True,
     keep_multiallelic=False,
     load_call_fields: Iterable[str] | None = None,
+    count_a1: bool = True,
     **kwargs,
 ) -> AnnData:
-    """Read Plink Format
+    """Read a PLINK 1 binary file set (``.bed``/``.bim``/``.fam``) with sgkit.
+
+    With ``count_a1=True`` (default), alleles follow the PLINK 2 convention, in which
+    ``.bim`` column 5 (A1) is ALT and column 6 (A2) is REF: ``var["a1"]`` is the column-5
+    allele, ``var["a0"]`` the column-6 allele, and ``X`` counts copies of ``a1``. This is
+    the layout written by :func:`cellink.io.to_plink` and by ``plink2 --make-bed``. Files
+    from PLINK 1.9 without ``--keep-allele-order`` carry the minor allele in column 5, so
+    ``a1`` is the minor allele there, not necessarily ALT.
+
+    ``obs["sex"]`` is 1 (male), 2 (female) or -1 (unknown). ``obs["phenotype"]`` is 1
+    (control), 2 (case) or -1 (missing) for a case/control ``.fam`` phenotype, and the
+    values as float, with ``nan`` for -9 and non-numeric values, for a quantitative one.
 
     Params
     ------
     path
-        path to plink format
+        Path to the file set without extension (``data`` for ``data.bed``/``.bim``/``.fam``).
+        A trailing ``.bed`` is stripped.
     var_rename
         mapping from sgkit's variant annotation keys to desired gdata.var column
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     X_field
-        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
-        - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
-        - "DS": scalar dosage (call_DS collapsed across alts) -> X
-        - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
-        - "MASK": fraction of masked allele copies per (variant,sample)
-        - "AC": alias for "GT"
-        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
+        One of: "GT", "DS", "GP", "AC"; see :func:`from_sgkit_dataset`.
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     keep_multiallelic
         if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
+    count_a1
+        If True (default), ``X`` counts the column-5 allele, stored as ``a1``. If False,
+        ``X`` counts the column-6 allele, stored as ``a1``, and ``a0`` is column 5. Use
+        ``False`` for files with REF in column 5 and ALT in column 6.
+    kwargs
+        Further keyword arguments, passed to ``sgkit.io.plink.read_plink``. ``fam_sep`` and
+        ``bim_sep`` default to any whitespace, as the PLINK formats allow.
     """
     try:
         from sgkit.io import plink as sg_plink
     except ImportError as e:
-        raise ImportError("sgkit is required for `read_plink`. Install with `pip install cellink[datasets]`.") from e
+        raise ImportError(
+            "sgkit with its plink extra is required for `read_plink`. Install with `pip install 'cellink-tools[datasets]'`."
+        ) from e
 
+    if path is not None and str(path).endswith(".bed"):
+        path = str(path)[: -len(".bed")]
+    kwargs.setdefault("fam_sep", r"\s+")
+    kwargs.setdefault("bim_sep", r"\s+")
     sgkit_dataset = sg_plink.read_plink(path=path, **kwargs)
+    # sgkit codes every phenotype other than 1 and 2 as missing
+    phenotype = _fam_quantitative_phenotype(kwargs.get("fam_path") or f"{path}.fam", kwargs["fam_sep"])
+    if phenotype is not None:
+        sgkit_dataset = sgkit_dataset.assign(sample_phenotype=(sgkit_dataset["sample_phenotype"].dims, phenotype))
+    # sgkit stores PLINK's unknown-chromosome code 0 as a missing contig name
+    contigs = [
+        c if isinstance(c, str) and c not in ("None", "nan") else "0"
+        for c in sgkit_dataset["contig_id"].values.tolist()
+    ]
+    sgkit_dataset = sgkit_dataset.assign(contig_id=(sgkit_dataset["contig_id"].dims, np.asarray(contigs, dtype=str)))
+    if count_a1:
+        # sgkit counts column 6; swap the alleles and the allele index of every called copy
+        genotype = sgkit_dataset["call_genotype"]
+        flipped = da.where(genotype.data >= 0, 1 - genotype.data, genotype.data).astype(genotype.dtype)
+        sgkit_dataset = sgkit_dataset.assign(
+            call_genotype=genotype.copy(data=flipped),
+            variant_allele=sgkit_dataset["variant_allele"][:, ::-1],
+        )
     gdata = from_sgkit_dataset(
         sgkit_dataset,
         var_rename=var_rename,
@@ -420,32 +480,37 @@ def read_bgen(
     obs_rename
         mapping from sgkit's sample annotation keys to desired gdata.obs column
     X_field
-        One of: "GT", "DS", "GP", "MASK", "AC", "NONE".
+        One of: "GT", "DS", "GP", "AC".
         - "GT": collapsed allele count (sum of non-zero allele indices) -> X (samples, variants)
         - "DS": scalar dosage (call_DS collapsed across alts) -> X
         - "GP": argmax genotype state mapped to alt-count when mapping exists -> X
-        - "MASK": fraction of masked allele copies per (variant,sample)
         - "AC": alias for "GT"
-        - "NONE": do not set X (X = np.empty((n_samples, 0))) or set to zeros? We set X to empty 2D dask array.
     hard_call
         if True, returns hard calls (0,1,2); if False, returns dosage/additive encoding
     keep_multiallelic
         if True, stores extra alternate alleles beyond ALT1; default is False
     load_call_fields
         iterable of call_* keys to load as layers; default None = load all present call_ fields.
+        A field with one value per call (e.g. ``call_DS``) becomes the layer ``DS``; a field with
+        an extra axis (ploidy, alleles or genotypes, e.g. ``call_genotype`` or ``call_AD``) becomes
+        one layer per entry of that axis (``GENOTYPE_0``, ``GENOTYPE_1``, ``AD_0``, ...). Every
+        layer has the shape of ``X``, so it follows any selection of samples and variants.
     """
     try:
         from sgkit.io import bgen as sg_bgen
     except ImportError as e:
-        raise ImportError("sgkit is required for `read_bgen`. Install with `pip install cellink[datasets]`.") from e
+        raise ImportError(
+            "sgkit is required for `read_bgen`. Install with `pip install 'cellink-tools[datasets]'`."
+        ) from e
 
-    sgkit_dataset = sg_bgen.read_bgen(path=path, **kwargs)
+    sgkit_dataset = sg_bgen.read_bgen(path=path, metafile_path=metafile_path, sample_path=sample_path, **kwargs)
     gdata = from_sgkit_dataset(
         sgkit_dataset,
-        metafile_path=metafile_path,
-        sample_path=sample_path,
         var_rename=var_rename,
         obs_rename=obs_rename,
+        X_field=X_field,
         hard_call=hard_call,
+        keep_multiallelic=keep_multiallelic,
+        load_call_fields=load_call_fields,
     )
     return gdata

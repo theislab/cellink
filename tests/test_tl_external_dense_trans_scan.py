@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 
 from cellink._core.donordata import DonorData
-from cellink.tl.external._tensorqtl import run_dense_trans_scan
+from cellink.tl.external._tensorqtl import _ensure_tensorqtl_importable, run_dense_trans_scan
 
+_ensure_tensorqtl_importable()  # tensorqtl imports pandas-plink at module level
 pytest.importorskip("tensorqtl", reason="tensorqtl not installed")
 
 

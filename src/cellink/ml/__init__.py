@@ -27,7 +27,7 @@ def __getattr__(name: str) -> Any:
             raise ImportError(
                 f"Cannot import `{name}` from `cellink.ml.{module_name}`: "
                 "this feature requires `torch` and `pytorch-lightning`. "
-                "Install with:\n\n    pip install cellink[ml]"
+                "Install with:\n\n    pip install 'cellink-tools[ml]'"
             ) from e
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

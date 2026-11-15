@@ -185,7 +185,7 @@ def get_gwas_catalog_study_summary_stats(
     translate_to_build : str, optional
         After downloading, translate SNP positions to this genome build using liftover.
         Useful when EBI does not host a pre-built file for the requested build.
-        Requires the ``liftover`` package (``pip install cellink[datasets]``).
+        Requires the ``liftover`` package (``pip install 'cellink-tools[datasets]'``).
         Cannot be combined with ``return_path=True``.
     **params
         Additional query parameters to pass to the API.
@@ -474,7 +474,7 @@ def liftover_gwas_summary_stats(
     except ImportError as e:
         raise ImportError(
             "The 'liftover' package is required for build translation. "
-            "Install it with: pip install cellink[datasets]"
+            "Install it with: pip install 'cellink-tools[datasets]'"
         ) from e
 
     converter = get_lifter(src, tgt, one_based=True)

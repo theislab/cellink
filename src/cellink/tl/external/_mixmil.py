@@ -69,7 +69,9 @@ def run_mixmil(
     try:
         from mixmil import MixMIL
     except ImportError as e:
-        raise ImportError("mixmil is required for `run_mixmil`. Install with `pip install cellink[mixmil]`.") from e
+        raise ImportError(
+            "mixmil is required for `run_mixmil`. Install with `pip install 'cellink-tools[mixmil]'`."
+        ) from e
 
     if "X_pca" not in dd.C.obsm:
         logger.info("Calculating PCA.")

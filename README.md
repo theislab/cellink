@@ -68,7 +68,6 @@ how to add a sample level or the
 - [GWAS on spatial data with gsMap](https://cellink-docs.readthedocs.io/en/latest/tutorials/gsmap.html)
 
 **Deep learning**
-- [Learning donor representations with LIVI](https://cellink-docs.readthedocs.io/en/latest/tutorials/livi.html)
 - [Predicting single cell coverage from sequence and scoring variants with scooby](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html)
 - [Dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html), including multiple instance learning over the cells of each donor
 
@@ -77,8 +76,13 @@ how to add a sample level or the
 
 ## Getting started
 
-cellink is not on PyPI yet and will be published there as `cellink-tools`. Install the development version from
-GitHub, which also installs DonorData:
+Install cellink from PyPI, where it is published as `cellink-tools`. This also installs DonorData:
+
+```bash
+pip install cellink-tools
+```
+
+To install the development version from GitHub instead:
 
 ```bash
 pip install git+https://github.com/theislab/cellink.git@main
@@ -93,7 +97,7 @@ object from genotype and expression data, subsets it and saves it without runnin
 
 | | |
 |---|---|
-| [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and the optional extras (`pip install cellink[extra-name]`) |
+| [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and the optional extras (`pip install 'cellink-tools[extra-name]'`) |
 | [Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html) | Step by step guides for the analyses above |
 | [API reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html) | Every public function and class, organized by module |
 | [DonorData documentation](https://donordata.readthedocs.io) | The `DonorData` object, its sample level and its file format |

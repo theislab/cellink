@@ -221,7 +221,8 @@ def compute_diseaseprogression_programs(
     genescores = _compute_genescores(results["score"])
     results["genescores"] = genescores
 
-    adata.obs.drop(columns=["_DEstatus"], inplace=True, errors="ignore")
+    if "_DEstatus" in adata.obs.columns:
+        del adata.obs["_DEstatus"]
 
     if save and out_dir is not None:
         out_dir = Path(out_dir)

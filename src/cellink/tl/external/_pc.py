@@ -59,7 +59,7 @@ def calculate_pcs(
 
     if run:
         subprocess.run(cmd, check=True)
-        pc_df = pd.read_csv(f"{out}.eigenvec", delim_whitespace=True, header=None)
+        pc_df = pd.read_csv(f"{out}.eigenvec", sep=r"\s+", header=None)
         pc_df.columns = ["FID", "IID"] + [f"PC{i+1}" for i in range(num_pcs)]
         return pc_df
     else:

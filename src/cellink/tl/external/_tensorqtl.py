@@ -4,7 +4,6 @@ import importlib.util
 import logging
 import os
 import pickle
-import shutil
 import subprocess
 from typing import Literal
 
@@ -14,9 +13,36 @@ import scanpy as sc
 from anndata.utils import asarray
 
 from cellink._core import DonorData
-from cellink.io import to_plink
+from cellink._extras import missing_dependency_message
+from cellink.io import to_pgen
 
 logger = logging.getLogger(__name__)
+
+
+def _pandas_plink_read_plink(*args, **kwargs):
+    raise ImportError(
+        "tensorQTL reads PLINK 1 files with pandas-plink, which is not installed. "
+        "Give tensorQTL PGEN files, e.g. written with cellink.io.to_pgen."
+    )
+
+
+def _ensure_tensorqtl_importable() -> None:
+    """Import ``tensorqtl.genotypeio`` with a stub ``pandas_plink`` module when pandas-plink is missing."""
+    import sys
+    import types
+
+    if "tensorqtl.genotypeio" in sys.modules or importlib.util.find_spec("tensorqtl") is None:
+        return
+    if importlib.util.find_spec("pandas_plink") is not None:
+        return
+    shim = types.ModuleType("pandas_plink")
+    shim.read_plink = _pandas_plink_read_plink
+    sys.modules["pandas_plink"] = shim
+    try:
+        import tensorqtl.genotypeio  # noqa: F401
+    finally:
+        if sys.modules.get("pandas_plink") is shim:
+            del sys.modules["pandas_plink"]
 
 
 def read_tensorqtl_results(
@@ -115,12 +141,13 @@ def build_known_cis_eqtls_from_tensorqtl(
         )
     snps = df["variant_id"].unique()
     genes_with_hits = df["gene"].unique()
-    known = pd.DataFrame(0, index=snps, columns=genes_with_hits, dtype=int)
-    known.values[
+    # fill a numpy array first: DataFrame.values is read-only under copy-on-write
+    values = np.zeros((len(snps), len(genes_with_hits)), dtype=int)
+    values[
         pd.Index(snps).get_indexer(df["variant_id"]),
         pd.Index(genes_with_hits).get_indexer(df["gene"]),
     ] = 1
-    return known
+    return pd.DataFrame(values, index=snps, columns=genes_with_hits)
 
 
 def _map_susie_with_prior_weights(
@@ -166,6 +193,8 @@ def _map_susie_with_prior_weights(
     ``(susie_summary_df, {phenotype_id: {pip, sets, converged, elbo, niter, lbf_variable}})``.
     """
     import torch
+
+    _ensure_tensorqtl_importable()
     from tensorqtl import genotypeio
     from tensorqtl.core import Residualizer, calculate_maf, impute_mean
     from tensorqtl.susie import susie as susie_fit
@@ -283,11 +312,12 @@ def _run_tensorqtl_python_api(
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame]:
     """Run TensorQTL via the Python API directly (no subprocess/file export)."""
     try:
+        _ensure_tensorqtl_importable()
         from tensorqtl import cis, post, susie, trans
     except ImportError as e:
         raise ImportError(
-            "tensorqtl is required for `run_tensorqtl` with `use_python_api=True`. "
-            "Install with `pip install tensorqtl`. Please also install rpy2 and R package qvalue."
+            missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl` with `use_python_api=True`")
+            + " The q-values of mode='cis' also need rpy2 and the R package qvalue."
         ) from e
 
     if mode == "cis_nominal":
@@ -605,7 +635,7 @@ def run_tensorqtl(
         If True, saves the constructed TensorQTL command to a file instead of printing.
         Only applies when `use_python_api=False`.
     plink_export_kwargs : dict, optional
-        Additional keyword arguments for `to_plink` function.
+        Additional keyword arguments for :func:`cellink.io.to_pgen`.
         Only applies when `use_python_api=False`.
     remove_intermediate_files : bool, default=True
         If True, removes the intermediate files.
@@ -638,8 +668,7 @@ def run_tensorqtl(
     Raises
     ------
     ImportError
-        If required dependencies (`plink2`, `tensorqtl`) are not found in system path.
-
+        If tensorqtl is not installed.
     ValueError
         If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected mode.
     """
@@ -713,7 +742,7 @@ def run_tensorqtl(
 
     if use_python_api:
         if importlib.util.find_spec("tensorqtl") is None:
-            raise ImportError("tensorqtl is required for `run_tensorqtl`. Please install it.")
+            raise ImportError(missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl`"))
 
         genotype_df = pd.DataFrame(dd.G.X.T, index=dd.G.var.index, columns=dd.G.obs.index)
         variant_df = dd.G.var[["chrom", "pos"]].copy()
@@ -747,10 +776,8 @@ def run_tensorqtl(
         )
 
     if run:
-        if shutil.which("plink2") is None:
-            raise ImportError("plink2 is required for `run_tensorqtl`. Please install it.")
         if importlib.util.find_spec("tensorqtl") is None:
-            raise ImportError("tensorqtl is required for `run_tensorqtl`. Please install it.")
+            raise ImportError(missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl`"))
 
     args = {
         "permutations": permutations,
@@ -781,8 +808,14 @@ def run_tensorqtl(
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
         phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
         phenotype_write_df = phenotype_write_df.rename(columns={"chr": "#chr"})
-        phenotype_write_df = phenotype_write_df.groupby("#chr", sort=False, group_keys=False).apply(
-            lambda x: x.sort_values(["start", "end"])
+        # chromosomes in order of first appearance, genes sorted by position within each
+        chrom_rank = pd.Categorical(
+            phenotype_write_df["#chr"], categories=pd.unique(phenotype_write_df["#chr"]), ordered=True
+        ).codes
+        phenotype_write_df = (
+            phenotype_write_df.assign(_chrom_rank=chrom_rank)
+            .sort_values(["_chrom_rank", "start", "end"], kind="stable")
+            .drop(columns="_chrom_rank")
         )
         with gzip.open(f"{prefix}_phenotype.bed.gz", "wt") as f:
             f.write("\t".join(phenotype_write_df.columns.tolist()) + "\n")
@@ -798,12 +831,16 @@ def run_tensorqtl(
     covar = f"{prefix}_donor_features.tsv"
     pheno = f"{prefix}_phenotype.bed.gz"
 
-    if not os.path.isfile(f"{prefix}.pgen") or overwrite_plink_export:
-        to_plink(dd.G, prefix, **plink_export_kwargs)
-        cmd_plink_conversion = f"plink2 --bfile {geno} --make-pgen --out {geno}"
-        subprocess.run(cmd_plink_conversion, check=True, shell=True)
+    # tensorQTL reads the genotypes from {prefix}.pgen/.pvar/.psam
+    has_pgen = all(os.path.isfile(f"{prefix}.{ext}") for ext in ("pgen", "psam", "pvar"))
+    if not has_pgen or overwrite_plink_export:
+        to_pgen(dd.G, prefix, **{"dosages": None if dosages else False, **plink_export_kwargs})
 
-    cmd = f"python -m tensorqtl {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
+    # cellink's launcher runs `python -m tensorqtl` after making tensorqtl importable without
+    # pandas-plink (see _ensure_tensorqtl_importable); the arguments are tensorqtl's own
+    cmd = (
+        f"python -m cellink.tl.external._tensorqtl_main {geno} {pheno} {prefix} --covariates {covar} --mode {mode}"
+    )
 
     for key, value in args.items():
         if isinstance(value, bool) and value:
@@ -833,7 +870,7 @@ def run_tensorqtl(
         subprocess.run(cmd, check=True, shell=True)
 
         if remove_intermediate_files:
-            extensions = [".bim", ".fam", ".bed", ".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
+            extensions = [".pgen", ".psam", ".pvar", "_donor_features.tsv", "_phenotype.bed.gz"]
             for ext in extensions:
                 filename = prefix + ext
                 if os.path.isfile(filename):

@@ -195,7 +195,6 @@ misc
 
 _build/*
 
-LIVI
 checkpoints/
 lightning_logs/
 docs/tutorials/dd_G.zarr

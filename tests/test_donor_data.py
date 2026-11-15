@@ -1,10 +1,13 @@
 from pathlib import Path
 
 import mudata as md
+import numpy as np
+import pandas as pd
 import pytest
 
 from cellink._core.data_fields import CAnn, DAnn
 from cellink._core.donordata import DonorData
+from cellink.io import read_zarr_dd
 
 if hasattr(md, "set_options"):
     md.set_options(pull_on_update=False)  # mudata <0.4
@@ -16,6 +19,18 @@ DATA = Path("tests/data")
 
 def test_donordata_init(adata, gdata):
     DonorData(G=gdata, C=adata)
+
+
+def test_donordata_keeps_cell_order_within_donors(adata, gdata):
+    """Cells are grouped in G's donor order; within a donor they keep their input order."""
+    shuffled = adata[np.random.default_rng(0).permutation(adata.n_obs)].copy()
+    dd = DonorData(G=gdata, C=shuffled)
+    donors = dd.C.obs[DAnn.donor].astype(str).to_numpy()
+    rank = pd.Index(dd.G.obs_names).get_indexer(donors)
+    assert (np.diff(rank) >= 0).all()
+    for donor in dd.G.obs_names:
+        expected = shuffled.obs_names[shuffled.obs[DAnn.donor].astype(str) == donor]
+        assert list(dd.C.obs_names[donors == donor]) == list(expected)
 
 
 def test_slice_donors(adata, gdata):
@@ -214,6 +229,19 @@ def test_write_zarr_dd(tmp_path, adata, gdata):
     dd.write_zarr_dd(str(output_path))
 
     assert output_path.exists()
+
+
+def test_write_zarr_dd_dense_x_keeps_layers(tmp_path, adata, gdata):
+    # anndata >= 0.13 lists X as layers[None]; the chunked dense-X writer must not store it again
+    gdata.X = np.asarray(gdata.X.todense() if hasattr(gdata.X, "todense") else gdata.X, dtype=np.float32)
+    gdata.layers["dosage"] = gdata.X + 1
+    output_path = tmp_path / "donordata.dd.zarr"
+    DonorData(G=gdata, C=adata).write_zarr_dd(str(output_path))
+
+    reloaded = read_zarr_dd(str(output_path))
+    assert [k for k in reloaded.G.layers.keys() if k is not None] == ["dosage"]
+    np.testing.assert_array_equal(np.asarray(reloaded.G.X), gdata.X)
+    np.testing.assert_array_equal(np.asarray(reloaded.G.layers["dosage"]), gdata.X + 1)
 
 
 if __name__ == "__main__":

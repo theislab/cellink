@@ -9,6 +9,8 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+from cellink._extras import install_hint, missing_dependency_message
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,8 +59,7 @@ class ScoobyRunner:
             from scooby.modeling import Scooby
         except ImportError as e:
             raise ImportError(
-                "scooby is required for this function. Install with:\n\n"
-                "    pip install cellink[scooby]"
+                missing_dependency_message("scooby", "scooby")
             ) from e
         return Scooby
 
@@ -68,8 +69,7 @@ class ScoobyRunner:
             from scooby.utils.utils import get_lora
         except ImportError as e:
             raise ImportError(
-                "scooby is required for this function. Install with:\n\n"
-                "    pip install cellink[scooby]"
+                missing_dependency_message("scooby", "scooby")
             ) from e
         return get_lora
 
@@ -395,8 +395,7 @@ def build_scooby_dataset(
         from scooby.data import onTheFlyDataset
     except ImportError as e:
         raise ImportError(
-            "scooby is required for this function. Install with:\n\n"
-            "    pip install cellink[scooby]"
+            missing_dependency_message("scooby", "scooby")
         ) from e
     return onTheFlyDataset(
         rna_plus,
@@ -449,8 +448,7 @@ def build_scooby_multiome_dataset(
         from scooby.data import onTheFlyMultiomeDataset
     except ImportError as e:
         raise ImportError(
-            "scooby is required for this function. Install with:\n\n"
-            "    pip install cellink[scooby]"
+            missing_dependency_message("scooby", "scooby")
         ) from e
     return onTheFlyMultiomeDataset(
         adatas,
@@ -972,7 +970,8 @@ def load_scooby_checkpoint(
             )
         use_transform_borzoi_emb = known["use_transform_borzoi_emb"]
 
-    model = Scooby.from_pretrained(
+    model = _from_pretrained_materialized(
+        Scooby,
         model_path_or_name,
         cell_emb_dim=cell_emb_dim,
         embedding_dim=embedding_dim,
@@ -982,6 +981,76 @@ def load_scooby_checkpoint(
     )
     model = model.to(runner.resolve_device()).eval()
     return model
+
+
+def _from_pretrained_materialized(model_cls, model_path_or_name: str, **init_kwargs):
+    """Build ``model_cls`` on the CPU and load its ``model.safetensors`` weights explicitly.
+
+    Unlike ``PreTrainedModel.from_pretrained``, this keeps the buffers that borzoi-pytorch
+    computes in ``__init__`` (the non-persistent relative ``positions`` of every attention
+    layer) off the meta device.
+    """
+    import safetensors.torch
+
+    config = model_cls.config_class.from_pretrained(model_path_or_name)
+    model = model_cls(config, **init_kwargs)
+
+    local = Path(model_path_or_name)
+    if local.is_dir():
+        weights = local / "model.safetensors"
+    else:
+        from huggingface_hub import hf_hub_download
+
+        weights = hf_hub_download(model_path_or_name, "model.safetensors")
+    state_dict = safetensors.torch.load_file(str(weights))
+    expected = model.state_dict()
+    mismatched = [
+        f"{k}: {tuple(v.shape)} vs {tuple(expected[k].shape)}"
+        for k, v in state_dict.items()
+        if k in expected and v.shape != expected[k].shape
+    ]
+    if mismatched:
+        raise ValueError(
+            f"Checkpoint '{model_path_or_name}' does not match {model_cls.__name__}"
+            f"({init_kwargs}): shape mismatch (checkpoint vs model) {mismatched[:10]}."
+        )
+    result = model.load_state_dict(state_dict, strict=False)
+
+    non_persistent = {
+        f"{name}.{buf}" if name else buf
+        for name, module in model.named_modules()
+        for buf in getattr(module, "_non_persistent_buffers_set", ())
+    }
+    missing = [k for k in result.missing_keys if k not in non_persistent]
+    if missing or result.unexpected_keys:
+        raise ValueError(
+            f"Checkpoint '{model_path_or_name}' does not match {model_cls.__name__}"
+            f"({init_kwargs}): missing {missing[:10]}, unexpected {list(result.unexpected_keys)[:10]}."
+        )
+    return model
+
+
+def _load_scooby_wrapper(wrapper_cls, model_path_or_name: str, runner: ScoobyRunner, **checkpoint_kwargs):
+    """Create an embpy ``ScoobyWrapper`` and load its model with :func:`_from_pretrained_materialized`.
+
+    The wrapper resolves the checkpoint's ``cell_emb_dim``/``n_tracks``/``use_transform_borzoi_emb``;
+    ``model`` and ``device`` are set as ``ScoobyWrapper.load`` sets them.
+    """
+    device = runner.resolve_device()
+    wrapper = wrapper_cls(model_path_or_name, device=device, **checkpoint_kwargs)
+    model = _from_pretrained_materialized(
+        runner.get_scooby_class(),
+        model_path_or_name,
+        cell_emb_dim=wrapper.cell_emb_dim,
+        embedding_dim=wrapper.embedding_dim,
+        n_tracks=wrapper.n_tracks,
+        return_center_bins_only=True,
+        disable_cache=False,
+        use_transform_borzoi_emb=wrapper.use_transform_borzoi_emb,
+    )
+    wrapper.model = model.to(device).eval()
+    wrapper.device = device
+    return wrapper
 
 
 def convert_scooby_lora_checkpoint(
@@ -1176,12 +1245,11 @@ def score_variant_effects_scooby(
         raise ImportError(
             "embpy is required for `score_variant_effects_scooby`. Variant-effect scoring is not part of "
             "scooby itself, it's implemented in the separate embpy package. Install with:\n\n"
-            "    pip install cellink[embpy]"
+            "    " + install_hint("embpy")
         ) from e
 
     runner = runner or get_scooby_runner()
-    wrapper = ScoobyWrapper(model_path_or_name, device=runner.resolve_device(), **checkpoint_kwargs)
-    wrapper.load(runner.resolve_device())
+    wrapper = _load_scooby_wrapper(ScoobyWrapper, model_path_or_name, runner, **checkpoint_kwargs)
 
     embedder = SNPEmbedder(wrapper)
     return embedder.predict_variant_effect(
@@ -1227,12 +1295,11 @@ def load_scooby_wrapper_and_embedder(
     except ImportError as e:
         raise ImportError(
             "embpy is required for Scooby variant-effect scoring. Install with:\n\n"
-            "    pip install cellink[embpy]"
+            "    " + install_hint("embpy")
         ) from e
 
     runner = runner or get_scooby_runner()
-    wrapper = ScoobyWrapper(model_path_or_name, device=runner.resolve_device(), **checkpoint_kwargs)
-    wrapper.load(runner.resolve_device())
+    wrapper = _load_scooby_wrapper(ScoobyWrapper, model_path_or_name, runner, **checkpoint_kwargs)
     embedder = SNPEmbedder(wrapper) if pooling_strategy is None else SNPEmbedder(wrapper, pooling_strategy=pooling_strategy)
     return wrapper, embedder
 
@@ -1394,7 +1461,7 @@ def resolve_snp_and_exon_bins(
         from embpy.tl.genomics import SNPContext, genomic_to_bin_indices
     except ImportError as e:
         raise ImportError(
-            "embpy is required for `resolve_snp_and_exon_bins`. Install with:\n\n    pip install cellink[embpy]"
+            "embpy is required for `resolve_snp_and_exon_bins`. Install with:\n\n    " + install_hint("embpy")
         ) from e
 
     label = variant_id or f"{chrom}:{pos}"

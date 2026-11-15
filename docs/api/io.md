@@ -17,6 +17,7 @@
     io.read_h5_dd
     io.read_zarr_dd
     io.to_plink
+    io.to_pgen
     io.write_variants_to_vcf
 ```
 
