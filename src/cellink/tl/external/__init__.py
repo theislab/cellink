@@ -31,7 +31,7 @@ from ._ldsc2magma import (
     scores_to_covar,
     scores_to_gmt,
 )
-from ._magma import download_magma_references, run_magma_pipeline
+from ._magma import run_magma_pipeline
 from ._pc import calculate_pcs
 from ._saigeqtl import (
     configure_saigeqtl_runner,
@@ -57,7 +57,6 @@ from ._sclinker_utils import (
     genescores_to_100kb_bedgraph,
     genescores_to_abc_road_bedgraph,
     genescores_to_annotations,
-    get_gene_annotation,
     load_abc_links,
     load_gene_annotation,
     load_roadmap_links,
@@ -68,7 +67,6 @@ from ._scprs import (
     get_disease_relevant_cells,
     get_plink_commands_per_cell,
     prepare_scprs_data,
-    run_scprs,
     run_scprs_pipeline,
     write_slurm_array_job,
 )
@@ -99,7 +97,6 @@ __all__ = [
     "load_gsmap_results",
     "format_gsmap_sumstats",
     "run_magma_pipeline",
-    "download_magma_references",
     "configure_saigeqtl_runner",
     "get_saigeqtl_runner",
     "read_saigeqtl_results",
@@ -145,7 +142,6 @@ __all__ = [
     "genescores_to_abc_road_bedgraph",
     "genescores_to_100kb_bedgraph",
     "genescores_to_annotations",
-    "get_gene_annotation",
     "load_abc_links",
     "load_gene_annotation",
     "load_roadmap_links",
@@ -159,7 +155,6 @@ __all__ = [
     "get_plink_commands_per_cell",
     "write_slurm_array_job",
     "get_disease_relevant_cells",
-    "run_scprs",
     "run_scprs_pipeline",
     ###
     "ScoobyRunner",

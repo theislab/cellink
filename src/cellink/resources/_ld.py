@@ -1,4 +1,3 @@
-import hashlib
 import logging
 import shutil
 import tarfile
@@ -88,11 +87,8 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
     Extract a tar.gz archive into a directory, optionally refreshing its contents.
 
     If `refresh` is True and the extraction directory exists, all existing contents
-    except the archive will be deleted before extraction. If the directory is
-    empty or `refresh` is True, the tar.gz archive is extracted with the ``"data"``
-    filter, which rejects members that would land outside `extract_path` (absolute
-    paths, ``..``, links pointing outside). Handles nested directories by flattening
-    if necessary.
+    will be deleted before extraction. If the directory is empty or `refresh` is True,
+    the tar.gz archive is extracted. Handles nested directories by flattening if necessary.
 
     Parameters
     ----------
@@ -101,23 +97,15 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
     extract_path : pathlib.Path
         Directory where the archive should be extracted.
     refresh : bool, default=False
-        If True, deletes existing files/directories in `extract_path` (except the
-        archive) before extraction.
+        If True, deletes existing files/directories in `extract_path` before extraction.
 
     Returns
     -------
     None
-
-    Raises
-    ------
-    tarfile.FilterError
-        If a member of the archive would be extracted outside `extract_path`.
     """
     if refresh and extract_path.exists():
         for item in extract_path.iterdir():
-            if item == tgz_path:
-                continue
-            if item.is_file() or item.is_symlink():
+            if item.is_file():
                 item.unlink()
             else:
                 shutil.rmtree(item)
@@ -126,7 +114,7 @@ def _extract_or_refresh(tgz_path: Path, extract_path: Path, refresh: bool = Fals
 
     if not existing_contents:
         with tarfile.open(tgz_path, "r:gz") as tar:
-            tar.extractall(path=extract_path, filter="data")
+            tar.extractall(path=extract_path)
 
         contents = [p for p in extract_path.iterdir() if p != tgz_path]
 
@@ -214,7 +202,7 @@ def get_1000genomes_ld_scores(
     prefix = config["ld_scores"]["prefix"]
     tgz_path = DATA / config["ld_scores"][population]["filename"]
 
-    _download_file(config["ld_scores"][population]["url"], tgz_path, checksum=None, refresh=refresh)
+    _download_file(config["ld_scores"][population]["url"], tgz_path, checksum=None)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     if return_path:
@@ -310,7 +298,7 @@ def get_1000genomes_ld_weights(
     prefix = config["ld_weights"][population]["prefix"]
     tgz_path = DATA / config["ld_weights"][population]["filename"]
 
-    _download_file(config["ld_weights"][population]["url"], tgz_path, checksum=None, refresh=refresh)
+    _download_file(config["ld_weights"][population]["url"], tgz_path, checksum=None)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     if return_path:
@@ -396,7 +384,7 @@ def get_1000genomes_plink_files(
     prefix = config["plink_files"][population]["prefix"]
     tgz_path = DATA / config["plink_files"][population]["filename"]
 
-    _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None, refresh=refresh)
+    _download_file(config["plink_files"][population]["url"], tgz_path, checksum=None)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     return DATA, prefix
@@ -472,7 +460,7 @@ def get_1000genomes_frq(
     prefix = config["frq"]["prefix"]
     tgz_path = DATA / config["frq"][population]["filename"]
 
-    _download_file(config["frq"][population]["url"], tgz_path, checksum=None, refresh=refresh)
+    _download_file(config["frq"][population]["url"], tgz_path, checksum=None)
     _extract_or_refresh(tgz_path, DATA, refresh=refresh)
 
     return DATA, prefix
@@ -521,7 +509,7 @@ def get_1000genomes_hapmap3(
     config = _load_config(config_path, config_dict)
     dest = DATA / config["hapmap3"]["filename"]
 
-    _download_file(config["hapmap3"]["url"], dest, checksum=None, refresh=refresh)
+    _download_file(config["hapmap3"]["url"], dest, checksum=None)
 
     return dest
 
@@ -568,9 +556,8 @@ def get_1000genomes_merge_alleles(
     Returns
     -------
     pathlib.Path
-        Path to a ``merge_alleles_{population}.snplist`` file (for autosomes 1-22;
-        ``merge_alleles_{population}_chr{...}.snplist`` for other chromosome lists)
-        with columns ``SNP A1 A2``, suitable for ``munge_sumstats(merge_alleles=...)``.
+        Path to a ``merge_alleles_{population}.snplist`` file with columns
+        ``SNP A1 A2``, suitable for ``munge_sumstats(merge_alleles=...)``.
 
     Examples
     --------
@@ -578,14 +565,7 @@ def get_1000genomes_merge_alleles(
     >>> munge_sumstats(sumstats_file=..., merge_alleles=str(merge_alleles), ...)
     """
     data_home = get_data_home(data_home)
-    chromosomes = list(chromosomes) if chromosomes else list(range(1, 23))
-    if [str(c) for c in chromosomes] == [str(c) for c in range(1, 23)]:
-        dest = data_home / f"merge_alleles_{population}.snplist"
-    else:  # one file per chromosome list, so a call for other chromosomes never reuses it
-        chrom_tag = "_".join(map(str, chromosomes))
-        if len(chrom_tag) > 40:
-            chrom_tag = hashlib.sha256(chrom_tag.encode()).hexdigest()[:12]
-        dest = data_home / f"merge_alleles_{population}_chr{chrom_tag}.snplist"
+    dest = data_home / f"merge_alleles_{population}.snplist"
 
     if dest.exists() and not refresh:
         return dest
@@ -596,6 +576,7 @@ def get_1000genomes_merge_alleles(
     hapmap3_path = get_1000genomes_hapmap3(config_path=config_path, data_home=data_home, config_dict=config_dict)
     hapmap3_snps = set(pd.read_csv(hapmap3_path, header=None)[0])
 
+    chromosomes = chromosomes or list(range(1, 23))
     frames = []
     for chrom in chromosomes:
         bim_path = Path(plink_dir) / f"{plink_prefix}{chrom}.bim"
@@ -664,7 +645,7 @@ def merge_1000g_plink_chromosomes(
     output_prefix.parent.mkdir(parents=True, exist_ok=True)
     chromosomes = chromosomes or list(range(1, 23))
 
-    if Path(f"{output_prefix}.bed").exists():  # not with_suffix: a prefix may contain dots
+    if output_prefix.with_suffix(".bed").exists():
         return output_prefix
 
     plink_dir = Path(plink_dir)

@@ -51,8 +51,7 @@ def get_model_matrix(
         (``dmean``, ``dmax``, ``dmedian``, ``dfirst``, ``crepeat``) are only
         valid when ``data`` is a :class:`~cellink._core.DonorData`.
     target_level : "donor" | "cell" | None, optional
-        The target data level. Required only when ``data`` is a DonorData; any
-        other value than ``"donor"`` or ``"cell"`` raises a ``ValueError``.
+        The target data level. Required only when ``data`` is a DonorData.
 
     Returns
     -------
@@ -78,18 +77,10 @@ def get_model_matrix(
     CUSTOM_TRANSFORMS = {**{k: lambda x: x for k in DONOR_AGG_FUNCS}, "crepeat": lambda x: x}
     parser = DefaultFormulaParser(operator_resolver=FamilyOperatorResolver())
 
-    if target_level is not None and target_level not in ("donor", "cell"):
-        raise ValueError(f"`target_level` must be 'donor' or 'cell', got {target_level!r}.")
-
     if isinstance(data, DonorData):
         dd = data
         if target_level is None:
             raise ValueError("`target_level` must be 'donor' or 'cell' when using a DonorData object.")
-        # Donor of every cell for dmean() and crepeat(), as plain values: `.map()` on a Categorical
-        # column returns a Categorical, which formulaic one-hot encodes.
-        cell_donors = dd.C.obs[dd.donor_id]
-        if isinstance(cell_donors.dtype, pd.CategoricalDtype):
-            cell_donors = cell_donors.astype(cell_donors.cat.categories.dtype)
 
         if target_level == "donor" and "crepeat(" in formula_str:
             raise ValueError("Cannot use 'crepeat()' in a donor-level formula.")
@@ -120,7 +111,7 @@ def get_model_matrix(
                         new_col_name = f"{agg_func_name}({col})"
                         new_quoted_names.append(f"`{new_col_name}`")
                         if new_col_name not in final_df:
-                            agg_group = inner_matrix[col].groupby(cell_donors)
+                            agg_group = inner_matrix[col].groupby(dd.C.obs[dd.donor_id], observed=True)
                             aggregated_series = getattr(agg_group, pd_method_name)()
                             final_df[new_col_name] = aggregated_series
                     replacement_str = " + ".join(new_quoted_names)
@@ -135,7 +126,15 @@ def get_model_matrix(
                     new_col_name = f"crepeat({col})"
                     new_quoted_names.append(f"`{new_col_name}`")
                     if new_col_name not in final_df:
-                        expanded_series = cell_donors.map(inner_matrix[col])
+                        # `.map()` on a Categorical donor_id column (the common case,
+                        # AnnData/scanpy obs columns are routinely Categorical) inherits
+                        # Categorical dtype on the result, which formulaic then one-hot
+                        # encodes instead of treating as the numeric column it actually
+                        # is. Force plain values through to avoid that.
+                        donor_ids = dd.C.obs[dd.donor_id]
+                        if isinstance(donor_ids.dtype, pd.CategoricalDtype):
+                            donor_ids = donor_ids.astype(donor_ids.cat.categories.dtype)
+                        expanded_series = donor_ids.map(inner_matrix[col])
                         final_df[new_col_name] = np.asarray(expanded_series.to_numpy(), dtype=inner_matrix[col].to_numpy().dtype)
                 replacement_str = " + ".join(new_quoted_names)
                 rewritten_formula = rewritten_formula.replace(original_call_str, f"({replacement_str})")
@@ -150,8 +149,7 @@ def get_model_matrix(
         formula = Formula(formula_str, _parser=parser)
         required_vars = formula.required_variables
         fetched_data = {k: fetch_slot(data, k) for k in required_vars}
-        # an intercept-only formula ('1') references no variable at all
-        final_df = pd.concat(fetched_data.values(), axis=1) if fetched_data else pd.DataFrame(index=data.obs_names)
+        final_df = pd.concat(fetched_data.values(), axis=1)
         rewritten_formula = formula_str
 
     elif isinstance(data, pd.DataFrame):

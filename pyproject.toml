@@ -129,9 +129,6 @@ optional-dependencies.saigeqtl = [
 optional-dependencies.scdrs = [
   "scdrs>=1.0.2",
 ]
-optional-dependencies.sclinker = [
-  "torchnmf>=0.3.5",
-]
 optional-dependencies.scooby = [
   "accelerate>=1",
   "borzoi-pytorch>=0.4",
@@ -158,8 +155,6 @@ optional-dependencies.snpeff = [
   # "snpeff",
 ]
 optional-dependencies.tensorqtl = [
-  # q-values (mode="cis") need rpy2 plus R with the Bioconductor qvalue package (e.g. from conda)
-  "rpy2>=3.6; python_version<'3.14'",
   # Python 3.12 and 3.13 only
   "tensorqtl==1.0.10; python_version<'3.14'",
   #"plink2"

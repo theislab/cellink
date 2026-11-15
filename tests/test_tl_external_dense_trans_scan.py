@@ -26,8 +26,6 @@ def far_variant_id(dd):
     variant_id = dd.G.var_names[0]
     far_pos = int(dd.C.var["end"].max()) + 10_000_000
     dd.G.var.loc[variant_id, "pos"] = far_pos
-    # the simulated genotypes are random; a monomorphic variant has no association to report
-    dd.G.X[:, 0] = np.resize([0, 1, 2], dd.G.n_obs)
     return variant_id
 
 

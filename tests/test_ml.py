@@ -46,6 +46,6 @@ def test_dataloader(adata, gdata):
 
     model = DonorMILModel(n_input_donor=dd.G.n_vars, n_input_cell=dd.C.n_vars)
 
-    trainer = pl.Trainer(max_epochs=1, accelerator="cpu")  # MPS aborts torch on macOS 14
+    trainer = pl.Trainer(max_epochs=1)
 
     trainer.fit(model, dataloader)

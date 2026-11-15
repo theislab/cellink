@@ -66,7 +66,6 @@ def test_default_commands(tmp_path, monkeypatch, dd):
         "--window",
         "500000",
         "--normalize-covar",
-        "--set-offset-from-libsize",
         "--out",
         "jx",
     ]

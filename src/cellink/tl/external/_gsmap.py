@@ -109,13 +109,13 @@ def format_gsmap_sumstats(
     ...     cleanup_tmp=True,
     ... )
     """
-    out_prefix = Path(out_prefix).expanduser()
+    out_prefix = Path(out_prefix)
 
     _tmp_to_clean: Path | None = None
     sumstats_path: str
 
     if isinstance(sumstats, pd.DataFrame):
-        _tmp_dir = Path(tmp_dir).expanduser() if tmp_dir is not None else Path.cwd()
+        _tmp_dir = Path(tmp_dir) if tmp_dir is not None else Path.cwd()
         _tmp_dir.mkdir(parents=True, exist_ok=True)
 
         # Build the set of columns we actually need based on the flags provided.
@@ -153,7 +153,7 @@ def format_gsmap_sumstats(
         if cleanup_tmp:
             _tmp_to_clean = _tmp_path
     else:
-        sumstats_path = str(Path(sumstats).expanduser())
+        sumstats_path = str(sumstats)
 
     cmd = [
         "gsmap",
@@ -186,7 +186,7 @@ def format_gsmap_sumstats(
     if keep_chr_pos:
         cmd.append("--keep_chr_pos")
     if dbsnp is not None:
-        cmd += ["--dbsnp", str(Path(dbsnp).expanduser())]
+        cmd += ["--dbsnp", str(dbsnp)]
 
     try:
         logger.info(f"Running: {' '.join(cmd)}")
@@ -234,8 +234,7 @@ def load_gsmap_results(
     -------
     dict with keys:
         - ``"spatial_ldsc"`` : pd.DataFrame or None
-            Per-spot LDSC results with columns spot, beta, se, z, p. Only files whose
-            name contains ``trait_name`` are read; None (with a warning) if there is none.
+            Per-spot LDSC results with columns spot, beta, se, z, p.
         - ``"cauchy_combination"`` : pd.DataFrame or None
             Region-level aggregated p-values (p_cauchy, p_median).
         - ``"workdir"`` : Path
@@ -252,7 +251,7 @@ def load_gsmap_results(
     >>> spot_df = results["spatial_ldsc"]
     >>> cauchy_df = results["cauchy_combination"]
     """
-    workdir = Path(workdir).expanduser()
+    workdir = Path(workdir)
     sample_dir = workdir / sample_name
 
     results: dict = {
@@ -265,9 +264,7 @@ def load_gsmap_results(
     # Spatial LDSC: gsMap writes comma-separated .csv.gz
     ldsc_dir = sample_dir / "spatial_ldsc"
     if ldsc_dir.exists():
-        ldsc_files = sorted(ldsc_dir.glob(f"*{trait_name}*.gz"))
-        if not ldsc_files:
-            logger.warning(f"No spatial LDSC results for trait '{trait_name}' in {ldsc_dir}")
+        ldsc_files = list(ldsc_dir.glob(f"*{trait_name}*.gz")) or list(ldsc_dir.glob("*.gz"))
         if ldsc_files:
             try:
                 _df = pd.read_csv(ldsc_files[0], sep=",", compression="gzip")
@@ -282,9 +279,7 @@ def load_gsmap_results(
     # Cauchy combination
     cauchy_dir = sample_dir / "cauchy_combination"
     if cauchy_dir.exists() and annotation is not None:
-        cauchy_files = sorted(cauchy_dir.glob(f"*{trait_name}*.csv*"))
-        if not cauchy_files:
-            logger.warning(f"No Cauchy combination results for trait '{trait_name}' in {cauchy_dir}")
+        cauchy_files = list(cauchy_dir.glob(f"*{trait_name}*.csv*")) or list(cauchy_dir.glob("*.csv*"))
         if cauchy_files:
             try:
                 results["cauchy_combination"] = pd.read_csv(cauchy_files[0], index_col=0)

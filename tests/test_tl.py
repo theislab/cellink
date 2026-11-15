@@ -17,6 +17,7 @@ from cellink.tl import (
 )
 
 DATA = Path("tests/data")
+CONFIG = Path("configs")
 
 
 @pytest.fixture
@@ -37,27 +38,14 @@ def test_write_variants_to_vcf(gdata):
     vcf_file.unlink()
 
 
-def _ensembl_database_reachable(port=3306, timeout=5):
-    """The shipped `vep` config runs VEP online against Ensembl's public MySQL server."""
-    import socket
-
-    try:
-        with socket.create_connection(("ensembldb.ensembl.org", port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-@pytest.mark.skipif(
-    shutil.which("vep") is None or not _ensembl_database_reachable(),
-    reason="VEP is not installed or the Ensembl database is not reachable",
-)
-def test_run_vep(gdata, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+@pytest.mark.skipif(shutil.which("vep") is None, reason="VEP is not installed in the environment")
+def test_run_vep(gdata):
     write_variants_to_vcf(gdata, "variants.vcf")
-    run_vep(config_file="vep", input_vcf="variants.vcf", output="variants_annotated.txt")  # config shipped with cellink
+    run_vep(CONFIG / "vep.yaml", "variants.vcf", "variants_annotated.txt")
     for this_file in ["variants.vcf", "variants_annotated.txt"]:
+        this_file = Path(this_file)
         assert Path(this_file).exists()
+        this_file.unlink()
 
 
 def test_add_vep_annos_to_gdata(gdata, sample_vep_annos):

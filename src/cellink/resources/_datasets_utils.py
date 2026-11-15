@@ -1,4 +1,3 @@
-import functools
 import logging
 import os
 import subprocess
@@ -9,21 +8,22 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-
-@functools.cache
-def _get_hg38_to_hg19_converter():
-    """Load the hg38 to hg19 liftover chain on first use (None if ``liftover`` is unavailable).
-
-    The chain is cached in ``$CELLINK_LIFTOVER_CACHE``, by default ``~/.liftover``.
-    """
-    try:
-        from liftover import get_lifter
-
-        cache = os.environ.get("CELLINK_LIFTOVER_CACHE", os.path.expanduser("~/.liftover"))
-        return get_lifter("hg38", "hg19", one_based=True, cache=cache)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("liftover unavailable (%s); hg38 to hg19 coordinate translation is disabled.", e)
-        return None
+try:
+    from liftover import get_lifter
+    cache = os.environ.get("CELLINK_LIFTOVER_CACHE")
+    if cache is None:
+        cache = os.path.expanduser("~/.liftover")
+        logger.warning(
+            "CELLINK_LIFTOVER_CACHE is not set; using default liftover cache at %s.",
+            cache,
+        )
+    converter = get_lifter("hg19", "hg38", one_based=True, cache=cache)
+except Exception as e:  # noqa: BLE001
+    logger.warning(
+        "liftover unavailable (%s); hg19<->hg38 coordinate translation will be disabled.",
+        e,
+    )
+    converter = None
 
 
 def preprocess_vcf_to_plink(vcf_filename: str = None, DATA: str | Path = None) -> None:
@@ -223,31 +223,24 @@ def plink_kinship(fname: str = None, DATA: str | Path = None) -> None:
 
 def try_liftover(row) -> int | float:
     """
-    Attempt to lift over a genomic coordinate from hg38 (GRCh38) to hg19 (GRCh37).
+    Attempt to lift over a genomic coordinate from hg19 to hg38.
 
-    Uses the `liftover` module to convert a chromosome and position from hg38 to
-    hg19, as needed for the GRCh38 OneK1K genotypes. Returns NaN if conversion
-    fails, if the position maps to another chromosome, or if the liftover
-    converter is unavailable.
+    Uses the `liftover` module to convert a chromosome and position from hg19 to
+    hg38. Returns NaN if conversion fails or if the liftover converter is unavailable.
 
     Parameters
     ----------
     row : pandas.Series
-        A row containing `chrom` and `pos` fields representing the hg38 coordinate.
+        A row containing `chrom` and `pos` fields representing the hg19 coordinate.
 
     Returns
     -------
     int or float
-        The converted hg19 position if successful, or `np.nan` if conversion fails.
+        The converted hg38 position if successful, or `np.nan` if conversion fails.
     """
-    converter = _get_hg38_to_hg19_converter()
     if converter is None:
         return np.nan
-    chrom = str(row.chrom).removeprefix("chr")
     try:
-        hits = converter[chrom][int(row.pos)]
-    except (KeyError, TypeError, ValueError):
+        return int(converter[str(row.chrom)][row.pos][0][1])
+    except (IndexError, KeyError, TypeError):
         return np.nan
-    if not hits or str(hits[0][0]).removeprefix("chr") != chrom:
-        return np.nan
-    return int(hits[0][1])

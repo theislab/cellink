@@ -106,40 +106,12 @@ def run_burden_test(G, Y, F, gene, annotation_cols, burden_agg_fct="sum", run_lr
 
 
 def run_skat_test(G, Y, F, gene):
-    """
-    Perform a SKAT test with the standard Beta(MAF; 1, 25) variant weights.
-
-    Parameters
-    ----------
-    G : anndata.AnnData
-        Genotypes (dosages 0/1/2) of the variants to test, donors x variants.
-    Y : numpy.ndarray
-        Phenotype data for the samples.
-    F : numpy.ndarray
-        Covariate matrix for the samples.
-    gene : str
-        The name of the gene being tested.
-
-    Returns
-    -------
-    dict
-        ``burden_gene``, ``egene``, ``weight_col`` (``"maf_beta"``) and ``pv``, the SKAT p-value.
-
-    Notes
-    -----
-    Each variant's genotype column is scaled by ``sqrt(beta_weighting(maf))`` before the
-    test, so its kernel weight is the Beta(MAF; 1, 25) density, as in Wu et al. (2011).
-    The minor allele frequency is computed from the dosages in ``G``.
-    """
-    X = G.X.toarray() if hasattr(G.X, "toarray") else np.asarray(G.X)
-    X = np.asarray(X, dtype=np.float64)
-    allele_freq = np.nanmean(X, axis=0) / 2
-    maf = np.minimum(allele_freq, 1 - allele_freq)
-    skat = _skat_test(Y, X * np.sqrt(beta_weighting(maf)), F)
+    # TODO implement alternative weights once skat_test supports this
+    skat = _skat_test(Y, G.X, F)
     rdict = {
         "burden_gene": gene,
         "egene": gene,
-        "weight_col": "maf_beta",
+        "weight_col": "maf_beta",  # TODO change once alternative weighting is implemented
         "pv": skat,
     }
     return rdict
