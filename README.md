@@ -40,7 +40,7 @@ import cellink as cl
 genotypes = cl.io.read_plink("cohort")
 dd = cl.DonorData(D=genotypes, C=adata, donor_id="individual")
 dd = dd[..., dd.C.obs["cell_type"] == "CD4 T", :]
-dd.write_dd("cohort.dd.zarr")
+cl.io.write_dd(dd, "cohort.dd.zarr")
 ```
 
 `DonorData` is imported from the [DonorData](https://github.com/theislab/donordata) package and is installed with cellink. The
@@ -90,8 +90,8 @@ pip install git+https://github.com/theislab/cellink.git@main
 
 The [installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) lists the optional extras
 for the external tools. If you are new to cellink, start with
-[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which builds an
-object from genotype and expression data, subsets it and saves it without running any analysis.
+[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which reads
+genotype files into an object, subsets it and saves it without running any analysis.
 
 ## Documentation
 

@@ -6,7 +6,7 @@ import pytest
 import zarr
 
 from cellink._core import DonorData
-from cellink.io import read_pgen_zarr, read_zarr_dd
+from cellink.io import read_pgen_zarr, read_zarr_dd, write_zarr_dd
 from cellink.io._codecs import Pack2Bit, to_genotype_codes
 from cellink.io._genotype_array import GenotypeArray
 
@@ -133,45 +133,45 @@ def test_donordata_sel_on_genotype_array(tmp_path, adata):
     C = ad.AnnData(X=np.zeros((G.n_obs, 1)))
     C.obs["donor_id"] = G.obs_names.values
     G.obs["donor_id"] = G.obs_names.values
-    dd = DonorData(G=G, C=C, donor_id="donor_id")
+    dd = DonorData(D=G, C=C, donor_id="donor_id")
     donors, variants = [2, 40, 77], [1, 500, 998]
-    np.testing.assert_array_equal(np.asarray(dd.sel(G_obs=donors).G.X), ref[donors])
-    np.testing.assert_array_equal(np.asarray(dd.sel(G_var=variants).G.X), ref[:, variants])
+    np.testing.assert_array_equal(np.asarray(dd.sel(D_obs=donors).D.X), ref[donors])
+    np.testing.assert_array_equal(np.asarray(dd.sel(D_var=variants).D.X), ref[:, variants])
 
 
 @pytest.mark.slow
 def test_write_zarr_dd_2bit_rounds_dosages(tmp_path, adata, gdata):
     gdata.X = np.clip(gdata.X + np.random.default_rng(0).uniform(-0.3, 0.3, gdata.X.shape), 0, 2)
     gdata.X[0, 0] = np.nan
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
     with pytest.warns(UserWarning, match="nearest integer"):
-        dd.write_zarr_dd(str(out), x_chunks={"G": (gdata.n_obs, 4)})
-    assert "cellink_pack2bit" in _codec_names(out / "G" / "X")
-    expected = np.nan_to_num(np.rint(dd.G.X), nan=-1).astype(np.int8)
-    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").G.X), expected)
+        write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    assert "cellink_pack2bit" in _codec_names(out / "D" / "X")
+    expected = np.nan_to_num(np.rint(dd.D.X), nan=-1).astype(np.int8)
+    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").D.X), expected)
     # missing calls come back as nan by default
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), np.where(expected < 0, np.nan, expected))
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).D.X.compute(), np.where(expected < 0, np.nan, expected))
 
 
 @pytest.mark.slow
 def test_write_zarr_dd_non_genotype_falls_back(tmp_path, adata, gdata):
     gdata.X = gdata.X.astype(float) * 5
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
     with pytest.warns(UserWarning, match="outside the 0-2"):
-        dd.write_zarr_dd(str(out))
-    assert "cellink_pack2bit" not in _codec_names(out / "G" / "X")
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), dd.G.X)
+        write_zarr_dd(dd, str(out))
+    assert "cellink_pack2bit" not in _codec_names(out / "D" / "X")
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).D.X.compute(), dd.D.X)
 
 
 @pytest.mark.slow
 def test_write_zarr_dd_without_encoding(tmp_path, adata, gdata):
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
-    dd.write_zarr_dd(str(out), genotype_encoding=None)
-    assert "cellink_pack2bit" not in _codec_names(out / "G" / "X")
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), dd.G.X)
+    write_zarr_dd(dd, str(out), genotype_encoding=None)
+    assert "cellink_pack2bit" not in _codec_names(out / "D" / "X")
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).D.X.compute(), dd.D.X)
 
 
 def _write_dosage_pgen(prefix, dosages):
@@ -211,39 +211,148 @@ def test_stream_pgen_2bit_dosages(tmp_path):
 
 @pytest.mark.slow
 def test_write_zarr_dd_2bit_rounds_variant_chunks_up_to_4(tmp_path, adata, gdata):
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
     with pytest.warns(UserWarning, match="rounded up to 4"):
-        dd.write_zarr_dd(str(out), x_chunks={"G": (2, 2), "C": (2, 2)})
-    assert zarr.open_array(str(out / "G" / "X"), mode="r").chunks == (2, 4)
-    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").G.X), dd.G.X)
+        write_zarr_dd(dd, str(out), x_chunks={"D": (2, 2), "C": (2, 2)})
+    assert zarr.open_array(str(out / "D" / "X"), mode="r").chunks == (2, 4)
+    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").D.X), dd.D.X)
 
 
 @pytest.mark.slow
 def test_write_zarr_dd_2bit_keeps_missing_calls(tmp_path, adata, gdata):
     gdata.X = gdata.X.astype(np.int8)
     gdata.X[1, 3] = -9
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
     with pytest.warns(UserWarning, match="1 missing values"):
-        dd.write_zarr_dd(str(out), x_chunks={"G": (gdata.n_obs, 4)})
-    expected = np.where(dd.G.X < 0, -1, dd.G.X)
-    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").G.X), expected)
-    X = read_zarr_dd(str(out)).G.X.compute()
+        write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    expected = np.where(dd.D.X < 0, -1, dd.D.X)
+    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(out), backend="zarr").D.X), expected)
+    X = read_zarr_dd(str(out)).D.X.compute()
     assert X.dtype == np.float32
     np.testing.assert_array_equal(X, np.where(expected < 0, np.nan, expected))
-    assert zarr.open_array(str(out / "G" / "X"), mode="r").attrs["n_missing"] == 1
+    assert zarr.open_array(str(out / "D" / "X"), mode="r").attrs["n_missing"] == 1
 
 
 @pytest.mark.slow
 def test_read_zarr_dd_keeps_int8_without_missing_calls(tmp_path, adata, gdata):
     gdata.X = gdata.X.astype(np.int8)
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     out = tmp_path / "dd.dd.zarr"
-    dd.write_zarr_dd(str(out), x_chunks={"G": (gdata.n_obs, 4)})
-    X = read_zarr_dd(str(out)).G.X.compute()
+    write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    X = read_zarr_dd(str(out)).D.X.compute()
     assert X.dtype == np.int8
-    np.testing.assert_array_equal(X, dd.G.X)
+    np.testing.assert_array_equal(X, dd.D.X)
     # without the n_missing attribute the store may hold missing calls, so X is converted
-    zarr.open_array(str(out / "G" / "X"), mode="r+").attrs.pop("n_missing")
-    np.testing.assert_array_equal(read_zarr_dd(str(out)).G.X.compute(), dd.G.X.astype(np.float32))
+    zarr.open_array(str(out / "D" / "X"), mode="r+").attrs.pop("n_missing")
+    np.testing.assert_array_equal(read_zarr_dd(str(out)).D.X.compute(), dd.D.X.astype(np.float32))
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("backend", ["dask", "zarr"])
+def test_read_zarr_dd_loads_sparse_matrices(tmp_path, adata, gdata, backend):
+    import scipy.sparse as sp
+
+    adata.X = sp.csr_matrix(np.abs(adata.X))
+    adata.layers["counts"] = sp.csc_matrix(adata.X)
+    dd = DonorData(D=gdata, C=adata)
+    out = tmp_path / "dd.dd.zarr"
+    write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    loaded = read_zarr_dd(str(out), backend=backend)
+    assert sp.issparse(loaded.C.X) and sp.issparse(loaded.C.layers["counts"])
+    np.testing.assert_array_equal(loaded.C.X.toarray(), dd.C.X.toarray())
+    np.testing.assert_array_equal(np.asarray(loaded.D.X), dd.D.X)
+
+
+@pytest.mark.slow
+def test_write_and_read_zarr_dd_with_samples_and_a_donor_table(tmp_path, adata, gdata):
+    import pandas as pd
+
+    gdata.X = gdata.X.astype(np.float32)
+    gdata.X[0, 0] = np.nan
+    adata.obs["sample_id"] = adata.obs["donor_id"].astype(str) + "_" + (np.arange(adata.n_obs) % 2).astype(str)
+    samples = adata.obs[["sample_id", "donor_id"]].drop_duplicates().set_index("sample_id")
+    samples["donor_id"] = samples["donor_id"].astype(str)
+    samples["visit"] = np.arange(len(samples))
+    dd = DonorData(D=gdata, S=samples, C=adata, sample_id="sample_id")
+    out = tmp_path / "samples.dd.zarr"
+    with pytest.warns(UserWarning, match="1 missing values"):
+        write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    assert "cellink_pack2bit" in _codec_names(out / "D" / "X")
+    loaded = read_zarr_dd(str(out))
+    assert loaded.n_samples == dd.n_samples
+    np.testing.assert_array_equal(loaded.S["visit"], dd.S["visit"])
+    np.testing.assert_array_equal(loaded.D.X.compute(), dd.D.X)
+
+    donors = pd.DataFrame({"age": np.arange(gdata.n_obs)}, index=gdata.obs_names)
+    table = DonorData(D=donors, C=adata)
+    write_zarr_dd(table, str(tmp_path / "table.dd.zarr"))
+    loaded = read_zarr_dd(str(tmp_path / "table.dd.zarr"), backend="zarr")
+    assert loaded.D_type == "table"
+    np.testing.assert_array_equal(loaded.D["age"], donors["age"])
+    np.testing.assert_array_equal(np.asarray(loaded.C.X), table.C.X)
+
+
+@pytest.mark.slow
+def test_read_zarr_dd_with_the_donor_level_in_g(tmp_path, adata, gdata):
+    gdata.X = gdata.X.astype(np.int8)
+    gdata.X[1, 3] = -1
+    dd = DonorData(D=gdata, C=adata)
+    out = tmp_path / "dd.dd.zarr"
+    with pytest.warns(UserWarning, match="1 missing values"):
+        write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    (out / "D").rename(out / "G")
+    zarr.open_group(str(out), mode="r+").attrs["encoding-version"] = "0.1.0"
+    with pytest.warns(UserWarning, match="donor level in G"):
+        loaded = read_zarr_dd(str(out))
+    X = loaded.D.X.compute()
+    assert np.isnan(X[1, 3])
+    np.testing.assert_array_equal(np.nan_to_num(X, nan=-1), dd.D.X)
+
+
+@pytest.mark.slow
+def test_write_and_read_zarr_dd_with_mudata_cells(tmp_path, adata, gdata):
+    import mudata as md
+    import scipy.sparse as sp
+
+    atac = adata.copy()
+    atac.X = sp.csr_matrix(np.abs(atac.X))
+    mdata = md.MuData({"rna": adata, "atac": atac})
+    mdata.obs["donor_id"] = adata.obs["donor_id"].reindex(mdata.obs_names)
+    dd = DonorData(D=gdata, C=mdata)
+    out = tmp_path / "dd.dd.zarr"
+    write_zarr_dd(dd, str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    loaded = read_zarr_dd(str(out))
+    assert sp.issparse(loaded.C.mod["atac"].X)
+    np.testing.assert_array_equal(np.asarray(loaded.C.mod["rna"].X), dd.C.mod["rna"].X)
+    np.testing.assert_array_equal(loaded.C.mod["atac"].X.toarray(), dd.C.mod["atac"].X.toarray())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("backend", ["dask", "zarr"])
+def test_read_zarr_dd_keeps_dense_layers(tmp_path, adata, gdata, backend):
+    gdata.X = np.asarray(gdata.X, dtype=np.float32)
+    gdata.layers["dosage"] = gdata.X + 1
+    out = tmp_path / "dd.dd.zarr"
+    write_zarr_dd(DonorData(D=gdata, C=adata), str(out), x_chunks={"D": (gdata.n_obs, 4)})
+
+    loaded = read_zarr_dd(str(out), backend=backend)
+    assert [k for k in loaded.D.layers.keys() if k is not None] == ["dosage"]
+    assert isinstance(loaded.D.layers["dosage"], GenotypeArray if backend == "zarr" else da.Array)
+    np.testing.assert_array_equal(np.asarray(loaded.D.X), gdata.X)
+    np.testing.assert_array_equal(np.asarray(loaded.D.layers["dosage"]), gdata.X + 1)
+
+
+@pytest.mark.slow
+def test_read_zarr_dd_rejects_a_store_whose_levels_do_not_match(tmp_path, adata, gdata):
+    import anndata as ad
+
+    out = tmp_path / "dd.dd.zarr"
+    write_zarr_dd(DonorData(D=gdata, C=adata), str(out), x_chunks={"D": (gdata.n_obs, 4)})
+    obs = adata.obs.copy()
+    obs["donor_id"] = obs["donor_id"].astype(str)
+    obs.iloc[0, obs.columns.get_loc("donor_id")] = "nan"
+    ad.io.write_elem(zarr.open_group(str(out / "C"), mode="r+"), "obs", obs)
+    with pytest.raises(ValueError, match="do not match"):
+        read_zarr_dd(str(out))

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from cellink._core import GAnn
+from cellink.io import write_zarr_dd
 from cellink.resources import get_onek1k
 from cellink.resources._utils import get_data_home
 
@@ -71,19 +72,19 @@ def _check_donor_pairing(dd, n_variants: int = 3000, seed: int = 0, min_concorda
     """
     Check that each genotype row belongs to the donor whose cells carry its id.
     """
-    chrx = np.where(dd.G.var.chrom.astype(str) == "X")[0]
+    chrx = np.where(dd.D.var.chrom.astype(str) == "X")[0]
     if len(chrx) == 0:
-        print("  [check] no chrX variants in dd.G, skipping the genetic sex check")
+        print("  [check] no chrX variants in dd.D, skipping the genetic sex check")
         return None
-    maf = dd.G.var["maf"].values[chrx] if "maf" in dd.G.var else np.full(len(chrx), 0.5)
+    maf = dd.D.var["maf"].values[chrx] if "maf" in dd.D.var else np.full(len(chrx), 0.5)
     chrx = chrx[maf >= 0.2]
     rng = np.random.default_rng(seed)
     idx = np.sort(rng.choice(chrx, min(n_variants, len(chrx)), replace=False))
-    X = dd.G[:, idx].X
+    X = dd.D[:, idx].X
     X = np.asarray(X.compute() if hasattr(X, "compute") else X)
     het = (X == 1).mean(1)
-    genetic_male = pd.Series((het < 0.02).astype(int), index=dd.G.obs_names)
-    cell_sex = dd.C.obs.groupby(dd.donor_id, observed=True)["sex"].first().reindex(dd.G.obs_names)
+    genetic_male = pd.Series((het < 0.02).astype(int), index=dd.D.obs_names)
+    cell_sex = dd.C.obs.groupby(dd.donor_id, observed=True)["sex"].first().reindex(dd.D.obs_names)
     ok = cell_sex.notna()
     concordance = float((genetic_male[ok] == cell_sex[ok].astype(int)).mean())
     print(
@@ -93,7 +94,7 @@ def _check_donor_pairing(dd, n_variants: int = 3000, seed: int = 0, min_concorda
     if concordance < min_concordance:
         raise RuntimeError(
             f"Only {concordance:.1%} of donors have a genotype-inferred sex matching the sex of their cells: "
-            "the genotype rows are not paired with the right donors. Check the donor ids of dd.G and dd.C."
+            "the genotype rows are not paired with the right donors. Check the donor ids of dd.D and dd.C."
         )
     return concordance
 
@@ -101,7 +102,7 @@ def _check_donor_pairing(dd, n_variants: int = 3000, seed: int = 0, min_concorda
 def _check_positive_control_eqtl(dd, min_abs_r: float = 0.5):
     """Check that the strongest OneK1K chr22 cis-eQTL (SMDT1) is visible in the pseudobulk data."""
     gene, snp, celltype = POSITIVE_CONTROL["gene"], POSITIVE_CONTROL["snp"], POSITIVE_CONTROL["celltype"]
-    if gene not in dd.C.var_names or snp not in dd.G.var_names:
+    if gene not in dd.C.var_names or snp not in dd.D.var_names:
         print(f"  [check] positive control {gene} / {snp} not in the data, skipping")
         return None
     cells = (dd.C.obs["predicted.celltype.l2"] == celltype).values
@@ -109,8 +110,8 @@ def _check_positive_control_eqtl(dd, min_abs_r: float = 0.5):
     counts = np.asarray(C.X.sum(1)).ravel()
     g = np.asarray(C[:, gene].X.todense() if hasattr(C.X, "todense") else C[:, gene].X).ravel()
     expr = pd.Series(np.log1p(g / np.maximum(counts, 1) * 1e4), index=C.obs[dd.donor_id].values)
-    pb = expr.groupby(level=0).mean().reindex(dd.G.obs_names)
-    x = dd.G[:, snp].X
+    pb = expr.groupby(level=0).mean().reindex(dd.D.obs_names)
+    x = dd.D[:, snp].X
     x = np.asarray(x.compute() if hasattr(x, "compute") else x, dtype=float).ravel()
     ok = pb.notna().values
     r = float(np.corrcoef(x[ok], pb.values[ok])[0, 1])
@@ -148,11 +149,11 @@ def _filter_genes_for_qtl_mapping(dd, qtl_window: int = 500_000):
     genes_in_range = set()
 
     for chrom in valid_chroms:
-        snp_mask = dd.G.var.chrom == chrom
+        snp_mask = dd.D.var.chrom == chrom
         if snp_mask.sum() == 0:
             continue
 
-        snp_positions = dd.G.var.loc[snp_mask, "pos"].values
+        snp_positions = dd.D.var.loc[snp_mask, "pos"].values
         min_snp_pos = snp_positions.min() - qtl_window
         max_snp_pos = snp_positions.max() + qtl_window
 
@@ -280,7 +281,7 @@ def generate_dummy_dataset(
     _check_donor_pairing(dd)
 
     print(f"Sampling {n_donors} random donors...")
-    all_donors = np.sort(dd.G.obs.index.values)
+    all_donors = np.sort(dd.D.obs.index.values)
     selected_donors = all_donors
     if len(all_donors) > n_donors:
         selected_donors = rng.choice(all_donors, n_donors, replace=False)
@@ -305,12 +306,12 @@ def generate_dummy_dataset(
     print(f"Selecting SNPs (full chr22 + {snp_sample_frac*100}% from chr 1-21)...")
     all_selected_idx = []
 
-    chr22_idx = np.where(dd.G.var.chrom == "22")[0]
+    chr22_idx = np.where(dd.D.var.chrom == "22")[0]
     all_selected_idx.extend(chr22_idx)
     print(f"Chromosome 22: {len(chr22_idx)} SNPs (100%)")
 
     for chrom in range(1, 22):
-        chrom_idx = np.where(dd.G.var.chrom == str(chrom))[0]
+        chrom_idx = np.where(dd.D.var.chrom == str(chrom))[0]
         n_snps = max(1, int(len(chrom_idx) * snp_sample_frac))
         selected_idx = rng.choice(chrom_idx, n_snps, replace=False)
         all_selected_idx.extend(selected_idx)
@@ -330,7 +331,7 @@ def generate_dummy_dataset(
     print(f"Saving dummy dataset to {output_path}...")
 
     dd = dd.copy()
-    G = dd.G.copy()
+    G = dd.D.copy()
     if hasattr(G.X, "compute"):
         G.X = G.X.compute()
     for key in [k for k in G.layers if k is not None]:
@@ -345,7 +346,7 @@ def generate_dummy_dataset(
         "qtl_window_bp": qtl_window,
         "gene_annotation": gene_annotation,
     }
-    dd.G = G
+    dd.D = G
     C = dd.C.copy()
     C.var[GAnn.start] = C.var[GAnn.start].astype("int64")
     C.var[GAnn.end] = C.var[GAnn.end].astype("int64")
@@ -360,7 +361,7 @@ def generate_dummy_dataset(
         else:
             dd.write_h5_dd(str(output_path))
     elif str(output_path).endswith(".dd.zarr"):
-        dd.write_zarr_dd(str(output_path))
+        write_zarr_dd(dd, str(output_path))
     else:
         raise ValueError("Output path must end with .dd.h5 or .dd.zarr")
 

@@ -100,7 +100,7 @@ def test_donor_data_ld_reference_matches_alt_effect_alleles(tmp_path):
         output_prefix=str(tmp_path / "t"),
         col_mapping=_MAPPING,
         ld_source="dd_genotypes",
-        dd=SimpleNamespace(G=G),
+        dd=SimpleNamespace(D=G),
     )
     bim_ids = set(pd.read_csv(f"{ld_ref}.bim", sep=r"\s+", header=None, dtype=str)[1])
     gwas_ids = _read(pval_file)[0].tolist()

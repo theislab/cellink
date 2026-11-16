@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from cellink import DonorData
-from cellink.io import from_sgkit_dataset, read_h5_dd, read_plink, read_sgkit_zarr, read_zarr_dd, to_pgen, to_plink
+from cellink.io import from_sgkit_dataset, read_h5_dd, read_plink, read_sgkit_zarr, to_pgen, to_plink
 
 DATA = Path("tests/data")
 
@@ -230,19 +230,6 @@ def test_export(tmp_path):
     to_plink(gdata, output_prefix=str(tmp_path))
 
 
-@pytest.mark.slow
-def test_read_h5_dd(tmp_path, adata, gdata):
-    output_path = tmp_path / "donordata.dd.h5"
-
-    dd = DonorData(G=gdata, C=adata)
-    dd.write_h5_dd(str(output_path))
-
-    dd_loaded = read_h5_dd(str(output_path))
-
-    assert dd_loaded.C.shape == dd.C.shape
-    assert dd_loaded.G.shape == dd.G.shape
-
-
 def _dense(x):
     x = x.compute() if hasattr(x, "compute") else x
     return np.asarray(x.toarray() if hasattr(x, "toarray") else x)
@@ -252,60 +239,50 @@ def _dense(x):
 def test_read_h5_dd_lazy(tmp_path, adata, gdata, chunks):
     import dask.array as da
     import h5py
+    import scipy.sparse as sp
 
-    from cellink.io import read_dd
+    from cellink.io import read_dd, write_h5_dd
 
     X = np.asarray(gdata.X, dtype=np.float32)
     X[0, 1] = np.nan
     gdata.X = X
     gdata.layers["dosage"] = X / 2
     gdata.obs["donor_id"] = gdata.obs.index
+    adata.X = sp.csr_matrix(adata.X)
     path = str(tmp_path / "donordata.dd.h5")
-    DonorData(G=gdata, C=adata).write_h5_dd(path)
+    write_h5_dd(DonorData(D=gdata, C=adata), path)
     if chunks is not None:
         with h5py.File(path, "r+") as f:
-            attrs, values = dict(f["G/X"].attrs), f["G/X"][()]
-            del f["G/X"]
-            f.create_dataset("G/X", data=values, chunks=chunks)
-            f["G/X"].attrs.update(attrs)
+            attrs, values = dict(f["D/X"].attrs), f["D/X"][()]
+            del f["D/X"]
+            f.create_dataset("D/X", data=values, chunks=chunks)
+            f["D/X"].attrs.update(attrs)
 
     eager = read_h5_dd(path)
     lazy = read_h5_dd(path, lazy=True)
-    assert isinstance(lazy.G.X, da.Array)
-    assert isinstance(lazy.G.layers["dosage"], da.Array)
-    assert lazy.G.X.chunksize == (chunks or lazy.G.shape)
-    for name in ("G", "C"):
+    assert isinstance(lazy.D.X, da.Array)
+    assert isinstance(lazy.D.layers["dosage"], da.Array)
+    assert lazy.D.X.chunksize == (chunks or lazy.D.shape)
+    assert sp.issparse(lazy.C.X)
+    for name in ("D", "C"):
         a, b = getattr(lazy, name), getattr(eager, name)
         np.testing.assert_array_equal(_dense(a.X), _dense(b.X))
         pd.testing.assert_frame_equal(a.obs, b.obs)
         pd.testing.assert_frame_equal(a.var, b.var)
-    np.testing.assert_array_equal(_dense(lazy.G.layers["dosage"]), eager.G.layers["dosage"])
-    np.testing.assert_array_equal(_dense(lazy.G[1:4, 2:9].X), eager.G.X[1:4, 2:9])
-    assert isinstance(read_dd(path, lazy=True).G.X, da.Array)
-    assert not isinstance(read_dd(path).G.X, da.Array)
+    np.testing.assert_array_equal(_dense(lazy.D.layers["dosage"]), eager.D.layers["dosage"])
+    np.testing.assert_array_equal(_dense(lazy.D[1:4, 2:9].X), eager.D.X[1:4, 2:9])
+    assert isinstance(read_dd(path, lazy=True).D.X, da.Array)
+    assert not isinstance(read_dd(path).D.X, da.Array)
 
-    to_plink(lazy.G, output_prefix=str(tmp_path / "lazy"))
-    to_plink(eager.G, output_prefix=str(tmp_path / "eager"))
+    to_plink(lazy.D, output_prefix=str(tmp_path / "lazy"))
+    to_plink(eager.D, output_prefix=str(tmp_path / "eager"))
     for ext in ("bed", "bim", "fam"):
         assert (tmp_path / f"lazy.{ext}").read_bytes() == (tmp_path / f"eager.{ext}").read_bytes()
     if importlib.util.find_spec("pgenlib") is not None:
-        to_pgen(lazy.G, str(tmp_path / "lazy"))
-        to_pgen(eager.G, str(tmp_path / "eager"))
+        to_pgen(lazy.D, str(tmp_path / "lazy"))
+        to_pgen(eager.D, str(tmp_path / "eager"))
         for ext in ("pgen", "pvar", "psam"):
             assert (tmp_path / f"lazy.{ext}").read_bytes() == (tmp_path / f"eager.{ext}").read_bytes()
-
-
-@pytest.mark.slow
-def test_read_zarr_dd(tmp_path, adata, gdata):
-    output_path = tmp_path / "donordata.dd.zarr"
-
-    dd = DonorData(G=gdata, C=adata)
-    dd.write_zarr_dd(str(output_path))
-
-    dd_loaded = read_zarr_dd(str(output_path))
-
-    assert dd_loaded.C.shape == dd.C.shape
-    assert dd_loaded.G.shape == dd.G.shape
 
 
 @pytest.mark.slow

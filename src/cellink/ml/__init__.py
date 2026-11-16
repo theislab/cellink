@@ -1,13 +1,14 @@
 import importlib
 from typing import Any
 
-__all__ = ["MILDataset", "mil_collate_fn", "DonorMILModel"]
+__all__ = ["MILDataset", "mil_collate_fn", "get_array", "DonorMILModel"]
 
 # map public names to their source submodule
 _submodules = {
-    "MILDataset": "dataset",
-    "mil_collate_fn": "dataset",
-    "DonorMILModel": "model",
+    "MILDataset": "donordata.ml",
+    "mil_collate_fn": "donordata.ml",
+    "get_array": "donordata.ml",
+    "DonorMILModel": "cellink.ml.model",
 }
 
 
@@ -21,11 +22,11 @@ def __getattr__(name: str) -> Any:
     if name in _submodules:
         module_name = _submodules[name]
         try:
-            module = importlib.import_module(f"{__name__}.{module_name}")
+            module = importlib.import_module(module_name)
             return getattr(module, name)
         except ImportError as e:
             raise ImportError(
-                f"Cannot import `{name}` from `cellink.ml.{module_name}`: "
+                f"Cannot import `{name}` from `{module_name}`: "
                 "this feature requires `torch` and `pytorch-lightning`. "
                 "Install with:\n\n    pip install 'cellink-tools[ml]'"
             ) from e

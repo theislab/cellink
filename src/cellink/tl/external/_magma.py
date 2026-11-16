@@ -9,6 +9,7 @@ import pandas as pd
 
 from cellink._config import load_config
 from cellink._core import DonorData
+from cellink._core.schema import require_genotypes
 from cellink.resources._utils import _download_file, get_data_home
 
 from ._biomart import query_biomart
@@ -433,11 +434,12 @@ def prepare_magma_inputs(
 
         from cellink.io import to_plink
 
-        maf = dd.G.X.sum(axis=0) / (2 * dd.G.n_obs)
+        genotypes = require_genotypes(dd)
+        maf = genotypes.X.sum(axis=0) / (2 * genotypes.n_obs)
         maf = np.minimum(maf, 1 - maf)
         common_variants = maf > 0.01
 
-        gdata = dd.G[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.G
+        gdata = genotypes[:, common_variants].copy() if common_variants.sum() < len(maf) else genotypes
         logger.info(f"Exporting {common_variants.sum()} common variants (MAF > 0.01) " f"out of {len(maf)} total")
         to_plink(gdata, str(ld_ref_prefix))
         logger.info(f"Created PLINK files: {ld_ref_prefix}.{{bed,bim,fam}}")

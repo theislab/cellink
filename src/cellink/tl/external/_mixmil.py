@@ -1,13 +1,11 @@
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-import numpy as np
 import scanpy as sc
 import torch
 from anndata.utils import asarray
 
 from cellink._core import DonorData
-from cellink._core.data_fields import DAnn
 
 if TYPE_CHECKING:
     from mixmil import MixMIL
@@ -15,10 +13,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _bags(dd: DonorData, embedding_key: str, dtype: str) -> list[torch.Tensor]:
+    """Embeddings of the cells of every donor, one bag per row of `dd.D`."""
+    X = dd.C.obsm[embedding_key].astype(dtype)
+    offsets = dd.cell_offsets
+    return [torch.from_numpy(X[start:end]) for start, end in zip(offsets[:-1], offsets[1:], strict=True)]
+
+
 def run_mixmil(
     dd: DonorData,
     n_pcs: int = 50,
-    donor_key: str = DAnn.donor,
     bag_phenotype_key: str = None,
     embedding_key: str = "X_pca",
     likelihood: Literal["binomial", "categorical"] | None = "binomial",
@@ -41,7 +45,7 @@ def run_mixmil(
     n_pcs : int, default=50
         Number of principal components to compute if not already present.
     bag_phenotype_key : str
-        Column name in dd.G.obs for bag-level phenotype.
+        Column name in dd.D.obs for bag-level phenotype.
     likelihood : {'binomial', 'categorical'}, optional
         Likelihood model for training.
     n_trials : int, optional
@@ -57,7 +61,7 @@ def run_mixmil(
     encode_age : bool, default=True
         Whether to include age as a covariate.
     additional_covariates : list of str, optional
-        List of additional column names in dd.G.obs or dd.G.obsm to include as covariates.
+        List of additional column names in dd.D.obs or dd.D.obsm to include as covariates.
 
     Returns
     -------
@@ -77,10 +81,7 @@ def run_mixmil(
         logger.info("Calculating PCA.")
         sc.pp.pca(dd.C, n_comps=n_pcs)
 
-    iidx = dd.C.obs[donor_key].astype("category").cat.codes
-    indptr = np.concatenate([[0], np.cumsum(np.bincount(iidx))])
-    X = dd.C.obsm[embedding_key].astype(dtype)
-    Xs = [torch.from_numpy(X[start:end]) for start, end in zip(indptr[:-1], indptr[1:], strict=True)]
+    Xs = _bags(dd, embedding_key, dtype)
 
     dtype = getattr(torch, dtype)
     covariate_list = []
@@ -88,12 +89,12 @@ def run_mixmil(
 
     if encode_sex:
         sex_tensor = torch.unsqueeze(
-            torch.tensor(dd.G.obs["sex"].astype("category").cat.codes.values, dtype=dtype), dim=1
+            torch.tensor(dd.D.obs["sex"].astype("category").cat.codes.values, dtype=dtype), dim=1
         )
         covariate_list.append(sex_tensor)
 
     if encode_age:
-        age_tensor = torch.tensor(dd.G.obs[["age"]].values, dtype=dtype)
+        age_tensor = torch.tensor(dd.D.obs[["age"]].values, dtype=dtype)
         mean = age_tensor.mean()
         std = age_tensor.std()
         tolerance = 1e-2
@@ -107,21 +108,21 @@ def run_mixmil(
 
     if additional_covariates:
         for cov in additional_covariates:
-            if cov in dd.G.obs.columns:
-                covariate = torch.from_numpy(dd.G.obs[[cov]].values.astype("float32"))
+            if cov in dd.D.obs.columns:
+                covariate = torch.from_numpy(dd.D.obs[[cov]].values.astype("float32"))
                 covariate_list.append(covariate)
-            elif cov in dd.G.obsm:
-                covariate = torch.from_numpy(asarray(dd.G.obsm[cov]).astype("float32"))
+            elif cov in dd.D.obsm:
+                covariate = torch.from_numpy(asarray(dd.D.obsm[cov]).astype("float32"))
                 covariate_list.append(covariate)
             else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
 
     F = torch.cat(covariate_list, axis=1)
 
-    if bag_phenotype_key in dd.G.var.index:
-        Y = torch.tensor(asarray(dd.G.X[:, dd.G.var.index.get_indexer([bag_phenotype_key])]))
+    if bag_phenotype_key in dd.D.var.index:
+        Y = torch.tensor(asarray(dd.D.X[:, dd.D.var.index.get_indexer([bag_phenotype_key])]))
     else:
-        Y = torch.unsqueeze(torch.tensor(dd.G.obs[bag_phenotype_key], dtype=torch.float32), dim=1)
+        Y = torch.unsqueeze(torch.tensor(dd.D.obs[bag_phenotype_key], dtype=torch.float32), dim=1)
 
     if likelihood is not None:
         model = MixMIL.init_with_mean_model(Xs, F, Y, likelihood=likelihood, n_trials=n_trials)

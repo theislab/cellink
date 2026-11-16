@@ -93,3 +93,35 @@ def test_fetch_slot_plain_mudata():
 
     result = fetch_slot(mdata, "pheno")
     np.testing.assert_array_equal(result.to_numpy(), np.arange(n))
+
+
+def _donor_table_dd():
+    from cellink import DonorData
+
+    donors = pd.DataFrame({"age": np.arange(10.0)}, index=pd.Index([f"D{i}" for i in range(10)], name="donor_id"))
+    dd = DonorData(D=donors, C=sim_adata())
+    dd.obsm["gPCs"] = np.arange(20.0).reshape(10, 2)
+    return dd
+
+
+def test_fetch_slot_donor_level():
+    from cellink import DonorData
+    from cellink._core.dummy_data import sim_gdata
+
+    adata = sim_adata()
+    gdata = sim_gdata(adata=adata)
+    gdata.obs["age"] = np.arange(gdata.n_obs, dtype=float)
+    dd = DonorData(D=gdata, C=adata)
+    result = fetch_slot(dd, "age")
+    assert result.attrs["axis"] == "obs"
+    pd.testing.assert_series_equal(result, dd.D.obs["age"])
+    assert len(fetch_slot(dd, "celltype")) == dd.n_cells
+
+
+def test_fetch_slot_donor_table():
+    dd = _donor_table_dd()
+    result = fetch_slot(dd, "age")
+    assert result.attrs["axis"] == "obs"
+    pd.testing.assert_series_equal(result, dd.D["age"])
+    np.testing.assert_array_equal(fetch_slot(dd, "gPCs").to_numpy(), dd.obsm["gPCs"])
+    np.testing.assert_array_equal(fetch_slot(dd, "gPCs_1").to_numpy(), dd.obsm["gPCs"][:, 1])
