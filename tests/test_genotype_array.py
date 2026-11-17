@@ -356,3 +356,32 @@ def test_read_zarr_dd_rejects_a_store_whose_levels_do_not_match(tmp_path, adata,
     ad.io.write_elem(zarr.open_group(str(out / "C"), mode="r+"), "obs", obs)
     with pytest.raises(ValueError, match="do not match"):
         read_zarr_dd(str(out))
+
+
+def test_write_zarr_dd_writes_genotypes_block_by_block(tmp_path, monkeypatch):
+    import anndata as ad
+    import pandas as pd
+
+    x = np.random.default_rng(0).integers(0, 3, size=(6, 40), dtype=np.int8)
+    z = zarr.create_array(
+        store=str(tmp_path / "g.zarr"), shape=x.shape, chunks=(6, 8), dtype="int8", filters=[Pack2Bit()], fill_value=0
+    )
+    z[:] = x
+    G = ad.AnnData(
+        X=GenotypeArray.wrap(zarr.open_array(str(tmp_path / "g.zarr"), mode="r")),
+        obs=pd.DataFrame(index=[f"d{i}" for i in range(6)]),
+    )
+    C = ad.AnnData(
+        X=np.zeros((12, 1), dtype=np.float32),
+        obs=pd.DataFrame({"donor_id": [f"d{i % 6}" for i in range(12)]}, index=[f"c{i}" for i in range(12)]),
+    )
+    dd = DonorData(D=G, C=C, donor_id="donor_id")
+
+    def whole_matrix(self, dtype=None, copy=None):
+        raise AssertionError("the whole genotype matrix was read into memory")
+
+    monkeypatch.setattr(GenotypeArray, "__array__", whole_matrix)
+    write_zarr_dd(dd, str(tmp_path / "dd.zarr"), x_chunks={"D": (6, 8)})
+    monkeypatch.undo()
+    assert "cellink_pack2bit" in _codec_names(tmp_path / "dd.zarr" / "D" / "X")
+    np.testing.assert_array_equal(np.asarray(read_zarr_dd(str(tmp_path / "dd.zarr"), backend="zarr").D.X), x)
