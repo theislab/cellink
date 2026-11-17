@@ -619,7 +619,11 @@ def run_tensorqtl(
         project's own cis-mode runs silently used exactly that substitute
         for weeks before it was caught, hence no fallback exists anymore).
     window : int, default=1000000
-        Genomic window (in base pairs) around phenotype for filtering cis effects.
+        cis window in base pairs. Variants at 1-based positions in
+        ``[start - window, end + window]`` of the gene's ``dd.C.var`` ``start``/``end`` (1-based,
+        inclusive) are tested, i.e. the gene body ± ``window``; set ``start == end`` (e.g. the TSS)
+        for a window centred on one position. In ``mode="trans"`` pairs within this window are
+        removed (tensorQTL's command line always removes ±5 Mb instead).
     pval_threshold : float, default=1e-5
         P-value threshold for reporting significant QTL associations.
     maf_threshold : float, default=0
@@ -811,7 +815,16 @@ def run_tensorqtl(
         if importlib.util.find_spec("tensorqtl") is None:
             raise ImportError(missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl`"))
 
-        genotype_df = pd.DataFrame(dd.D.X.T, index=dd.D.var.index, columns=dd.D.obs.index)
+        X = dd.D.X
+        X = X.toarray() if hasattr(X, "toarray") else np.asarray(X)
+        # tensorQTL imputes only -9
+        if np.issubdtype(X.dtype, np.integer):
+            X = X.astype(np.int8, copy=True)
+            X[X < 0] = -9
+        else:
+            X = X.astype(np.float32, copy=True)
+            X[~np.isfinite(X) | (X < 0)] = -9
+        genotype_df = pd.DataFrame(X.T, index=dd.D.var.index, columns=dd.D.obs.index)
         variant_df = dd.D.var[["chrom", "pos"]].copy()
         variant_df["index"] = range(len(variant_df))
 
@@ -877,6 +890,8 @@ def run_tensorqtl(
     if not os.path.isfile(f"{prefix}_phenotype.bed.gz") or overwrite_phenotype_export:
         phenotype_write_df = pd.concat([phenotype_pos_df, phenotype_df], axis=1)
         phenotype_write_df = phenotype_write_df.rename(columns={"chr": "#chr"})
+        # BED start is 0-based
+        phenotype_write_df["start"] = phenotype_write_df["start"] - 1
         # chromosomes in order of first appearance, genes sorted by position within each
         chrom_rank = pd.Categorical(
             phenotype_write_df["#chr"], categories=pd.unique(phenotype_write_df["#chr"]), ordered=True
