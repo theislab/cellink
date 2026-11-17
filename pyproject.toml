@@ -30,7 +30,7 @@ dependencies = [
   "adjusttext>=1.2",
   "anndata>=0.12.2",
   "dask[array]>=2024.12",
-  "donordata>=0.1.0",
+  "donordata @ git+https://github.com/theislab/donordata.git",
   "h5py>=3.12",
   "matplotlib>=3.10",
   "mudata>=0.3.1",
