@@ -118,6 +118,9 @@ def coloc_abf(
     for name, x in (("beta1", beta1), ("se1", se1), ("beta2", beta2), ("se2", se2)):
         if not np.all(np.isfinite(x)):
             raise ValueError(f"{name} contains missing or infinite values; drop those SNPs first.")
+    for name, x in (("se1", se1), ("se2", se2)):
+        if np.any(x <= 0):
+            raise ValueError(f"{name} has values <= 0 (often a missing-value code); drop those SNPs first.")
 
     l1 = _log_abf(beta1, se1, prior_var)
     l2 = _log_abf(beta2, se2, prior_var2 if prior_var2 is not None else prior_var)

@@ -1,3 +1,4 @@
+import copy
 import warnings
 from collections.abc import Iterator
 from typing import Literal
@@ -6,6 +7,7 @@ import anndata as ad
 import dask.array as da
 import donordata
 import numpy as np
+import scipy.sparse as sp
 import zarr
 from donordata import DonorData
 from mudata import MuData
@@ -263,12 +265,39 @@ def write_zarr_dd(
     """
     if genotype_encoding not in ("2bit", None):
         raise ValueError(f"genotype_encoding must be '2bit' or None, got {genotype_encoding!r}")
-    dd.write_zarr_dd(path, x_chunks=x_chunks)
-    if genotype_encoding is None or dd.D_type != "anndata":
+    if genotype_encoding is None or dd.D_type != "anndata" or not _is_dense(dd.D.X):
+        dd.write_zarr_dd(path, x_chunks=x_chunks)
         return
-    if isinstance(zarr.open_group(str(path), mode="r")["D"].get("X"), zarr.Array):
-        chunks = x_chunks.get("D") if isinstance(x_chunks, dict) else x_chunks
-        _write_genotypes(f"{path}/D/X", dd.D.X, chunks)
+    # the genotypes are written once, as 2-bit calls, one column block at a time
+    dd._check_not_reading_from(path)
+    X = dd.D.X
+    _without_genotypes(dd).write_zarr_dd(path, x_chunks=x_chunks)
+    chunks = x_chunks.get("D") if isinstance(x_chunks, dict) else x_chunks
+    _write_genotypes(f"{path}/D/X", X, chunks)
+
+
+def _is_dense(X) -> bool:
+    return hasattr(X, "ndim") and not sp.issparse(X) and not isinstance(X, ad.abc.CSRDataset | ad.abc.CSCDataset)
+
+
+def _without_genotypes(dd: DonorData) -> DonorData:
+    """A shallow copy of ``dd`` whose donor level has no `X`, for writing everything but the genotypes."""
+    D = dd.D
+    shell = ad.AnnData(
+        obs=D.obs,
+        var=D.var,
+        uns=dict(D.uns),
+        obsm=dict(D.obsm),
+        varm=dict(D.varm),
+        obsp=dict(D.obsp),
+        varp=dict(D.varp),
+        layers={k: v for k, v in D.layers.items() if k is not None},
+    )
+    if D.raw is not None:
+        shell.raw = D.raw.to_adata()
+    new = copy.copy(dd)
+    new.D = shell
+    return new
 
 
 def write_dd(dd: DonorData, path: str, fmt: Literal["h5", "zarr"] | None = None) -> None:

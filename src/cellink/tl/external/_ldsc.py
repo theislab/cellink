@@ -2204,16 +2204,20 @@ def estimate_celltype_specific_heritability(
         Prefix for regression weights (with @, e.g., "weights_hm3_no_hla/weights.").
         These are standard weights files from the LDSC resources.
     ref_ld_chr_cts : str
-        Path to control file listing cell-type-specific LD score prefixes.
-        This file should have two tab-separated columns per line:
-        - Cell type name
-        - Prefix for that cell type's LD scores (with @ for chromosome)
+        Path to the ``.ldcts`` file: one line per cell type with two tab-separated
+        columns, the cell type name and a comma-separated list of LD score prefixes.
+        The first prefix is the cell type annotation, whose coefficient is reported;
+        the second is the control annotation of all genes the cell type genes were
+        chosen from (same window), as in LDSC-SEG (Finucane et al. 2018). Without the
+        control, the coefficient also captures the enrichment of heritability near
+        genes in general that baseline-LD does not model. A warning is logged for
+        lines without a control.
 
         Example file content:
         ```
-        CD8_Naive    cts_ldscores/CD8_Naive.
-        CD4_Memory   cts_ldscores/CD4_Memory.
-        B_cells      cts_ldscores/B_cells.
+        CD8_Naive    cts_ldscores/CD8_Naive.,cts_ldscores/Control.
+        CD4_Memory   cts_ldscores/CD4_Memory.,cts_ldscores/Control.
+        B_cells      cts_ldscores/B_cells.,cts_ldscores/Control.
         ```
 
         LDSC will look for files like:
@@ -2224,7 +2228,7 @@ def estimate_celltype_specific_heritability(
         - {out_prefix}.cell_type_results.txt (main results)
         - {out_prefix}.log (log file)
     print_all_cts : bool, default False
-        Print results for all cell types (not just significant ones)
+        Also report the coefficients of the other prefixes on each line (e.g. the control).
     run : bool, default True
         Whether to execute the command or just return it
     runner : LDSCRunner, optional
@@ -2321,6 +2325,15 @@ def estimate_celltype_specific_heritability(
         raise ValueError("w_ld_chr is required")
     if not ref_ld_chr_cts:
         raise ValueError("ref_ld_chr_cts is required")
+    if os.path.isfile(os.path.expanduser(ref_ld_chr_cts)):
+        with open(os.path.expanduser(ref_ld_chr_cts)) as f:
+            no_control = [line.split()[0] for line in f if line.strip() and "," not in line.split()[-1]]
+        if no_control:
+            logger.warning(
+                f"{ref_ld_chr_cts}: {len(no_control)} line(s) list a single LD score prefix "
+                f"(e.g. {no_control[:3]}), without the all-genes control annotation of LDSC-SEG; "
+                "their coefficients also capture the enrichment of heritability near genes in general."
+            )
 
     cmd = (
         f"{runner.ldsc_command} --h2-cts {_q(sumstats_file)} "

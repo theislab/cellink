@@ -205,11 +205,13 @@ def run_scdrs(
     covariate_list = []
 
     if encode_sex and "sex" in adata.obs.columns:
-        sex_raw = adata.obs.loc[adata.obs_names, "sex"]
-        sex_codes = sex_raw.astype("category").cat.codes.astype(float)
-        sex_codes[sex_raw.isna()] = np.nan
-        if sex_codes.dropna().nunique() > 1:
-            covariate_list.append(pd.DataFrame(sex_codes, columns=["sex"], index=adata.obs_names))
+        sex_raw = adata.obs.loc[adata.obs_names, "sex"].astype("string").str.strip().str.lower()
+        sex_raw = sex_raw.mask(sex_raw.isin(["unknown", "na", "nan", "none", ""]))
+        levels = sorted(sex_raw.dropna().unique())
+        # One indicator per level after the first; ordinal codes would put "unknown" beyond "male".
+        for level in levels[1:]:
+            indicator = (sex_raw == level).astype(float).mask(sex_raw.isna())
+            covariate_list.append(pd.DataFrame({f"sex_{level}": indicator.to_numpy()}, index=adata.obs_names))
 
     if encode_age and "age" in adata.obs.columns:
         age_values = adata.obs.loc[adata.obs_names, "age"].values.astype(float)

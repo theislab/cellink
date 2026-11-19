@@ -396,7 +396,9 @@ def generate_sldsc_genesets(
             logger.info(f"Overlapping genes: {len(overlap)}/{specificity_df.shape[0]}")
             keep_mask = spec_upper.isin(overlap)
             specificity_df = specificity_df.loc[keep_mask].copy()
-            specificity_df.index = spec_upper[keep_mask].values  # normalized
+            # Write the IDs as given (case kept): make_annot.py matches them to the gene
+            # coordinate file case-sensitively, so upper-cased symbols (C1ORF112) would be lost.
+            specificity_df.index = spec_genes[keep_mask].values
 
     # ---- Select top genes per cell type ----
     n_genes = specificity_df.shape[0]
@@ -464,6 +466,13 @@ def _fetch_ensembl_annotation(
     logger.info(f"Fetching gene annotations from {genome_build}...")
     anno = query_biomart(attributes, genome_build=genome_build, dtype={"chromosome_name": str})
     anno = anno.rename(columns={"chromosome_name": "chrom", "start_position": "start", "end_position": "end"})
+    # Patches and alternative haplotypes (e.g. HSCHR6_MHC_COX) repeat primary-assembly genes; a
+    # gene whose first row is one of them gets no position on the 1000G chromosomes and escapes
+    # the MHC filter.
+    primary = {str(c) for c in range(1, 23)} | {"X", "Y", "MT"}
+    on_primary = anno["chrom"].astype(str).isin(primary)
+    logger.info(f"Dropping {int((~on_primary).sum()):,} rows on patches and alternative haplotypes")
+    anno = anno[on_primary]
 
     if gene_identifier_mode == "name":
         anno["gene"] = anno["hgnc_symbol"].replace("", pd.NA)
