@@ -12,6 +12,7 @@
 [![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache-2.0)
 [![Read the Docs](https://img.shields.io/readthedocs/cellink/latest.svg?label=Read%20the%20Docs)](https://cellink-docs.readthedocs.io/)
 [![Test](https://github.com/theislab/cellink/actions/workflows/test.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/test.yaml)
+[![PyPI](https://img.shields.io/pypi/v/cellink-tools.svg)](https://pypi.org/project/cellink-tools)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
 # cellink bridges donor genotypes and single-cell profiles for end-to-end single-cell genetics
