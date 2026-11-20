@@ -1,7 +1,7 @@
 <!-- logo-image-start -->
 
 <p align="center">
-  <img src="docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
+  <img src="https://raw.githubusercontent.com/theislab/cellink/main/docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
 </p>
 
 <br>
@@ -23,7 +23,7 @@ your data, and cellink takes care of the file formats and conventions each of th
 
 <!-- schematic-image-start -->
 
-![cellink overview](docs/_static/img/schematic_figure.png)
+![cellink overview](https://raw.githubusercontent.com/theislab/cellink/main/docs/_static/img/schematic_figure.png)
 
 <!-- schematic-image-end -->
 

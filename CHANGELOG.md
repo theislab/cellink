@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.1.0] - 2026-11-20
 
 ### Changed
 
+- Requires anndata 0.13.1 or newer, as DonorData does.
 - `DonorData` comes from the [DonorData](https://github.com/theislab/donordata) package. The donor level is `dd.D`
   instead of `dd.G`, and an optional sample level `S` is available.
 - `io.read_*_dd` and `io.write_*_dd` use DonorData's reading and writing and keep 2-bit genotype stores.

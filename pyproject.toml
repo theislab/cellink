@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "cellink-tools"
-version = "0.0.2"
+version = "0.1.0"
 description = "cellink enables genetic analyses on single-cell data"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -28,9 +28,9 @@ classifiers = [
 ]
 dependencies = [
   "adjusttext>=1.2",
-  "anndata>=0.12.2",
+  "anndata>=0.13.1",
   "dask[array]>=2024.12",
-  "donordata @ git+https://github.com/theislab/donordata.git",
+  "donordata>=0.1.0",
   "h5py>=3.12",
   "matplotlib>=3.10",
   "mudata>=0.3.1",
