@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 
-from cellink._core.donordata import DonorData
+from cellink._core import DonorData
 from cellink.tl.external._saigeqtl import SAIGEQTLRunner, make_group_file, run_saigeqtl
 
 LOCAL = {
@@ -28,7 +28,7 @@ def dd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
     gdata.obs["sex"] = np.resize([1, 2], gdata.n_obs)
     gdata.obs["age"] = np.linspace(30, 70, gdata.n_obs)
-    return DonorData(G=gdata, C=adata)
+    return DonorData(D=gdata, C=adata)
 
 
 @pytest.mark.parametrize("sparse", [False, True])
@@ -54,8 +54,8 @@ def test_set_based_without_group_file_raises(tmp_path, monkeypatch, dd, runner):
 
 def test_missing_sex_raises(tmp_path, monkeypatch, dd, runner):
     monkeypatch.chdir(tmp_path)
-    dd.G.obs["sex"] = dd.G.obs["sex"].astype(float)
-    dd.G.obs.iloc[0, dd.G.obs.columns.get_loc("sex")] = np.nan
+    dd.D.obs["sex"] = dd.D.obs["sex"].astype(float)
+    dd.D.obs.iloc[0, dd.D.obs.columns.get_loc("sex")] = np.nan
     with pytest.raises(ValueError, match="have no sex"):
         run_saigeqtl(dd, gene_col=dd.C.var_names[0], prefix="sq", run=False, runner=runner)
 

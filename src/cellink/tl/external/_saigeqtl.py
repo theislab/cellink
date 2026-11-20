@@ -10,6 +10,7 @@ from anndata.utils import asarray
 
 from cellink._config import load_config
 from cellink._core import DAnn, DonorData
+from cellink._core.schema import require_genotypes
 from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
 
@@ -124,7 +125,7 @@ def make_group_file(
     Parameters
     ----------
     dd : DonorData
-        DonorData object whose genotypes (`dd.G`) are exported to PLINK format for the group file.
+        DonorData object whose genotypes (`dd.D`) are exported to PLINK format for the group file.
     region_file : str
         Path to region file (chr, start, end; no header)
     output_prefix : str
@@ -156,7 +157,7 @@ def make_group_file(
         plink_export_kwargs = {}
 
     temp_prefix = f"{output_prefix}_temp"
-    to_plink(dd.G, temp_prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(dd), temp_prefix, **plink_export_kwargs)
     bed_file = f"{temp_prefix}.bed"
     bim_file = f"{temp_prefix}.bim"
     fam_file = f"{temp_prefix}.fam"
@@ -577,6 +578,7 @@ def run_saigeqtl(
         raise ValueError("analysis_type='set_based' needs `group_file` (build one with make_group_file).")
 
     if 1 in steps or 2 in steps:
+        require_genotypes(dd)
         if cell_covariates and "X_pca" in cell_covariates and "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA")
             sc.pp.pca(dd.C, n_comps=n_pcs)
@@ -590,33 +592,33 @@ def run_saigeqtl(
         sample_cov_list = []
         sample_cov_names = []
 
-        if encode_sex and "sex" in dd.G.obs.columns:
-            n_missing = int(dd.G.obs["sex"].isna().sum())
+        if encode_sex and "sex" in dd.D.obs.columns:
+            n_missing = int(dd.D.obs["sex"].isna().sum())
             if n_missing:
-                raise ValueError(f"{n_missing} donor(s) have no sex in dd.G.obs; drop them or pass encode_sex=False.")
-            sex_data = dd.G.obs["sex"].astype("category").cat.codes
-            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.G.obs.index))
+                raise ValueError(f"{n_missing} donor(s) have no sex in dd.D.obs; drop them or pass encode_sex=False.")
+            sex_data = dd.D.obs["sex"].astype("category").cat.codes
+            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.D.obs.index))
             sample_cov_names.append("sex")
 
-        if encode_age and "age" in dd.G.obs.columns:
-            age_data = dd.G.obs["age"].values.astype(dtype)
-            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=dd.G.obs.index))
+        if encode_age and "age" in dd.D.obs.columns:
+            age_data = dd.D.obs["age"].values.astype(dtype)
+            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=dd.D.obs.index))
             sample_cov_names.append("age")
 
         if sample_covariates:
             for cov in sample_covariates:
-                if cov in dd.G.obs.columns:
-                    cov_data = dd.G.obs[[cov]].astype(dtype)
+                if cov in dd.D.obs.columns:
+                    cov_data = dd.D.obs[[cov]].astype(dtype)
                     sample_cov_list.append(cov_data)
                     sample_cov_names.append(cov)
-                elif cov in dd.G.obsm:
-                    cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+                elif cov in dd.D.obsm:
+                    cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
                     if cov_matrix.ndim == 1:
-                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.G.obs.index))
+                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.D.obs.index))
                         sample_cov_names.append(cov)
                     else:
                         cov_df = pd.DataFrame(
-                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=dd.G.obs.index
+                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=dd.D.obs.index
                         )
                         sample_cov_list.append(cov_df)
                         sample_cov_names.extend([f"{cov}_{i}" for i in range(cov_matrix.shape[1])])
@@ -672,7 +674,7 @@ def run_saigeqtl(
         covar_cols = ",".join(all_cov_names) if all_cov_names else ""
         sample_covar_cols = ",".join(sample_cov_names) if sample_cov_names else ""
 
-        to_plink(dd.G, prefix, **plink_export_kwargs)
+        to_plink(dd.D, prefix, **plink_export_kwargs)
         fam = pd.read_csv(f"{prefix}.fam", delimiter="\t", header=None)
         fam.to_csv(f"{prefix}.fam", sep=" ", header=False, index=False)
         bim = pd.read_csv(f"{prefix}.bim", delimiter="\t", header=None)

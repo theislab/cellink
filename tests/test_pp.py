@@ -6,13 +6,8 @@ import numpy as np
 import pytest
 from scipy import stats
 
-from cellink import DonorData
-from cellink._core.dummy_data import sim_adata, sim_gdata
 from cellink.io import read_sgkit_zarr
 from cellink.pp import (
-    cell_level_obs_filter,
-    donor_level_obs_filter,
-    donor_level_var_filter,
     log_transform,
     low_abundance_filter,
     missing_values_filter,
@@ -172,28 +167,3 @@ def test_variant_qc_inplace_filters_caller():
     gdata = _genotypes()
     assert variant_qc(gdata, maf_threshold=0.01, hwe_pval_threshold=1e-6) is None
     assert list(gdata.var_names) == ["2"]
-
-
-def test_donordata_filters_inplace_filter_caller():
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    assert cell_level_obs_filter(dd, "celltype", "CD8") is None
-    assert set(dd.C.obs["celltype"]) == {"CD8"}
-
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    dd.G.obs["group"] = ["a" if i % 2 else "b" for i in range(dd.G.n_obs)]
-    donor_level_obs_filter(dd, "group", "a")
-    assert set(dd.G.obs["group"]) == {"a"}
-    assert set(dd.C.obs[dd.donor_id]) == set(dd.G.obs_names)
-
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    dd.G.var["kind"] = ["x", "y"] + ["x"] * (dd.G.n_vars - 2)
-    donor_level_var_filter(dd, donor_level_key="kind", donor_level_values="y")
-    assert dd.G.n_vars == 1
-
-
-def test_donordata_filter_inplace_false_leaves_input():
-    dd = DonorData(G=sim_gdata(), C=sim_adata())
-    n_cells = dd.C.n_obs
-    out = cell_level_obs_filter(dd, "celltype", ["CD8"], inplace=False)
-    assert dd.C.n_obs == n_cells
-    assert set(out.C.obs["celltype"]) == {"CD8"}

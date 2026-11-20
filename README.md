@@ -1,7 +1,7 @@
 <!-- logo-image-start -->
 
 <p align="center">
-  <img src="docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
+  <img src="https://raw.githubusercontent.com/theislab/cellink/main/docs/_static/img/cellink-logo.svg" alt="cellink" width="360">
 </p>
 
 <br>
@@ -12,6 +12,7 @@
 [![License](https://img.shields.io/github/license/theislab/cellink)](https://opensource.org/licenses/Apache-2.0)
 [![Read the Docs](https://img.shields.io/readthedocs/cellink/latest.svg?label=Read%20the%20Docs)](https://cellink-docs.readthedocs.io/)
 [![Test](https://github.com/theislab/cellink/actions/workflows/test.yaml/badge.svg)](https://github.com/theislab/cellink/actions/workflows/test.yaml)
+[![PyPI](https://img.shields.io/pypi/v/cellink-tools.svg)](https://pypi.org/project/cellink-tools)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
 
 # cellink bridges donor genotypes and single-cell profiles for end-to-end single-cell genetics
@@ -23,7 +24,7 @@ your data, and cellink takes care of the file formats and conventions each of th
 
 <!-- schematic-image-start -->
 
-![cellink overview](docs/_static/img/schematic_figure.png)
+![cellink overview](https://raw.githubusercontent.com/theislab/cellink/main/docs/_static/img/schematic_figure.png)
 
 <!-- schematic-image-end -->
 
@@ -40,7 +41,7 @@ import cellink as cl
 genotypes = cl.io.read_plink("cohort")
 dd = cl.DonorData(D=genotypes, C=adata, donor_id="individual")
 dd = dd[..., dd.C.obs["cell_type"] == "CD4 T", :]
-dd.write_dd("cohort.dd.zarr")
+cl.io.write_dd(dd, "cohort.dd.zarr")
 ```
 
 `DonorData` is imported from the [DonorData](https://github.com/theislab/donordata) package and is installed with cellink. The
@@ -90,8 +91,8 @@ pip install git+https://github.com/theislab/cellink.git@main
 
 The [installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) lists the optional extras
 for the external tools. If you are new to cellink, start with
-[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which builds an
-object from genotype and expression data, subsets it and saves it without running any analysis.
+[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which reads
+genotype files into an object, subsets it and saves it without running any analysis.
 
 ## Documentation
 

@@ -83,7 +83,7 @@ def test_donor_data_with_real_plink_export_is_not_whole_chromosome(runner, tmp_p
         obs=pd.DataFrame(index=[f"d{i}" for i in range(4)]),
         var=var,
     )
-    cmd = estimate_ld_scores_from_donor_data(SimpleNamespace(G=gdata), str(tmp_path / "ld"), run=False, runner=runner)[
+    cmd = estimate_ld_scores_from_donor_data(SimpleNamespace(D=gdata), str(tmp_path / "ld"), run=False, runner=runner)[
         "command"
     ]
     assert "--ld-wind-kb 1000" in cmd

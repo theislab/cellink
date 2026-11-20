@@ -13,6 +13,7 @@ import scanpy as sc
 from anndata.utils import asarray
 
 from cellink._core import DonorData
+from cellink._core.schema import require_genotypes
 from cellink._extras import install_hint
 from cellink.io import to_plink
 
@@ -193,7 +194,7 @@ def run_jaxqtl(
     Parameters
     ----------
     dd : DonorData
-        Object containing donor-level genotype (`dd.G`) and cell-level expression data (`dd.C`).
+        Object containing donor-level genotype (`dd.D`) and cell-level expression data (`dd.C`).
     mode : {'cis', 'nominal', 'trans'}, default='cis'
         The jaxQTL subcommand: ``cis`` reports the lead variant per gene with a gene-level p-value,
         ``nominal`` every cis variant-gene pair and ``trans`` a genome-wide scan.
@@ -221,15 +222,15 @@ def run_jaxqtl(
     tss_centered : bool, default=False
         Center the cis window on the TSS instead of spanning TSS to TES (``--tss-centered``).
     encode_sex : bool, default=True
-        If True, adds sex as a categorical covariate using `dd.G.obs['sex']`. Raises if any donor has no sex.
+        If True, adds sex as a categorical covariate using `dd.D.obs['sex']`. Raises if any donor has no sex.
     encode_age : bool, default=True
-        If True, adds age as a numeric covariate from `dd.G.obs['age']`.
+        If True, adds age as a numeric covariate from `dd.D.obs['age']`.
     additional_covariates : list of str, optional
-        Columns of `dd.G.obs` or keys of `dd.G.obsm` to add as covariates. Non-numeric columns are
+        Columns of `dd.D.obs` or keys of `dd.D.obsm` to add as covariates. Non-numeric columns are
         written as text and need `one_hot`.
     n_pcs : int, default=50
         Number of principal components computed from the single-cell expression data and donor-aggregated
-        (mean) into dd.G.obsm["X_pca"], only when "X_pca" is listed in `additional_covariates`.
+        (mean) into dd.D.obsm["X_pca"], only when "X_pca" is listed in `additional_covariates`.
     dtype : str, default='float32'
         Data type of the numeric covariates.
     covar_name : sequence of str, optional
@@ -358,6 +359,7 @@ def run_jaxqtl(
     record, which PGEN files store only for variants with non-integer values, so `run_jaxqtl` tests
     hard calls.
     """
+    require_genotypes(dd)
     for name, value in (
         ("mode", mode),
         ("model", model),
@@ -428,14 +430,14 @@ def run_jaxqtl(
         if "X_pca" not in dd.C.obsm:
             logger.info("Calculating PCA.")
             sc.pp.pca(dd.C, n_comps=n_pcs)
-        if "X_pca" not in dd.G.obsm:
+        if "X_pca" not in dd.D.obsm:
             dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     if count_model:
         dd.aggregate(key_added="PB", layer=counts_layer, func="sum", sync_var=True, verbose=True)
     else:
         dd.aggregate(key_added="PB", sync_var=True, verbose=True)
-    phenotype_df = dd.G.obsm["PB"].T
+    phenotype_df = dd.D.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
     if count_model:
         values = phenotype_df.to_numpy(dtype=float)
@@ -466,19 +468,19 @@ def run_jaxqtl(
         covariate_list = []
 
         if encode_sex:
-            n_missing = int(dd.G.obs["sex"].isna().sum())
+            n_missing = int(dd.D.obs["sex"].isna().sum())
             if n_missing:
-                raise ValueError(f"{n_missing} donor(s) have no sex in dd.G.obs; drop them or pass encode_sex=False.")
-            sex_codes = dd.G.obs["sex"].astype("category").cat.codes
+                raise ValueError(f"{n_missing} donor(s) have no sex in dd.D.obs; drop them or pass encode_sex=False.")
+            sex_codes = dd.D.obs["sex"].astype("category").cat.codes
             covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
         if encode_age:
-            age_values = dd.G.obs[["age"]].values.astype(dtype)
+            age_values = dd.D.obs[["age"]].values.astype(dtype)
             covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
         for cov in additional_covariates or []:
-            if cov in dd.G.obs.columns:
-                column = dd.G.obs[cov]
+            if cov in dd.D.obs.columns:
+                column = dd.D.obs[cov]
                 if pd.api.types.is_numeric_dtype(column) and not pd.api.types.is_bool_dtype(column):
                     values = column.to_numpy().astype(dtype)
                 elif one_hot:
@@ -486,8 +488,8 @@ def run_jaxqtl(
                 else:
                     raise ValueError(f"Covariate '{cov}' is not numeric; pass one_hot=True to one-hot encode it.")
                 covariate_list.append(pd.DataFrame({cov: values}, index=phenotype_df.columns))
-            elif cov in dd.G.obsm:
-                cov_matrix = asarray(dd.G.obsm[cov]).astype(dtype)
+            elif cov in dd.D.obsm:
+                cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
                 if cov_matrix.ndim == 1:
                     covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                 else:
@@ -499,7 +501,7 @@ def run_jaxqtl(
                         )
                     )
             else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.G.obs or dd.G.obsm.")
+                raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
 
         covariates_df = (
             pd.concat(covariate_list, axis=1) if covariate_list else pd.DataFrame(index=phenotype_df.columns)
@@ -514,7 +516,7 @@ def run_jaxqtl(
 
     geno_ext = (".bed", ".bim", ".fam")
     if not all(os.path.isfile(prefix + ext) for ext in geno_ext) or overwrite_plink_export:
-        to_plink(dd.G, prefix, **plink_export_kwargs)
+        to_plink(dd.D, prefix, **plink_export_kwargs)
 
     written = [pheno, covar, *(prefix + ext for ext in geno_ext)]
     keep_file = exclude_file = None

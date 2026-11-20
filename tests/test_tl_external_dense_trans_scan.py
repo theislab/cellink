@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cellink._core.donordata import DonorData
+from cellink._core import DonorData
 from cellink.tl.external._tensorqtl import _ensure_tensorqtl_importable, run_dense_trans_scan
 
 _ensure_tensorqtl_importable()  # tensorqtl imports pandas-plink at module level
@@ -13,7 +13,7 @@ pytest.importorskip("tensorqtl", reason="tensorqtl not installed")
 @pytest.fixture
 def dd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
-    return DonorData(G=gdata, C=adata)
+    return DonorData(D=gdata, C=adata)
 
 
 @pytest.fixture
@@ -23,11 +23,11 @@ def far_variant_id(dd):
     be dropped by tensorqtl's own cis-window filter, unlike `dummy_data`'s
     default variant placement (deliberately inside some gene's window, to
     exercise cis-mode tests elsewhere)."""
-    variant_id = dd.G.var_names[0]
+    variant_id = dd.D.var_names[0]
     far_pos = int(dd.C.var["end"].max()) + 10_000_000
-    dd.G.var.loc[variant_id, "pos"] = far_pos
+    dd.D.var.loc[variant_id, "pos"] = far_pos
     # the simulated genotypes are random; a monomorphic variant has no association to report
-    dd.G.X[:, 0] = np.resize([0, 1, 2], dd.G.n_obs)
+    dd.D.X[:, 0] = np.resize([0, 1, 2], dd.D.n_obs)
     return variant_id
 
 
@@ -64,7 +64,7 @@ def test_run_dense_trans_scan_logs_gene_of_interest_rank(dd, far_variant_id, cap
 
 
 def test_run_dense_trans_scan_warns_on_missing_gene_of_interest(dd, caplog):
-    variant_id = dd.G.var_names[0]
+    variant_id = dd.D.var_names[0]
     with caplog.at_level("WARNING", logger="cellink.tl.external._tensorqtl"):
         run_dense_trans_scan(
             dd, variant_id=variant_id, gene_of_interest="not-a-real-gene",

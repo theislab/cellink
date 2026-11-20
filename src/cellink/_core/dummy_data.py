@@ -145,18 +145,18 @@ def sim_mudata(
         - 'donor_id'
     """
     rna = sim_adata(
-        n_donors=N_DONORS,
-        n_genes=N_GENES,
-        min_n_cells=MIN_N_CELLS,
-        max_n_cells=MAX_N_CELLS,
+        n_donors=n_donors,
+        n_genes=n_genes,
+        min_n_cells=min_n_cells,
+        max_n_cells=max_n_cells,
         strategy="negative_binomial",
     )
     atac = sim_adata(
-        n_donors=N_DONORS, n_genes=N_PEAKS, min_n_cells=MIN_N_CELLS, max_n_cells=MAX_N_CELLS, strategy="binomial"
+        n_donors=n_donors, n_genes=n_peaks, min_n_cells=min_n_cells, max_n_cells=max_n_cells, strategy="binomial"
     )
     adata = MuData({"rna": rna, "atac": atac})
-    adata.obs["celltype"] = adata.obs["rna:celltype"]
-    adata.obs["donor_id"] = adata.obs["rna:donor_id"]
+    adata.obs["celltype"] = rna.obs["celltype"].reindex(adata.obs_names)
+    adata.obs["donor_id"] = rna.obs["donor_id"].reindex(adata.obs_names)
     return adata
 
 

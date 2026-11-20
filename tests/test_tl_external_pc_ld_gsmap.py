@@ -5,7 +5,7 @@ import gzip
 import pandas as pd
 import pytest
 
-from cellink._core.donordata import DonorData
+from cellink._core import DonorData
 from cellink.tl.external._gsmap import load_gsmap_results
 from cellink.tl.external._ld import calculate_ld
 from cellink.tl.external._pc import calculate_pcs
@@ -14,7 +14,7 @@ from cellink.tl.external._pc import calculate_pcs
 @pytest.fixture
 def dd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
-    return DonorData(G=gdata, C=adata)
+    return DonorData(D=gdata, C=adata)
 
 
 def test_calculate_pcs_command_construction(dd, tmp_path):

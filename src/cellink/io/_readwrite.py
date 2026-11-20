@@ -1,19 +1,19 @@
+import copy
 import warnings
+from collections.abc import Iterator
 from typing import Literal
 
-import h5py
+import anndata as ad
+import dask.array as da
+import donordata
+import numpy as np
+import scipy.sparse as sp
 import zarr
-from anndata._io.zarr import read_dataframe
-from anndata._types import StorageType
-from anndata.compat import _read_attr
-from anndata.experimental import read_dispatched
-from anndata.io import read_elem
-from mudata._core.io import _read_h5mu_mod
-from mudata._core.mudata import ModDict, MuData
+from donordata import DonorData
+from mudata import MuData
 
-from cellink._core import DonorData
-from cellink._core.schema import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VERSION
-from cellink.io._pgen import lazy_anndata_zarr_callback
+from cellink.io._codecs import Pack2Bit, to_genotype_codes
+from cellink.io._pgen import _lazy_matrix, _missing_to_nan
 
 warnings.filterwarnings(
     "ignore",
@@ -21,155 +21,61 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+_LEVEL_GROUPS = {"donor": "D", "sample": "S", "cell": "C"}
 
-def _read_mudata(group: StorageType, backed: bool = True) -> MuData:
-    """
-    Internal function to read a MuData object from a storage group (HDF5 or Zarr).
 
-    This function reconstructs a MuData object from its serialized representation
-    inside an HDF5 or Zarr group. It handles subcomponents such as observations,
-    variables, modalities (`mod`), and additional elements stored in the group.
-
-    Parameters
-    ----------
-    group : StorageType
-        Storage group (HDF5 or Zarr) containing the serialized MuData structure.
-    backed : bool, default=True
-        If True, enables reading in backed mode for efficiency. Currently only
-        affects reading of AnnData modalities.
-
-    Returns
-    -------
-    MuData
-        A MuData object reconstructed from the storage group.
-
-    Notes
-    -----
-    - Adapted from `mudata._core.io.read_h5mu`.
-    - Preserves modality ordering if the `mod-order` attribute is present in the group.
-    """
-    d = {}
-    for k in group.keys():
-        if k in ["obs", "var"]:
-            d[k] = read_dataframe(group[k])
-        if k == "mod":
-            mods = ModDict()
-            gmods = group[k]
-            for m in gmods.keys():
-                ad = _read_h5mu_mod(gmods[m], None, False)
-                mods[m] = ad
-
-            mod_order = None
-            if "mod-order" in gmods.attrs:
-                mod_order = _read_attr(gmods.attrs, "mod-order")
-            if mod_order is not None and all(m in gmods for m in mod_order):
-                mods = {k: mods[k] for k in mod_order}
-
-            d[k] = mods
+def _anndatas(dd: DonorData, f: zarr.Group | None = None) -> Iterator[tuple[ad.AnnData, zarr.Group | None]]:
+    """Yield every AnnData of ``dd``, and the modalities of MuData levels, with its group in the store ``f``."""
+    for level, container in dd.levels.items():
+        group = None
+        if f is not None:
+            key = _LEVEL_GROUPS[level]
+            group = f[key] if key in f or level != "donor" else f["G"]
+        if isinstance(container, MuData):
+            for name, mod in container.mod.items():
+                yield mod, None if group is None else group["mod"][name]
         else:
-            d[k] = read_elem(group[k])
+            yield container, group
 
-    if "axis" in group.attrs:
-        d["axis"] = group.attrs["axis"]
 
-    if hasattr(MuData, "_init_from_dict_"):
-        mu = MuData._init_from_dict_(**d)          # mudata < 0.4
+def _set_matrix(adata: ad.AnnData, name: str, value) -> None:
+    if name == "X":
+        adata.X = value
     else:
-        d["data"] = d.pop("mod", ModDict())        # mudata >= 0.4
-        mu = MuData(**d)
-    return mu
+        adata.layers[name.removeprefix("layers/")] = value
 
 
-def _read_dd(
-    f: h5py.File, lazy: bool = False, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None
-) -> DonorData:
+def _matrices(adata: ad.AnnData) -> list[tuple[str, object]]:
+    layers = [(f"layers/{key}", value) for key, value in adata.layers.items() if key is not None]
+    return [("X", adata.X), *layers]
+
+
+def _restore_matrices(
+    dd: DonorData,
+    f: zarr.Group | None = None,
+    backend: Literal["dask", "zarr"] = "dask",
+    n_threads: int | None = None,
+) -> None:
+    """Load sparse `X` and layers into memory and, from the Zarr store ``f``, back dense ones with cellink's reader.
+
+    Missing calls of a 2-bit `D.X` become ``nan``, unless ``backend="zarr"``.
     """
-    Internal function to read a DonorData object from an HDF5 or Zarr group.
-
-    Reads donor-level genotype data (`G`) and cell-level expression data (`C`),
-    reconstructs them as either AnnData or MuData objects, and collects additional
-    attributes such as donor ID, synchronized variable dimensions, and unstructured
-    metadata.
-
-    Parameters
-    ----------
-    f : h5py.File or zarr.Group
-        An open HDF5 file handle or Zarr group containing the DonorData object.
-    lazy : bool, default=False
-        If True, read `G`/`C` via :func:`lazy_anndata_zarr_callback`
-        so a dense `X` stays Dask-backed instead of being materialized, which
-        lets callers select a subset (e.g. one cell type) before ever loading
-        the full array into memory.
-    backend : {"dask", "zarr"}
-        Backing of a dense `X`/`layers` entry of a Zarr store when ``lazy``; see
-        :func:`cellink.io.read_pgen_zarr`. HDF5 datasets become Dask arrays.
-    n_threads : int, optional
-        Threads for ``backend="zarr"`` genotype reads.
-
-    Returns
-    -------
-    DonorData
-        A DonorData object with genotype (`G`), cell expression (`C`), donor metadata,
-        and unstructured annotations.
-
-    Raises
-    ------
-    ValueError
-        If the encoding type of `G` or `C` is not recognized.
-    """
-
-    def _callback(func, name, elem, iospec):
-        return lazy_anndata_zarr_callback(func, name, elem, iospec, backend=backend, n_threads=n_threads)
-
-    def _read_anndata(group):
-        return read_dispatched(group, callback=_callback) if lazy else read_elem(group)
-
-    top_encoding_type = f.attrs.get("encoding-type")
-    if top_encoding_type is not None and top_encoding_type != DONORDATA_ENCODING_TYPE:
-        raise ValueError(
-            f"Expected encoding-type={DONORDATA_ENCODING_TYPE!r} at the top level of a DonorData "
-            f"file, found {top_encoding_type!r}; this file was not written by DonorData.write_h5_dd/"
-            "write_zarr_dd."
-        )
-    top_encoding_version = f.attrs.get("encoding-version")
-    if top_encoding_version is not None and top_encoding_version != DONORDATA_ENCODING_VERSION:
-        warnings.warn(
-            f"DonorData file has encoding-version={top_encoding_version!r}, this cellink reads "
-            f"encoding-version={DONORDATA_ENCODING_VERSION!r}; reading anyway, but downstream "
-            "behavior for older/newer schema versions is not guaranteed.",
-            stacklevel=2,
-        )
-
-    if f["G"].attrs.get("encoding-type") == "MuData":
-        G = _read_mudata(group=f["G"])
-    elif f["G"].attrs.get("encoding-type") == "anndata":
-        G = _read_anndata(f["G"])
-    else:
-        raise ValueError("Unknown encoding type for G")
-
-    if f["C"].attrs.get("encoding-type") == "MuData":
-        C = _read_mudata(group=f["C"])
-    elif f["C"].attrs.get("encoding-type") == "anndata":
-        C = _read_anndata(f["C"])
-    else:
-        raise ValueError("Unknown encoding type for C")
-
-    donor_id = f.attrs.get("donor_id", "donor")
-    var_dims_to_sync = list(f.attrs.get("var_dims_to_sync", []))
-
-    uns = {}
-    uns_group = f.get("uns")
-    if uns_group:
-        for key in uns_group:
-            node = uns_group[key]
-            try:
-                uns[key] = read_elem(node)
-            except Exception:
-                uns[key] = node[()] if hasattr(node, "shape") else node
-
-    dd = DonorData(G=G, C=C, donor_id=donor_id, var_dims_to_sync=var_dims_to_sync, uns=uns)
-
-    return dd
+    donor_level = dd.levels["donor"]
+    for adata, group in _anndatas(dd, f):
+        for name, value in _matrices(adata):
+            if isinstance(value, ad.abc.CSRDataset | ad.abc.CSCDataset):
+                _set_matrix(adata, name, value.to_memory())
+            elif group is not None and isinstance(value, da.Array) and isinstance(group.get(name), zarr.Array):
+                if adata.is_view:
+                    raise ValueError(
+                        "The levels of this store do not match, so DonorData dropped or reordered units while "
+                        "reading it. Read it with donordata.read_zarr_dd and write it again."
+                    )
+                stored = group[name]
+                matrix = _lazy_matrix(stored, backend, n_threads)
+                if adata is donor_level and name == "X" and backend != "zarr":
+                    matrix = _two_bit_missing_to_nan(stored, matrix)
+                _set_matrix(adata, name, matrix)
 
 
 def read_h5_dd(path: str, lazy: bool = False) -> DonorData:
@@ -181,37 +87,39 @@ def read_h5_dd(path: str, lazy: bool = False) -> DonorData:
     path : str
         Path to the HDF5 file containing serialized DonorData.
     lazy : bool, default=False
-        If True, a dense `X` and dense layers of `G` and `C` are Dask arrays that read
+        If True, a dense `X` and dense layers of every level are Dask arrays that read
         their blocks from the file when they are computed, as with :func:`read_zarr_dd`,
         so a subset can be selected before any genotypes are loaded. Blocks follow the
         HDF5 chunks, or span at most 4096 rows and columns for unchunked datasets. The
-        file must stay in place while these arrays are used. Sparse matrices, MuData
-        modalities and all annotations are read into memory.
+        file must stay in place while these arrays are used. Sparse matrices and all
+        annotations are read into memory.
 
     Returns
     -------
     DonorData
-        A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
+        A DonorData object with genotype (`D`), cell expression (`C`), and metadata.
     """
-    with h5py.File(path, "r") as f:
-        return _read_dd(f, lazy=lazy)
+    dd = donordata.read_h5_dd(path, lazy=lazy)
+    if lazy:
+        _restore_matrices(dd)
+    return dd
 
 
 def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None) -> DonorData:
     """
     Read a DonorData object from a Zarr store on disk.
 
-    `G` and `C` are read lazily: a dense `X` stays Dask-backed rather than
-    being materialized on load, so a caller can select a subset (e.g. one
-    cell type via ``dd.sel(C_obs=...)``) and only that subset is ever read
-    off disk once it's actually computed/materialized.
+    A dense `X` stays lazily backed rather than being materialized on load, so a
+    caller can select a subset (e.g. one cell type via ``dd.sel(C_obs=...)``) and
+    only that subset is ever read off disk once it's actually computed/materialized.
+    Sparse matrices and all annotations are read into memory.
 
     Parameters
     ----------
     path : str
         Path to the Zarr store containing serialized DonorData.
     backend : {"dask", "zarr"}
-        Backing of a dense `X`/`layers` entry. ``"zarr"`` gives `G.X` the parallel
+        Backing of a dense `X`/`layers` entry. ``"zarr"`` gives `D.X` the parallel
         genotype reader (:func:`cellink.io.read_pgen_zarr`), fastest for subsetting donors.
     n_threads : int, optional
         Threads for ``backend="zarr"`` genotype reads. Default: available cores, at most 16.
@@ -219,15 +127,13 @@ def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads
     Returns
     -------
     DonorData
-        A DonorData object with genotype (`G`), cell expression (`C`), and metadata.
-        Missing genotype calls of a 2-bit `G.X` (see :meth:`cellink.DonorData.write_zarr_dd`)
-        are ``nan`` and `G.X` is float32; with ``backend="zarr"`` `G.X` holds the
+        A DonorData object with genotype (`D`), cell expression (`C`), and metadata.
+        Missing genotype calls of a 2-bit `D.X` (see :func:`cellink.io.write_zarr_dd`)
+        are ``nan`` and `D.X` is float32; with ``backend="zarr"`` `D.X` holds the
         stored int8 codes, with -1 for missing calls.
     """
-    f = zarr.open(path, mode="r")
-    dd = _read_dd(f, lazy=True, backend=backend, n_threads=n_threads)
-    if backend != "zarr" and isinstance(f["G"], zarr.Group) and "X" in f["G"]:
-        dd.G.X = _two_bit_missing_to_nan(f["G"]["X"], dd.G.X)
+    dd = donordata.read_zarr_dd(path)
+    _restore_matrices(dd, zarr.open(str(path), mode="r"), backend=backend, n_threads=n_threads)
     return dd
 
 
@@ -237,9 +143,6 @@ def _two_bit_missing_to_nan(stored, X):
     ``X`` is unchanged unless ``stored`` is 2-bit encoded and may hold missing calls: its
     ``n_missing`` attribute is above 0, or absent.
     """
-    from cellink.io._codecs import Pack2Bit
-    from cellink.io._pgen import _missing_to_nan
-
     if not isinstance(stored, zarr.Array) or not any(isinstance(c, Pack2Bit) for c in stored.filters):
         return X
     if stored.attrs.get("n_missing", 1) == 0:
@@ -252,9 +155,7 @@ def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
     Read a DonorData object from disk in either HDF5 or Zarr format.
 
     This function automatically detects the file format from the file extension
-    unless explicitly specified, and reconstructs a DonorData object containing
-    donor-level genotype data (`G`), cell-level expression data (`C`), and
-    associated metadata.
+    unless explicitly specified.
 
     Parameters
     ----------
@@ -269,12 +170,6 @@ def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
     Returns
     -------
     DonorData
-        A DonorData object with:
-        - `G`: Genotype data as AnnData or MuData.
-        - `C`: Cell-level expression data as AnnData or MuData.
-        - `donor_id`: Donor identifier string.
-        - `var_dims_to_sync`: List of variable dimensions synchronized across `G` and `C`.
-        - `uns`: Unstructured metadata dictionary.
 
     Raises
     ------
@@ -288,17 +183,233 @@ def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
     >>> dd = read_dd("donor_data.dd.zarr")
     >>> dd = read_dd("custom_data.h5", fmt="h5")
     """
-    if fmt is None:
-        if path.endswith(".h5") or path.endswith(".dd.h5"):
-            fmt = "h5"
-        elif path.endswith(".zarr") or path.endswith(".dd.zarr"):
-            fmt = "zarr"
-        else:
-            raise ValueError("Cannot detect format from file extension. Provide `fmt` as 'h5' or 'zarr'.")
-
+    fmt = _format(str(path), fmt)
     if fmt == "h5":
         return read_h5_dd(path, lazy=lazy)
-    elif fmt == "zarr":
-        return read_zarr_dd(path)
-    else:
+    return read_zarr_dd(path)
+
+
+def _format(path: str, fmt: str | None) -> str:
+    if fmt is None:
+        if path.endswith(".h5"):
+            return "h5"
+        if path.endswith(".zarr"):
+            return "zarr"
+        raise ValueError("Cannot detect format from file extension. Provide `fmt` as 'h5' or 'zarr'.")
+    if fmt not in ("h5", "zarr"):
         raise ValueError("Unknown format: use 'h5' or 'zarr'.")
+    return fmt
+
+
+def write_h5_dd(dd: DonorData, path: str) -> None:
+    """Write a DonorData object to an HDF5 file.
+
+    Parameters
+    ----------
+    dd : DonorData
+        The object to write.
+    path : str
+        Destination, conventionally ending in ``.dd.h5``.
+    """
+    dd.write_h5_dd(path)
+
+
+def write_zarr_dd(
+    dd: DonorData,
+    path: str,
+    x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None,
+    genotype_encoding: Literal["2bit"] | None = "2bit",
+) -> None:
+    """Write a DonorData object to a Zarr store, with the genotypes in `D.X` stored as 2-bit calls.
+
+    Parameters
+    ----------
+    dd : DonorData
+        The object to write.
+    path : str
+        Destination, conventionally ending in ``.dd.zarr``.
+    x_chunks : tuple[int, int] | dict[str, tuple[int, int]], optional
+        Chunk shape for a dense `X` and dense layers, e.g. `(4096, 4096)`. Pass a
+        dict (`{"D": ..., "C": ...}`) to set the levels independently. If not
+        given: a dask-backed `X` keeps its own existing chunks (via
+        `dask.array.to_zarr`); a plain array gets chunks capped at 4096
+        per axis. Only applies to a dense `X`; sparse matrices are unaffected.
+    genotype_encoding : {"2bit", None}
+        Storage of a dense `D.X`. ``None`` writes it unencoded, with its
+        values and dtype unchanged. ``"2bit"`` (default) stores it as 2-bit
+        packed genotype calls, four per byte; a variant chunk size not
+        divisible by 4 is rounded up to the next multiple of 4, with a
+        warning. Only `D.X` is affected: `obs`, `var`, `obsm`,
+        `layers`, `uns`, `S` and `C` are written unchanged. With ``"2bit"``:
+
+        - Integer values 0, 1 and 2 are stored as they are. Negative
+          integers count as missing.
+        - Floating-point values, e.g. imputed dosages, are rounded to the
+          nearest integer, halves to even (0.5 becomes 0, 1.5 becomes 2).
+          NaN counts as missing.
+        - Missing values stay missing: stored as the 2-bit code 3.
+          :func:`cellink.io.read_zarr_dd` returns them as ``nan`` (and `D.X`
+          as float32); with ``backend="zarr"`` it returns the stored codes,
+          with -1 for missing.
+        - A warning reports how many non-integer values were rounded and
+          how many values are missing.
+        - Every value must round to 0, 1 or 2: integers 0-2, or floats in
+          [-0.5, 2.5). If any value lies outside, the whole `D.X` is written
+          unencoded, with its original values and dtype, and a warning.
+        - Continuous data inside [-0.5, 2.5) cannot be told apart from
+          dosages and is rounded. Pass ``None`` to keep such data unchanged.
+
+    Example
+    -------
+    >>> write_zarr_dd(dd, "path/to/donor_data.dd.zarr")
+    """
+    if genotype_encoding not in ("2bit", None):
+        raise ValueError(f"genotype_encoding must be '2bit' or None, got {genotype_encoding!r}")
+    if genotype_encoding is None or dd.D_type != "anndata" or not _is_dense(dd.D.X):
+        dd.write_zarr_dd(path, x_chunks=x_chunks)
+        return
+    # the genotypes are written once, as 2-bit calls, one column block at a time
+    dd._check_not_reading_from(path)
+    X = dd.D.X
+    _without_genotypes(dd).write_zarr_dd(path, x_chunks=x_chunks)
+    chunks = x_chunks.get("D") if isinstance(x_chunks, dict) else x_chunks
+    _write_genotypes(f"{path}/D/X", X, chunks)
+
+
+def _is_dense(X) -> bool:
+    return hasattr(X, "ndim") and not sp.issparse(X) and not isinstance(X, ad.abc.CSRDataset | ad.abc.CSCDataset)
+
+
+def _without_genotypes(dd: DonorData) -> DonorData:
+    """A shallow copy of ``dd`` whose donor level has no `X`, for writing everything but the genotypes."""
+    D = dd.D
+    shell = ad.AnnData(
+        obs=D.obs,
+        var=D.var,
+        uns=dict(D.uns),
+        obsm=dict(D.obsm),
+        varm=dict(D.varm),
+        obsp=dict(D.obsp),
+        varp=dict(D.varp),
+        layers={k: v for k, v in D.layers.items() if k is not None},
+    )
+    if D.raw is not None:
+        shell.raw = D.raw.to_adata()
+    new = copy.copy(dd)
+    new.D = shell
+    return new
+
+
+def write_dd(dd: DonorData, path: str, fmt: Literal["h5", "zarr"] | None = None) -> None:
+    """Write a DonorData object to disk, choosing the format from the extension unless `fmt` is given.
+
+    Zarr stores are written with :func:`write_zarr_dd`, so `D.X` is stored as 2-bit genotype calls.
+
+    Parameters
+    ----------
+    dd : DonorData
+        The object to write.
+    path : str
+        Destination ending in ``.h5`` or ``.zarr``. Without an extension, ``.dd.h5`` or
+        ``.dd.zarr`` is appended according to `fmt`.
+    fmt : {'h5', 'zarr'}, optional
+        File format to use. If None (default), inferred from the file extension.
+    """
+    path = str(path)
+    if _format(path, fmt) == "h5":
+        write_h5_dd(dd, path if path.endswith(".h5") else path + ".dd.h5")
+    else:
+        write_zarr_dd(dd, path if path.endswith(".zarr") else path + ".dd.zarr")
+
+
+def _write_genotypes(path: str, X, chunks: tuple[int, int] | None) -> None:
+    """Replace the genotype matrix at ``path`` by 2-bit packed calls.
+
+    If the values are not genotypes (outside 0-2), the matrix is written unencoded with a warning.
+    """
+    packed_chunks = chunks
+    if chunks is not None and chunks[1] % 4:
+        rounded = -(-chunks[1] // 4) * 4
+        warnings.warn(
+            f"2-bit genotype encoding packs 4 variants per byte; the variant chunk size {chunks[1]} is "
+            f"rounded up to {rounded}.",
+            UserWarning,
+            stacklevel=3,
+        )
+        packed_chunks = (chunks[0], rounded)
+    try:
+        n_missing = _write_genotypes_2bit(path, X, packed_chunks)
+    except ValueError:
+        warnings.warn(
+            "D.X has values outside the 0-2 genotype range; it is written without 2-bit encoding.",
+            UserWarning,
+            stacklevel=3,
+        )
+        _write_dense(path, X, chunks)
+        return
+    arr = zarr.open_array(path, mode="r+")
+    arr.attrs["encoding-type"] = "array"
+    arr.attrs["encoding-version"] = "0.2.0"
+    arr.attrs["n_missing"] = n_missing  # read_zarr_dd turns them into nan
+
+
+def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> int:
+    """Write a genotype matrix as 2-bit packed int8 calls, one column block at a time.
+
+    Values are converted with :func:`cellink.io._codecs.to_genotype_codes`:
+    floats are rounded to the nearest integer (halves to even), NaN and negative
+    integers are missing and kept as missing (2-bit code 3, decoded as -1), and
+    a warning reports the counts of rounded and missing values. Raises ValueError if any value does not round to
+    0-2 (integers above 2, floats outside [-0.5, 2.5)); the caller then writes the
+    matrix unencoded. Returns the number of missing values.
+    """
+    from zarr.codecs import BloscCodec
+
+    n, m = X.shape
+    chunks = chunks if chunks is not None else (min(n, 4096), min(-(-m // 4) * 4, 4096))
+    z = zarr.create_array(
+        store=path,
+        shape=(n, m),
+        chunks=chunks,
+        dtype="int8",
+        filters=[Pack2Bit()],
+        compressors=BloscCodec(cname="lz4hc", clevel=5, shuffle="noshuffle", typesize=1),
+        fill_value=0,
+        overwrite=True,
+    )
+    n_frac = n_missing = 0
+    for j in range(0, m, chunks[1]):
+        block = X[:, j : j + chunks[1]]
+        block = block.compute() if isinstance(block, da.Array) else np.asarray(block)
+        codes, frac, miss = to_genotype_codes(block)
+        z[:, j : j + chunks[1]] = codes
+        n_frac, n_missing = n_frac + frac, n_missing + miss
+    if n_frac:
+        warnings.warn(
+            f"D.X contains {n_frac:,} imputed (non-integer) values; the 2-bit genotype store keeps them rounded "
+            "to the nearest integer. Pass genotype_encoding=None to keep the original values.",
+            UserWarning,
+            stacklevel=4,
+        )
+    if n_missing:
+        warnings.warn(
+            f"D.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them missing, "
+            "read back as nan (-1 with read_zarr_dd(backend='zarr')).",
+            UserWarning,
+            stacklevel=4,
+        )
+    return n_missing
+
+
+def _write_dense(path: str, X, chunks: tuple[int, int] | None) -> None:
+    """Write a dense matrix unencoded to the Zarr array at ``path``."""
+    if isinstance(X, da.Array):
+        X = X.rechunk(chunks) if chunks is not None else X
+        da.to_zarr(X, path, overwrite=True)
+    else:
+        array_chunks = chunks if chunks is not None else tuple(min(dim, 4096) for dim in X.shape)
+        z = zarr.open_array(path, mode="w", shape=X.shape, chunks=array_chunks, dtype=X.dtype)
+        z[:] = np.asarray(X)
+    arr = zarr.open_array(path, mode="r+")
+    arr.attrs["encoding-type"] = "array"
+    arr.attrs["encoding-version"] = "0.2.0"

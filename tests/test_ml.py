@@ -14,21 +14,20 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from cellink import DonorData
-from cellink.ml.dataset import MILDataset, mil_collate_fn
-from cellink.ml.model import DonorMILModel
+from cellink.ml import DonorMILModel, MILDataset, mil_collate_fn
 
 DATA = Path("tests/data")
 
 
 @pytest.mark.slow
-def test_dataloader(adata, gdata):
+@pytest.mark.parametrize("n_cells", [None, 8])
+def test_dataloader(adata, gdata, n_cells):
     import pytorch_lightning as pl
     from torch.utils.data import DataLoader
 
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
 
-    dd.G.obs["donor_id"] = dd.G.obs.index
-    dd.G.obs["donor_labels"] = np.random.randint(2, size=len(dd.G.obs))
+    dd.D.obs["donor_labels"] = np.random.randint(2, size=len(dd.D.obs))
     split_indices = [0, 1, 2]
     split_donors = None
     batch_size = 2
@@ -36,9 +35,10 @@ def test_dataloader(adata, gdata):
 
     dataset = MILDataset(
         dd,
-        cell_batch_key="rna:cov1",
+        cell_batch_key="cov1",
         split_donors=split_donors,
         split_indices=split_indices,
+        n_cells=n_cells,
     )
 
     dataloader = DataLoader(
@@ -48,7 +48,7 @@ def test_dataloader(adata, gdata):
         collate_fn=mil_collate_fn,
     )
 
-    model = DonorMILModel(n_input_donor=dd.G.n_vars, n_input_cell=dd.C.n_vars)
+    model = DonorMILModel(n_input_donor=dd.D.n_vars, n_input_cell=dd.C.n_vars)
 
     trainer = pl.Trainer(max_epochs=1, accelerator="cpu")  # MPS aborts torch on macOS 14
 
@@ -99,6 +99,7 @@ def test_training_runs_for_regression_and_classification(n_output):
     gen = torch.Generator().manual_seed(0)
     items = [
         {
+            "donor_id": f"D{i}",
             "donor_x": torch.randn(3, generator=gen),
             "donor_y": torch.tensor([float(i % max(n_output, 2))]),
             "cell_x": torch.randn(4 + i, 5, generator=gen),

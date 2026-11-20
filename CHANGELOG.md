@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.1.0] - 2026-11-20
+
+### Changed
+
+- Requires anndata 0.13.1 or newer, as DonorData does.
+- `DonorData` comes from the [DonorData](https://github.com/theislab/donordata) package. The donor level is `dd.D`
+  instead of `dd.G`, and an optional sample level `S` is available.
+- `io.read_*_dd` and `io.write_*_dd` use DonorData's reading and writing and keep 2-bit genotype stores.
+- The DonorData filters in `pp` and `ml.MILDataset` come from DonorData.
+
+### Removed
+
+- cellink's own `DonorData` class, the DonorData format specification and the EHR tutorial.
+- `donor_key` of `tl.external.run_mixmil`.
+
+### Fixed
+
+- `tl.external.run_mixmil` builds one bag per row of `dd.D`.
+- `sim_mudata` works with mudata 0.4.
+
 ## [0.0.2] - 2026-11-15
 
 ### Changed

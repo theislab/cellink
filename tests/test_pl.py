@@ -86,7 +86,7 @@ def test_manhattan():
 
 
 def test_expression_by_genotype(tmp_path, adata, gdata):
-    dd = DonorData(G=gdata, C=adata).copy()
+    dd = DonorData(D=gdata, C=adata).copy()
     print(dd.C.obs)
     print(dd.C.var)
 
@@ -103,7 +103,7 @@ def _close_figures():
 @pytest.fixture
 def dd():
     adata = sim_adata()
-    return DonorData(G=sim_gdata(adata=adata), C=adata).copy()
+    return DonorData(D=sim_gdata(adata=adata), C=adata).copy()
 
 
 def test_expression_by_genotype_rejects_unknown_gene(dd):
@@ -121,7 +121,7 @@ def test_expression_by_genotype_uses_donordata_donor_key():
     gdata = sim_gdata(adata=adata)
     adata.obs = adata.obs.rename(columns={"donor_id": "individual"})
     gdata.obs.index.name = "individual"
-    dd = DonorData(G=gdata, C=adata, donor_id="individual")
+    dd = DonorData(D=gdata, C=adata, donor_id="individual")
     assert expression_by_genotype(dd, snp="SNP0", gene_filter=["G0"], show=False) is not None
 
 

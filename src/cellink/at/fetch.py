@@ -11,6 +11,8 @@ __all__ = ["fetch_slot"]
 
 _INDEXED_EMB_RE = re.compile(r"^(?P<base>(?=.*[A-Za-z_])[A-Za-z0-9_]+)_(?P<idx>\d+)$")
 
+_LEVELS = {"D": "donor", "S": "sample", "C": "cell"}
+
 try:
     from mudata import MuData
 except ImportError:  # pragma: no cover
@@ -19,7 +21,7 @@ except ImportError:  # pragma: no cover
 
 def _tag_axis(obj, axis, source=None):
     obj.attrs["axis"] = axis  # 'obs' or 'var'
-    if source is not None:  # e.g. 'C' or 'G' (or 'A','G:rna')
+    if source is not None:  # e.g. 'C' or 'D' (or 'A','D:rna')
         obj.attrs["source"] = source
     return obj
 
@@ -39,17 +41,19 @@ def _as_dataframe(A, arr, axis, base):
     return _tag_axis(pd.DataFrame(arr, index=idx, columns=cols), axis)
 
 
-def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
+def _iter_anndatas(dd, adatas=("D", "C"), modalities=None, delim=":"):
     """Iterate over AnnData objects in a DonorData-like object.
 
     Yields ``(name, AnnData)`` across:
       - plain AnnData -> ``('A', dd)``
       - plain MuData -> ``(mod, dd.mod[mod])`` in requested order
-      - DonorData-like with ``.G``/``.C``; if ``.G``/``.C`` is MuData, flatten
-        as ``'G:mod'`` / ``'C:mod'``.
+      - DonorData-like with ``.D``/``.C``; if ``.D``/``.C`` is MuData, flatten
+        as ``'D:mod'`` / ``'C:mod'``. A level held as a table, such as a donor table
+        in ``.D``, is searched through the AnnData that holds it, with the table as
+        ``obs``.
 
     ``modalities`` can be a sequence or a dict mapping outer name
-    (``'G'``, ``'C'``, ``'A'``) -> sequence.
+    (``'D'``, ``'C'``, ``'A'``) -> sequence.
     """
 
     def _mods(mud, outer):
@@ -79,6 +83,8 @@ def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
         A = getattr(dd, outer, None)
         if A is None:
             continue
+        if isinstance(A, pd.DataFrame):
+            A = dd.levels[_LEVELS[outer]]
         if isinstance(A, ad.AnnData):
             yield (outer, A)
         elif isinstance(A, MuData):
@@ -87,7 +93,7 @@ def _iter_anndatas(dd, adatas=("G", "C"), modalities=None, delim=":"):
                     yield (f"{outer}{delim}{m}", A.mod[m])
 
 
-def fetch_slot(dd, key, *, axis=None, adatas=("G", "C"), layer=None, raise_on_multiple=True, modalities=None):
+def fetch_slot(dd, key, *, axis=None, adatas=("D", "C"), layer=None, raise_on_multiple=True, modalities=None):
     """Fetch a named slot from a DonorData-like, AnnData, MuData, or DataFrame object.
 
     If ``axis`` is None, both ``obs`` and ``var`` are searched; a key found in

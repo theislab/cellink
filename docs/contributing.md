@@ -1,7 +1,7 @@
 # Contributing guide
 
 **cellink** connects donor-level genetic data (`GenoAnnData`, via dask) with single-cell
-omics data (`AnnData`/`MuData`) through the `DonorData` container, and wraps a large
+omics data (`AnnData`/`MuData`) through the [`DonorData`](https://donordata.readthedocs.io) container, and wraps a large
 number of external genetics tools (PLINK, MAGMA, LDSC, TensorQTL, SAIGE-QTL, gsMap,
 sc-linker, scDRS, ...) under `cellink.tl.external` so they can be driven directly from
 `DonorData`. This document covers what's specific to contributing to cellink; for the

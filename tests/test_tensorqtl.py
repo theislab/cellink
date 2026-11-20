@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cellink._core.donordata import DonorData
+from cellink._core import DonorData
 from cellink.tl.external._tensorqtl import run_tensorqtl
 from cellink.tl.external._tensorqtl_main import read_phenotype_bed
 
@@ -65,7 +65,7 @@ def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata):
 
     import numpy as np
 
-    from cellink._core.donordata import DonorData
+    from cellink._core import DonorData
     from cellink.tl.external._tensorqtl import run_tensorqtl
 
     pgenlib = pytest.importorskip("pgenlib")
@@ -75,7 +75,7 @@ def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata):
     X = np.asarray(gdata.X, dtype=np.float32)
     X[0, 1] = np.nan
     gdata.X = X
-    dd = DonorData(G=gdata, C=adata)
+    dd = DonorData(D=gdata, C=adata)
     prefix = str(tmp_path / "tq")
     cmd = run_tensorqtl(dd, mode="trans", prefix=prefix, run=False)
     assert shlex.split(cmd)[3] == prefix
@@ -85,7 +85,7 @@ def test_run_tensorqtl_writes_the_genotypes_as_pgen(tmp_path, adata, gdata):
     calls_out = np.empty((n_variants, reader.get_raw_sample_ct()), dtype=np.int8)
     reader.read_range(0, n_variants, calls_out)
     psam = pd.read_csv(f"{prefix}.psam", sep="\t", dtype=str)
-    G = dd.G[psam["IID" if "IID" in psam.columns else "#IID"].to_numpy()]
+    G = dd.D[psam["IID" if "IID" in psam.columns else "#IID"].to_numpy()]
     expected = np.asarray(G.X, dtype=np.float32)
     np.testing.assert_array_equal(calls_out.T, np.where(np.isnan(expected), -9, expected))
     pvar = pd.read_csv(f"{prefix}.pvar", sep="\t", dtype=str)
@@ -98,7 +98,7 @@ def dd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
     gdata.obs["sex"] = np.resize([1, 2], gdata.n_obs)
     gdata.obs["age"] = np.linspace(30, 70, gdata.n_obs)
-    return DonorData(G=gdata, C=adata)
+    return DonorData(D=gdata, C=adata)
 
 
 def _read_covariates(prefix):
@@ -122,20 +122,20 @@ def test_covariates_have_no_intercept_and_keep_first_donor(tmp_path, dd):
 
 
 def test_missing_sex_raises_instead_of_code_minus_one(tmp_path, dd):
-    dd.G.obs["sex"] = dd.G.obs["sex"].astype(float)
-    dd.G.obs.iloc[0, dd.G.obs.columns.get_loc("sex")] = np.nan
+    dd.D.obs["sex"] = dd.D.obs["sex"].astype(float)
+    dd.D.obs.iloc[0, dd.D.obs.columns.get_loc("sex")] = np.nan
     with pytest.raises(ValueError, match="1 donor\\(s\\) have no sex"):
         run_tensorqtl(dd, mode="trans", prefix=str(tmp_path / "tq"), run=False)
 
 
 def test_missing_covariate_values_raise(tmp_path, dd):
-    dd.G.obs.iloc[1, dd.G.obs.columns.get_loc("age")] = np.nan
+    dd.D.obs.iloc[1, dd.D.obs.columns.get_loc("age")] = np.nan
     with pytest.raises(ValueError, match="age"):
         run_tensorqtl(dd, mode="trans", prefix=str(tmp_path / "tq"), run=False)
 
 
 def test_constant_covariate_is_dropped(tmp_path, dd, caplog):
-    dd.G.obs["sex"] = 1
+    dd.D.obs["sex"] = 1
     prefix = str(tmp_path / "tq")
     with caplog.at_level("WARNING", logger="cellink.tl.external._tensorqtl"):
         run_tensorqtl(dd, mode="trans", prefix=prefix, run=False)

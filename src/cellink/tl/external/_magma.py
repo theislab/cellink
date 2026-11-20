@@ -9,6 +9,7 @@ import pandas as pd
 
 from cellink._config import load_config
 from cellink._core import DonorData
+from cellink._core.schema import require_genotypes
 from cellink.resources._utils import _download_file, get_data_home
 
 from ._biomart import query_biomart
@@ -433,11 +434,12 @@ def prepare_magma_inputs(
 
         from cellink.io import to_plink
 
-        maf = dd.G.X.sum(axis=0) / (2 * dd.G.n_obs)
+        genotypes = require_genotypes(dd)
+        maf = genotypes.X.sum(axis=0) / (2 * genotypes.n_obs)
         maf = np.minimum(maf, 1 - maf)
         common_variants = maf > 0.01
 
-        gdata = dd.G[:, common_variants].copy() if common_variants.sum() < len(maf) else dd.G
+        gdata = genotypes[:, common_variants].copy() if common_variants.sum() < len(maf) else genotypes
         logger.info(f"Exporting {common_variants.sum()} common variants (MAF > 0.01) " f"out of {len(maf)} total")
         to_plink(gdata, str(ld_ref_prefix))
         logger.info(f"Created PLINK files: {ld_ref_prefix}.{{bed,bim,fam}}")
@@ -574,6 +576,7 @@ def run_magma_gene_analysis(
     n_samples: int = None,
     magma_bin: str = "magma",
     n_jobs: int = 1,
+    seed: int | None = 1,
 ) -> Path:
     """
     Run MAGMA gene analysis to compute gene-level statistics.
@@ -596,6 +599,11 @@ def run_magma_gene_analysis(
         Number of MAGMA processes. Above 1, the genes are split with MAGMA's ``--batch`` and
         the parts joined with ``--merge``, which gives the same results as one process. MAGMA
         may use fewer batches for small inputs.
+    seed : int or None, default=1
+        Random seed passed as ``--seed``. The SNP-wise mean model's p-values for strongly
+        associated genes (roughly p < 1e-6) are estimated by sampling, so without a fixed seed
+        their Z statistics change between runs on identical inputs. None leaves MAGMA's own
+        random seed.
 
     Returns
     -------
@@ -623,6 +631,8 @@ def run_magma_gene_analysis(
         "--out",
         f"{output_prefix}",
     ]
+    if seed is not None:
+        cmd += ["--seed", str(seed)]
 
     logger.info(f"Running: {' '.join(cmd)}")
 
@@ -695,6 +705,7 @@ def run_magma_pipeline(
     data_home: str | Path | None = None,
     config_dict: dict | None = None,
     n_jobs: int = 1,
+    seed: int | None = 1,
 ) -> Path:
     """
     Complete MAGMA pipeline: prepare inputs, annotate SNPs, and run gene analysis.
@@ -738,6 +749,8 @@ def run_magma_pipeline(
         Directory to store downloaded reference files. If None, uses cellink's default data directory.
     n_jobs : int, default=1
         MAGMA processes for the gene analysis (see :func:`run_magma_gene_analysis`).
+    seed : int or None, default=1
+        MAGMA random seed (see :func:`run_magma_gene_analysis`).
 
     Returns
     -------
@@ -815,6 +828,7 @@ def run_magma_pipeline(
         n_samples=n_samples,
         magma_bin=magma_bin,
         n_jobs=n_jobs,
+        seed=seed,
     )
 
     logger.info(f"MAGMA pipeline complete! Results: {results_file}")

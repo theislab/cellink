@@ -18,8 +18,8 @@ pip install git+https://github.com/theislab/cellink.git@main
 
 ## Optional extras
 
-The core install covers `DonorData` construction, I/O, and the tools built directly on its
-dependencies. Most external-tool integrations under `cellink.tl.external` are opt-in extras,
+The core install covers [DonorData](https://donordata.readthedocs.io), genotype I/O, and the tools built directly on
+their dependencies. Most external-tool integrations under `cellink.tl.external` are opt-in extras,
 and several extras can be combined:
 
 ```bash
@@ -72,7 +72,8 @@ function's docstring and error message link to that tool's installation instruct
 ## Next steps
 
 Once installed, **[DonorData basics](tutorials/donordata_basics.ipynb)** is the place to
-start: no analysis, just how to build a `DonorData` object from your own genotype/expression
-data (or from the small synthetic dataset the tutorial generates on the fly), slice it, and
-save it. From there, the **[tutorials](tutorials/index.md)** section covers each analysis
+start: no analysis, just how to read genotype files into a `DonorData` object, select from it
+and save it, and DonorData's own
+[getting started](https://donordata.readthedocs.io/en/latest/tutorials/getting_started.html)
+tutorial covers the object itself. From there, the **[tutorials](tutorials/index.md)** section covers each analysis
 workflow, and the **[API reference](api/index.md)** documents every public function and class.

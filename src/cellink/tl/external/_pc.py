@@ -5,6 +5,7 @@ import subprocess
 import pandas as pd
 
 from cellink._core import DonorData
+from cellink._core.schema import require_genotypes
 from cellink.io import to_plink
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ def calculate_pcs(
     Parameters
     ----------
     dd : DonorData
-        Object containing donor-level genotype (`dd.G`) and cell-level expression data (`dd.C`).
+        Object containing donor-level genotype (`dd.D`) and cell-level expression data (`dd.C`).
     prefix : str
         Prefix to PLINK binary files (.bed/.bim/.fam).
     out : str, optional
@@ -53,7 +54,7 @@ def calculate_pcs(
     if out is None:
         out = f"{prefix}_pca"
 
-    to_plink(dd.G, prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(dd), prefix, **plink_export_kwargs)
 
     cmd = ["plink", "--bfile", prefix, "--pca", str(num_pcs), "--out", out]
 
