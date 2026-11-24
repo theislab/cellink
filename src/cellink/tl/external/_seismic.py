@@ -95,14 +95,14 @@ def run_seismic(
     --------
     >>> # Basic seismic analysis
     >>> associations = run_seismic(
-    ...     dd,
+    ...     hd,
     ...     magma_file="trait.genes.out",
     ...     cell_type_col="cell_type",
     ... )
 
     >>> # With influential gene analysis
     >>> associations, influential = run_seismic(
-    ...     dd,
+    ...     hd,
     ...     magma_file="trait.genes.out",
     ...     cell_type_col="cell_type",
     ...     influential_genes=True,

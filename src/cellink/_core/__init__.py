@@ -1,4 +1,4 @@
-from donordata import DonorData
+from hidata import HiData
 
 from .data_fields import DAnn, GAnn, VAnn
-from .schema import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VERSION, DonorDataSchemaError, validate
+from .schema import HIDATA_ENCODING_TYPE, HIDATA_ENCODING_VERSION, HiDataSchemaError, validate

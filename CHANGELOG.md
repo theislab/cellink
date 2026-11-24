@@ -8,6 +8,60 @@ and this project adheres to [Semantic Versioning][].
 [keep a changelog]: https://keepachangelog.com/en/1.0.0/
 [semantic versioning]: https://semver.org/spec/v2.0.0.html
 
+## [0.2.0]
+
+cellink works on `HiData` from the [HiData](https://github.com/theislab/hidata) package, which continues DonorData
+under a new name. Names and the file format change; every analysis gives the same results.
+
+### Changed
+
+- Requires hidata 0.1.0 or newer instead of donordata. `cellink.DonorData` and `cellink.DonorDataSchemaError` are
+  `cellink.HiData` and `cellink.HiDataSchemaError`.
+- The donor level `dd.D` is the group level `hd.G`, which holds the genotypes with one row per donor, and the other
+  names change as listed in the [HiData changelog](https://hidata.readthedocs.io/en/latest/changelog.html), for
+  example `sel(G_obs=..., G_var=...)`, `n_groups` and the level names `"group"`, `"subgroup"` and `"cell"`. Columns such
+  as `donor_id` keep their names, so `HiData(G=..., C=..., group_id="donor_id")` builds what
+  `DonorData(D=..., C=...)` built.
+- The argument `dd` is `hd` in `validate`, `pl.expression_by_genotype`, `tl.external.run_tensorqtl`,
+  `tl.external.run_dense_trans_scan`, `tl.external.run_jaxqtl`, `tl.external.run_saigeqtl`,
+  `tl.external.make_group_file`, `tl.external.run_mixmil`, `tl.external.calculate_pcs`, `tl.external.calculate_ld`,
+  `tl.external.estimate_ld_scores_from_hidata`, `tl.external.make_annot_from_hidata`,
+  `tl.external.compute_ld_scores_with_annotations_from_hidata` and `tl.external.run_magma_pipeline`, and
+  `ld_source="dd_genotypes"` of `tl.external.run_magma_pipeline` is `ld_source="hd_genotypes"`.
+- `io.read_dd`, `io.read_h5_dd`, `io.read_zarr_dd`, `io.write_dd`, `io.write_h5_dd` and `io.write_zarr_dd` are
+  `io.read_hd`, `io.read_h5_hd`, `io.read_zarr_hd`, `io.write_hd`, `io.write_h5_hd` and `io.write_zarr_hd`. They write
+  the HiData format, with the genotypes of a 2-bit store in `G/X`; `x_chunks` takes the key `"G"` and `io.write_hd`
+  appends `.hd.h5` or `.hd.zarr`.
+- `tl.external.estimate_ld_scores_from_donor_data`, `tl.external.make_annot_from_donor_data` and
+  `tl.external.compute_ld_scores_with_annotations_from_donor_data` are `tl.external.estimate_ld_scores_from_hidata`,
+  `tl.external.make_annot_from_hidata` and `tl.external.compute_ld_scores_with_annotations_from_hidata`.
+- `pp.donor_level_obs_filter` and `pp.donor_level_var_filter` are `pp.group_level_obs_filter` and
+  `pp.group_level_var_filter`, with `group_level_key` and `group_level_values`.
+- `cellink.ml` and the `ml` extra are removed. `MILDataset`, `mil_collate_fn`, `get_array` and `ml.DonorMILModel`, now
+  `GroupMILModel`, are in `hidata.ml` (`pip install "hidata[ml]"`), see the
+  [HiData tutorial](https://hidata.readthedocs.io/en/latest/tutorials/mil_model.html). `MILDataset` takes and yields
+  `group_*` fields, for example `split_groups` and `group_labels_key`, and `GroupMILModel` takes `n_input_group`
+  instead of `n_input_donor`. The tutorial on dataloaders is replaced by the HiData tutorial.
+- `target_level="donor"` of `at.get_model_matrix`, `at.GWAS`, `at.StructLMM` and `at.Skat.run_test` is
+  `target_level="group"`.
+- The formula functions `dmean`, `dmax`, `dmedian` and `dfirst` of `at`, which aggregate cells per group, are
+  `group_mean`, `group_max`, `group_median` and `group_first`.
+- `n_donors` of `sim_adata`, `sim_gdata` and `sim_mudata` in `cellink._core.dummy_data` is `n_groups`.
+- `resources.get_dummy_onek1k` downloads `dummy_onek1k_dataset.hd.h5`, the same data in the HiData format, whose
+  `G.uns["dummy_onek1k"]` has `n_groups` and `max_cells_per_group`; `docs/tutorials/generate_dummy_onek1k.py` takes
+  `--n_groups` and `--max_cells_per_group`.
+- The VEP configs `vep`, `vep_offline` and `vep_offline_local` of `tl.run_vep` annotate GRCh38, the build of OneK1K
+  and the dummy dataset, instead of GRCh37, and the offline configs use CADD v1.7 for GRCh38.
+- `at.fetch_slot` searches the levels `("G", "C")` by default.
+- `DAnn` in `cellink._core` holds cellink's donor columns (`donor_id`, `donor_family_id`, `donor_paternal_id`,
+  `donor_maternal_id` and `sex`) and no longer the field names of `MILDataset`.
+- The tutorial DonorData basics is HiData basics.
+
+### Added
+
+- `io.read_*_hd` read the files and stores written by donordata and by cellink 0.1.0, including 2-bit genotype stores,
+  and the older cellink files with the donor level in `G`. Writing such an object again stores it in the HiData format.
+
 ## [0.1.0] - 2026-11-20
 
 ### Changed

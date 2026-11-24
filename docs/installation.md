@@ -18,7 +18,7 @@ pip install git+https://github.com/theislab/cellink.git@main
 
 ## Optional extras
 
-The core install covers [DonorData](https://donordata.readthedocs.io), genotype I/O, and the tools built directly on
+The core install covers [HiData](https://hidata.readthedocs.io), genotype I/O, and the tools built directly on
 their dependencies. Most external-tool integrations under `cellink.tl.external` are opt-in extras,
 and several extras can be combined:
 
@@ -31,7 +31,6 @@ pip install "cellink-tools[pgen,datasets]"
 | `pgen` | Reading PLINK 2 files into Zarr (`io.stream_pgen_to_zarr`) and writing them (`io.to_pgen`), via `pgenlib` |
 | `datasets` | PLINK 1 (`io.read_plink`), VCF Zarr and BGEN genotype I/O and the built-in dataset loaders (via `sgkit`/`bio2zarr`) |
 | `at` | The formula-string resolver (`cellink.at.GWAS`), `StructLMM`, and `Skat` |
-| `ml` | `MILDataset` and other `pytorch-lightning`-backed training utilities |
 | `rvat` | Rare-variant association tooling |
 | `scooby` | Scooby/Borzoi sequence-model variant-effect scoring; scooby itself is installed from GitHub (see below) |
 | `scdrs` | Genotype-free cell-type disease relevance scoring (scDRS) |
@@ -46,6 +45,9 @@ pip install "cellink-tools[pgen,datasets]"
 | `doc` | Building the documentation locally |
 | `dev` | Contributor tooling (`pre-commit`, `twine`) |
 | `test` | Running the test suite (`pytest`, `coverage`) |
+
+The dataloaders and the multiple instance learning model for the cells of each donor are in `hidata.ml` of HiData
+(`pip install "hidata[ml]"`), see the [HiData tutorial](https://hidata.readthedocs.io/en/latest/tutorials/mil_model.html).
 
 Some optional packages are not available for every Python version. On other versions, the
 cellink functions that need them raise an error explaining why:
@@ -71,9 +73,9 @@ function's docstring and error message link to that tool's installation instruct
 
 ## Next steps
 
-Once installed, **[DonorData basics](tutorials/donordata_basics.ipynb)** is the place to
-start: no analysis, just how to read genotype files into a `DonorData` object, select from it
-and save it, and DonorData's own
-[getting started](https://donordata.readthedocs.io/en/latest/tutorials/getting_started.html)
+Once installed, **[HiData basics](tutorials/hidata_basics.ipynb)** is the place to
+start: no analysis, just how to read genotype files into a `HiData` object, select from it
+and save it, and HiData's own
+[getting started](https://hidata.readthedocs.io/en/latest/tutorials/getting_started.html)
 tutorial covers the object itself. From there, the **[tutorials](tutorials/index.md)** section covers each analysis
 workflow, and the **[API reference](api/index.md)** documents every public function and class.

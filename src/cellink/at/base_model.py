@@ -27,7 +27,7 @@ def fetch_raw_slot(
     obj,
     slot: str,
     *,
-    target_level: Literal["donor", "cell"] | None = None,
+    target_level: Literal["group", "cell"] | None = None,
     add_intercept: bool = False,
 ):
     """Resolve one slot's value against ``data``, returning a DataFrame with a dummy-index flag.
@@ -71,7 +71,7 @@ class BaseModel(ABC):
     slot_requirements: dict[str, Sequence[SlotRequirement]] = {}
     add_intercept_slots: list[str] = []
 
-    def __init__(self, *, data=None, target_level: Literal["donor", "cell"] | None = None, **specs) -> None:
+    def __init__(self, *, data=None, target_level: Literal["group", "cell"] | None = None, **specs) -> None:
         self.data = data
         self._specs = specs
         self.target_level = target_level

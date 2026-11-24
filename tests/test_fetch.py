@@ -95,33 +95,33 @@ def test_fetch_slot_plain_mudata():
     np.testing.assert_array_equal(result.to_numpy(), np.arange(n))
 
 
-def _donor_table_dd():
-    from cellink import DonorData
+def _donor_table_hd():
+    from cellink import HiData
 
     donors = pd.DataFrame({"age": np.arange(10.0)}, index=pd.Index([f"D{i}" for i in range(10)], name="donor_id"))
-    dd = DonorData(D=donors, C=sim_adata())
-    dd.obsm["gPCs"] = np.arange(20.0).reshape(10, 2)
-    return dd
+    hd = HiData(G=donors, C=sim_adata(), group_id="donor_id")
+    hd.obsm["gPCs"] = np.arange(20.0).reshape(10, 2)
+    return hd
 
 
-def test_fetch_slot_donor_level():
-    from cellink import DonorData
+def test_fetch_slot_group_level():
+    from cellink import HiData
     from cellink._core.dummy_data import sim_gdata
 
     adata = sim_adata()
     gdata = sim_gdata(adata=adata)
     gdata.obs["age"] = np.arange(gdata.n_obs, dtype=float)
-    dd = DonorData(D=gdata, C=adata)
-    result = fetch_slot(dd, "age")
+    hd = HiData(G=gdata, C=adata, group_id="donor_id")
+    result = fetch_slot(hd, "age")
     assert result.attrs["axis"] == "obs"
-    pd.testing.assert_series_equal(result, dd.D.obs["age"])
-    assert len(fetch_slot(dd, "celltype")) == dd.n_cells
+    pd.testing.assert_series_equal(result, hd.G.obs["age"])
+    assert len(fetch_slot(hd, "celltype")) == hd.n_cells
 
 
 def test_fetch_slot_donor_table():
-    dd = _donor_table_dd()
-    result = fetch_slot(dd, "age")
+    hd = _donor_table_hd()
+    result = fetch_slot(hd, "age")
     assert result.attrs["axis"] == "obs"
-    pd.testing.assert_series_equal(result, dd.D["age"])
-    np.testing.assert_array_equal(fetch_slot(dd, "gPCs").to_numpy(), dd.obsm["gPCs"])
-    np.testing.assert_array_equal(fetch_slot(dd, "gPCs_1").to_numpy(), dd.obsm["gPCs"][:, 1])
+    pd.testing.assert_series_equal(result, hd.G["age"])
+    np.testing.assert_array_equal(fetch_slot(hd, "gPCs").to_numpy(), hd.obsm["gPCs"])
+    np.testing.assert_array_equal(fetch_slot(hd, "gPCs_1").to_numpy(), hd.obsm["gPCs"][:, 1])

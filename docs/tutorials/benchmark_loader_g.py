@@ -8,7 +8,7 @@ from annbatch.abc import Sampler
 from annbatch.utils import split_given_size
 
 
-class DonorSampler(Sampler):
+class GroupSampler(Sampler):
     def __init__(self, categories, obs_names, preload_nbatches=4):
         self._batch_size = 1
         self._preload_nbatches = preload_nbatches
@@ -47,32 +47,32 @@ class DonorSampler(Sampler):
             }
 
 
-def prepare_loader_G(preload_ndonors=120):
-    dd_G_collection = DatasetCollection("dd_G_collection.zarr")
-    dd_G_obs_names = []
-    for group in dd_G_collection:
-        dd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
+def prepare_loader_G(preload_ngroups=120):
+    hd_G_collection = DatasetCollection("hd_G_collection.zarr")
+    hd_G_obs_names = []
+    for group in hd_G_collection:
+        hd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
 
-    # Generate a fixed sequence of donor names directly from the collection obs names
+    # Generate a fixed sequence of group names directly from the collection obs names
     rng = np.random.default_rng(42)
     # 500 requests is plenty for pre-warming and timing iterations
-    flattened_donors = rng.choice(dd_G_obs_names, size=500, replace=True).tolist()
+    flattened_groups = rng.choice(hd_G_obs_names, size=500, replace=True).tolist()
 
-    donor_sampler = DonorSampler(
-        categories=flattened_donors, obs_names=dd_G_obs_names, preload_nbatches=preload_ndonors
+    group_sampler = GroupSampler(
+        categories=flattened_groups, obs_names=hd_G_obs_names, preload_nbatches=preload_ngroups
     )
     loader_G = Loader(
         return_index=True,
-        batch_sampler=donor_sampler,
+        batch_sampler=group_sampler,
         preload_to_gpu=True,
-    ).use_collection(dd_G_collection)
+    ).use_collection(hd_G_collection)
 
     return loader_G
 
 
 if __name__ == "__main__":
     print("Preparing loader_G...")
-    loader_G = prepare_loader_G(preload_ndonors=10)
+    loader_G = prepare_loader_G(preload_ngroups=10)
     loader_G_iter = iter(loader_G)
 
     print("Pre-warming/Running first 5 iterations of next(loader_G_iter)...")

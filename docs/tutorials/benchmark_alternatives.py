@@ -3,7 +3,7 @@ import zarr
 import dask.array as da
 
 # Open the zarr group
-z_group = zarr.open("dd_G_collection.zarr/dataset_0", mode="r")
+z_group = zarr.open("hd_G_collection.zarr/dataset_0", mode="r")
 
 # 1. Zarr direct read (using Zarr array indexing)
 z_arr = z_group["X"]

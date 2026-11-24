@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-import donordata
+import hidata
 import pandas as pd
 import pandera.pandas as pa
-from donordata import DONORDATA_ENCODING_TYPE, DONORDATA_ENCODING_VERSION, DonorDataSchemaError
+from hidata import HIDATA_ENCODING_TYPE, HIDATA_ENCODING_VERSION, HiDataSchemaError
 from pandera.pandas import Column, DataFrameSchema
 
 from .data_fields import VAnn
 
 __all__ = [
-    "DONORDATA_ENCODING_TYPE",
-    "DONORDATA_ENCODING_VERSION",
+    "HIDATA_ENCODING_TYPE",
+    "HIDATA_ENCODING_VERSION",
     "GENO_VAR_SCHEMA",
-    "DonorDataSchemaError",
+    "HiDataSchemaError",
     "require_genotypes",
     "validate",
 ]
@@ -29,19 +29,19 @@ GENO_VAR_SCHEMA = DataFrameSchema(
 )
 
 
-def validate(dd, check_var: bool = True) -> bool:
-    """Check a `DonorData` object against cellink's schema.
+def validate(hd, check_var: bool = True) -> bool:
+    """Check a `HiData` object against cellink's schema.
 
-    Runs :func:`donordata.validate`, which checks that the levels are consistent, and then
-    the variant annotations of the donor level.
+    Runs :func:`hidata.validate`, which checks that the levels are consistent, and then
+    the variant annotations of the group level.
 
     Parameters
     ----------
-    dd : DonorData
+    hd : HiData
         The object to check.
     check_var : bool, default=True
-        Validate `dd.D.var` against `GENO_VAR_SCHEMA` (chrom/pos/a0/a1 present,
-        correctly typed). When `dd.D` is a MuData, the `var` of every modality with a
+        Validate `hd.G.var` against `GENO_VAR_SCHEMA` (chrom/pos/a0/a1 present,
+        correctly typed). When `hd.G` is a MuData, the `var` of every modality with a
         `chrom` column is validated.
 
     Returns
@@ -51,36 +51,36 @@ def validate(dd, check_var: bool = True) -> bool:
 
     Raises
     ------
-    DonorDataSchemaError
+    HiDataSchemaError
         If any check fails, with a message naming the field or level that failed.
     """
-    donordata.validate(dd)
+    hidata.validate(hd)
     if check_var:
-        if dd.D_type == "table":
-            raise DonorDataSchemaError("dd.D is a donor table without variants; pass check_var=False to skip it.")
-        if hasattr(dd.D, "mod"):
-            tables = {f"dd.D['{name}'].var": mod.var for name, mod in dd.D.mod.items() if VAnn.chrom in mod.var}
+        if hd.G_type == "table":
+            raise HiDataSchemaError("hd.G is a group table without variants; pass check_var=False to skip it.")
+        if hasattr(hd.G, "mod"):
+            tables = {f"hd.G['{name}'].var": mod.var for name, mod in hd.G.mod.items() if VAnn.chrom in mod.var}
             if not tables:
-                raise DonorDataSchemaError(f"No modality of dd.D has a '{VAnn.chrom}' column in its var.")
+                raise HiDataSchemaError(f"No modality of hd.G has a '{VAnn.chrom}' column in its var.")
         else:
-            tables = {"dd.D.var": dd.D.var}
+            tables = {"hd.G.var": hd.G.var}
         for name, var in tables.items():
             try:
                 GENO_VAR_SCHEMA.validate(var)
             except pa.errors.SchemaError as e:
-                raise DonorDataSchemaError(f"{name} failed schema validation: {e}") from e
+                raise HiDataSchemaError(f"{name} failed schema validation: {e}") from e
 
     return True
 
 
-def require_genotypes(dd):
-    """Return the genotypes `dd.D` of a `DonorData`.
+def require_genotypes(hd):
+    """Return the genotypes `hd.G` of a `HiData`.
 
     Raises
     ------
     ValueError
-        If `dd.D` is a donor table, which holds no genotypes.
+        If `hd.G` is a group table, which holds no genotypes.
     """
-    if isinstance(dd.D, pd.DataFrame):
-        raise ValueError("This function needs genotypes in dd.D, but dd.D is a donor table without genotypes.")
-    return dd.D
+    if isinstance(hd.G, pd.DataFrame):
+        raise ValueError("This function needs genotypes in hd.G, but hd.G is a group table without genotypes.")
+    return hd.G

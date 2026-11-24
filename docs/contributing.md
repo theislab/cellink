@@ -1,10 +1,10 @@
 # Contributing guide
 
 **cellink** connects donor-level genetic data (`GenoAnnData`, via dask) with single-cell
-omics data (`AnnData`/`MuData`) through the [`DonorData`](https://donordata.readthedocs.io) container, and wraps a large
+omics data (`AnnData`/`MuData`) through the [`HiData`](https://hidata.readthedocs.io) container, and wraps a large
 number of external genetics tools (PLINK, MAGMA, LDSC, TensorQTL, SAIGE-QTL, gsMap,
 sc-linker, scDRS, ...) under `cellink.tl.external` so they can be driven directly from
-`DonorData`. This document covers what's specific to contributing to cellink; for the
+`HiData`. This document covers what's specific to contributing to cellink; for the
 general git/PR workflow, scverse's [developer documentation][scanpy developer guide]
 (this project started from the `cookiecutter-scverse` template) is a good reference.
 
@@ -44,7 +44,7 @@ pip install -e ".[dev,test,doc]"
 ### Optional extras for `tl.external`
 
 Most of `cellink.tl.external` wraps a specific tool behind its own extra
-(`pgen`, `ml`, `mixmil`, `tensorqtl`, `scdrs`, `scprs`, `seismic_torch`, `rvat`, `ldsc`,
+(`pgen`, `mixmil`, `tensorqtl`, `scdrs`, `scprs`, `seismic_torch`, `rvat`, `ldsc`,
 `datasets`; see `[project.optional-dependencies]` in `pyproject.toml`), and each import
 is lazy: `import cellink` never requires any of them, and calling a function whose
 dependency is missing raises a clear `ImportError` telling you which extra to install.
@@ -195,7 +195,7 @@ See scanpy’s {doc}`scanpy:dev/documentation` for more information on how to wr
 
 Public functions/classes are exported from each submodule's `__init__.py` (and listed in
 its `__all__`), and separately listed again in the matching `docs/api/*.md` page
-(`donordata.md`, `pp.md`, `io.md`, `tl.md`, `tl_external.md`, `pl.md`, `ml.md`, `at.md`,
+(`hidata.md`, `pp.md`, `io.md`, `tl.md`, `tl_external.md`, `pl.md`, `at.md`,
 `utils.md`, `resources.md`, `cli.md`). These are two separate, manually-kept-in-sync
 lists. Nothing enforces that they match. When you add, rename, or remove a public
 function:

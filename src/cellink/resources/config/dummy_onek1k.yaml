@@ -1,4 +1,4 @@
 remote_files:
-  - filename: dummy_onek1k_dataset.dd.h5
-    url: "https://drive.usercontent.google.com/download?id=1pvJme4QRr_Y9XNsBJAYhJJcdjaomsxlj&export=download&confirm=t"
-    checksum: "c1d811269b457bad613d8f36de39191dcd6c48f1ac0d7caa6bb70813043f4e20"
+  - filename: dummy_onek1k_dataset.hd.h5
+    url: "https://ndownloader.figshare.com/files/71807863"
+    checksum: "8a1d25b67d899ec270bd93471ccd4bff2404d085b8000664c0aafaf71bad68e2"

@@ -9,7 +9,7 @@ import scanpy as sc
 from anndata.utils import asarray
 
 from cellink._config import load_config
-from cellink._core import DAnn, DonorData
+from cellink._core import DAnn, HiData
 from cellink._core.schema import require_genotypes
 from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
@@ -109,7 +109,7 @@ def read_saigeqtl_results(prefix: str, step: Literal["step1", "step2", "step3"] 
 
 
 def make_group_file(
-    dd: DonorData = None,
+    hd: HiData = None,
     region_file: str = None,
     output_prefix: str = "group_file",
     allele_order: str = "alt-first",
@@ -124,8 +124,8 @@ def make_group_file(
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object whose genotypes (`dd.D`) are exported to PLINK format for the group file.
+    hd : HiData
+        HiData object whose genotypes (`hd.G`) are exported to PLINK format for the group file.
     region_file : str
         Path to region file (chr, start, end; no header)
     output_prefix : str
@@ -149,15 +149,15 @@ def make_group_file(
     str
         Path to group file or command string
     """
-    if dd is None:
-        raise ValueError("make_group_file needs `dd`: its genotypes are exported to the PLINK files it reads.")
+    if hd is None:
+        raise ValueError("make_group_file needs `hd`: its genotypes are exported to the PLINK files it reads.")
     if runner is None:
         runner = get_saigeqtl_runner()
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
 
     temp_prefix = f"{output_prefix}_temp"
-    to_plink(require_genotypes(dd), temp_prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(hd), temp_prefix, **plink_export_kwargs)
     bed_file = f"{temp_prefix}.bed"
     bim_file = f"{temp_prefix}.bim"
     fam_file = f"{temp_prefix}.fam"
@@ -190,7 +190,7 @@ def make_group_file(
 
 
 def run_saigeqtl(
-    dd: DonorData,
+    hd: HiData,
     gene_col: str,
     prefix: str = "saigeqtl_temp",
     steps: list[int] | None = None,
@@ -311,8 +311,8 @@ def run_saigeqtl(
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object with genotype and expression data
+    hd : HiData
+        HiData object with genotype and expression data
     gene_col : str
         Gene/phenotype column name
     prefix : str, default="saigeqtl_temp"
@@ -324,7 +324,7 @@ def run_saigeqtl(
     analysis_type : {'single_variant', 'set_based'}, default='single_variant'
         Type of analysis in Step 2
     n_pcs : int, default=50
-        Number of PCs to compute into dd.C.obsm["X_pca"]. Only computed when "X_pca" is itself
+        Number of PCs to compute into hd.C.obsm["X_pca"]. Only computed when "X_pca" is itself
         listed in cell_covariates; otherwise unused.
 
     Step 1 Parameters (Null Model Fitting)
@@ -554,16 +554,16 @@ def run_saigeqtl(
     Examples
     --------
     # Run only Step 1
-    >>> run_saigeqtl(dd, gene_col="GENE1", steps=[1], prefix="step1_only")
+    >>> run_saigeqtl(hd, gene_col="GENE1", steps=[1], prefix="step1_only")
 
     # Run Steps 1 and 2
-    >>> run_saigeqtl(dd, gene_col="GENE1", steps=[1, 2], prefix="full_analysis")
+    >>> run_saigeqtl(hd, gene_col="GENE1", steps=[1, 2], prefix="full_analysis")
 
     # Run only Step 3 (requires existing Step 2 results)
-    >>> run_saigeqtl(dd, gene_col="GENE1", steps=[3], prefix="existing_results")
+    >>> run_saigeqtl(hd, gene_col="GENE1", steps=[3], prefix="existing_results")
 
     # Run all steps including gene-level p-values
-    >>> run_saigeqtl(dd, gene_col="GENE1", steps=[1, 2, 3], prefix="complete")
+    >>> run_saigeqtl(hd, gene_col="GENE1", steps=[1, 2, 3], prefix="complete")
     """
     if runner is None:
         runner = get_saigeqtl_runner()
@@ -578,12 +578,12 @@ def run_saigeqtl(
         raise ValueError("analysis_type='set_based' needs `group_file` (build one with make_group_file).")
 
     if 1 in steps or 2 in steps:
-        require_genotypes(dd)
-        if cell_covariates and "X_pca" in cell_covariates and "X_pca" not in dd.C.obsm:
+        require_genotypes(hd)
+        if cell_covariates and "X_pca" in cell_covariates and "X_pca" not in hd.C.obsm:
             logger.info("Calculating PCA")
-            sc.pp.pca(dd.C, n_comps=n_pcs)
+            sc.pp.pca(hd.C, n_comps=n_pcs)
 
-        pheno_df = pd.DataFrame(asarray(dd.C.X), columns=dd.C.var.index, index=dd.C.obs[DAnn.donor])
+        pheno_df = pd.DataFrame(asarray(hd.C.X), columns=hd.C.var.index, index=hd.C.obs[DAnn.donor])
         pheno_df.insert(0, "IND_ID", pheno_df.index)
 
         if gene_col not in pheno_df.columns:
@@ -592,33 +592,33 @@ def run_saigeqtl(
         sample_cov_list = []
         sample_cov_names = []
 
-        if encode_sex and "sex" in dd.D.obs.columns:
-            n_missing = int(dd.D.obs["sex"].isna().sum())
+        if encode_sex and "sex" in hd.G.obs.columns:
+            n_missing = int(hd.G.obs["sex"].isna().sum())
             if n_missing:
-                raise ValueError(f"{n_missing} donor(s) have no sex in dd.D.obs; drop them or pass encode_sex=False.")
-            sex_data = dd.D.obs["sex"].astype("category").cat.codes
-            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=dd.D.obs.index))
+                raise ValueError(f"{n_missing} donor(s) have no sex in hd.G.obs; drop them or pass encode_sex=False.")
+            sex_data = hd.G.obs["sex"].astype("category").cat.codes
+            sample_cov_list.append(pd.DataFrame({"sex": sex_data.values}, index=hd.G.obs.index))
             sample_cov_names.append("sex")
 
-        if encode_age and "age" in dd.D.obs.columns:
-            age_data = dd.D.obs["age"].values.astype(dtype)
-            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=dd.D.obs.index))
+        if encode_age and "age" in hd.G.obs.columns:
+            age_data = hd.G.obs["age"].values.astype(dtype)
+            sample_cov_list.append(pd.DataFrame({"age": age_data}, index=hd.G.obs.index))
             sample_cov_names.append("age")
 
         if sample_covariates:
             for cov in sample_covariates:
-                if cov in dd.D.obs.columns:
-                    cov_data = dd.D.obs[[cov]].astype(dtype)
+                if cov in hd.G.obs.columns:
+                    cov_data = hd.G.obs[[cov]].astype(dtype)
                     sample_cov_list.append(cov_data)
                     sample_cov_names.append(cov)
-                elif cov in dd.D.obsm:
-                    cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
+                elif cov in hd.G.obsm:
+                    cov_matrix = asarray(hd.G.obsm[cov]).astype(dtype)
                     if cov_matrix.ndim == 1:
-                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.D.obs.index))
+                        sample_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=hd.G.obs.index))
                         sample_cov_names.append(cov)
                     else:
                         cov_df = pd.DataFrame(
-                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=dd.D.obs.index
+                            cov_matrix, columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])], index=hd.G.obs.index
                         )
                         sample_cov_list.append(cov_df)
                         sample_cov_names.extend([f"{cov}_{i}" for i in range(cov_matrix.shape[1])])
@@ -635,22 +635,22 @@ def run_saigeqtl(
 
         if cell_covariates:
             for cov in cell_covariates:
-                if cov in dd.C.obs.columns:
-                    cov_data = dd.C.obs[[cov, DAnn.donor]]
+                if cov in hd.C.obs.columns:
+                    cov_data = hd.C.obs[[cov, DAnn.donor]]
                     cov_data = cov_data.set_index(DAnn.donor)
                     cov_data = cov_data.astype(dtype)
                     cell_cov_list.append(cov_data)
                     cell_cov_names.append(cov)
-                elif cov in dd.C.obsm:
-                    cov_matrix = asarray(dd.C.obsm[cov]).astype(dtype)
+                elif cov in hd.C.obsm:
+                    cov_matrix = asarray(hd.C.obsm[cov]).astype(dtype)
                     if cov_matrix.ndim == 1:
-                        cell_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=dd.C.obs[DAnn.donor]))
+                        cell_cov_list.append(pd.DataFrame({cov: cov_matrix}, index=hd.C.obs[DAnn.donor]))
                         cell_cov_names.append(cov)
                     else:
                         cov_df = pd.DataFrame(
                             cov_matrix,
                             columns=[f"{cov}_{i}" for i in range(cov_matrix.shape[1])],
-                            index=dd.C.obs[DAnn.donor],
+                            index=hd.C.obs[DAnn.donor],
                         )
                         cell_cov_list.append(cov_df)
                         cell_cov_names.extend([f"{cov}_{i}" for i in range(cov_matrix.shape[1])])
@@ -674,7 +674,7 @@ def run_saigeqtl(
         covar_cols = ",".join(all_cov_names) if all_cov_names else ""
         sample_covar_cols = ",".join(sample_cov_names) if sample_cov_names else ""
 
-        to_plink(dd.D, prefix, **plink_export_kwargs)
+        to_plink(hd.G, prefix, **plink_export_kwargs)
         fam = pd.read_csv(f"{prefix}.fam", delimiter="\t", header=None)
         fam.to_csv(f"{prefix}.fam", sep=" ", header=False, index=False)
         bim = pd.read_csv(f"{prefix}.bim", delimiter="\t", header=None)
@@ -853,7 +853,7 @@ def run_saigeqtl(
 
         if mode == "cis" and not ranges_to_include_file:
             ranges_file = f"{prefix}_ranges.txt"
-            ranges_df = dd.C.var.loc[[gene_col], ["chrom", "start", "end"]].copy()
+            ranges_df = hd.C.var.loc[[gene_col], ["chrom", "start", "end"]].copy()
             ranges_df["start"] = (ranges_df["start"] - window).clip(lower=0).astype("int64")
             ranges_df["end"] = (ranges_df["end"] + window).astype("int64")
             ranges_df.to_csv(ranges_file, sep="\t", header=False, index=False)

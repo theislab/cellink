@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cellink import DonorData
+from cellink import HiData
 from cellink._core.dummy_data import sim_adata, sim_gdata
 from cellink.at.base_model import BaseModel
 from cellink.at.gwas import GWAS
@@ -15,56 +15,74 @@ from cellink.at.structlmm import StructLMM
 
 
 @pytest.fixture
-def dd():
-    donordata = DonorData(D=sim_gdata(), C=sim_adata())
+def hd():
+    data = HiData(G=sim_gdata(), C=sim_adata(), group_id="donor_id")
     rng = np.random.default_rng(0)
-    donordata.D.obs["age"] = rng.integers(20, 60, donordata.D.n_obs).astype(float)
-    donordata.D.obs["phenotype"] = rng.standard_normal(donordata.D.n_obs)
-    return donordata
+    data.G.obs["age"] = rng.integers(20, 60, data.G.n_obs).astype(float)
+    data.G.obs["phenotype"] = rng.standard_normal(data.G.n_obs)
+    return data
 
 
-def test_get_model_matrix_donor_only_formula(dd):
-    """A formula referencing only donor-level variables must not crash on an empty cell-level dict."""
-    y = get_model_matrix(dd, "phenotype - 1", target_level="donor")
-    assert y.shape == (dd.D.n_obs, 1)
-    np.testing.assert_allclose(y.to_numpy().ravel(), dd.D.obs["phenotype"].to_numpy())
+def test_get_model_matrix_group_only_formula(hd):
+    """A formula referencing only group-level variables must not crash on an empty cell-level dict."""
+    y = get_model_matrix(hd, "phenotype - 1", target_level="group")
+    assert y.shape == (hd.G.n_obs, 1)
+    np.testing.assert_allclose(y.to_numpy().ravel(), hd.G.obs["phenotype"].to_numpy())
 
 
-def test_get_model_matrix_donor_table():
+def test_get_model_matrix_group_table():
     donors = pd.DataFrame({"age": np.arange(10.0)}, index=pd.Index([f"D{i}" for i in range(10)], name="donor_id"))
-    dd = DonorData(D=donors, C=sim_adata())
-    X = get_model_matrix(dd, "age", target_level="donor")
-    assert list(X.index) == list(dd.obs_names)
+    hd = HiData(G=donors, C=sim_adata(), group_id="donor_id")
+    X = get_model_matrix(hd, "age", target_level="group")
+    assert list(X.index) == list(hd.obs_names)
     np.testing.assert_allclose(X["age"].to_numpy(), donors["age"].to_numpy())
-    X = get_model_matrix(dd, "crepeat(age)", target_level="cell")
-    np.testing.assert_allclose(X["crepeat(age)"].to_numpy(), dd.C.obs[dd.donor_id].map(donors["age"]).to_numpy())
+    X = get_model_matrix(hd, "crepeat(age)", target_level="cell")
+    np.testing.assert_allclose(X["crepeat(age)"].to_numpy(), hd.C.obs[hd.group_id].map(donors["age"]).to_numpy())
 
 
-def test_get_model_matrix_cell_only_formula(dd):
-    """Symmetric case: a cell-only formula must not crash on an empty donor-level dict."""
-    x = get_model_matrix(dd, "celltype", target_level="cell")
-    assert x.shape[0] == dd.C.n_obs
+def test_get_model_matrix_cell_only_formula(hd):
+    """Symmetric case: a cell-only formula must not crash on an empty group-level dict."""
+    x = get_model_matrix(hd, "celltype", target_level="cell")
+    assert x.shape[0] == hd.C.n_obs
 
 
-def test_get_model_matrix_donor_aggregation(dd):
-    """dmax(<cell-level gene>) aggregates a cell-level variable up to one value per donor."""
-    X = get_model_matrix(dd, "age + dmax(G0)", target_level="donor")
-    assert X.shape == (dd.D.n_obs, 3)  # Intercept, age, dmax(G0)
-    assert "dmax(G0)" in X.columns
-    expected = dd.C[:, "G0"].X.ravel()
+def test_get_model_matrix_group_aggregation(hd):
+    """group_max(<cell-level gene>) aggregates a cell-level variable up to one value per group."""
+    X = get_model_matrix(hd, "age + group_max(G0)", target_level="group")
+    assert X.shape == (hd.G.n_obs, 3)  # Intercept, age, group_max(G0)
+    assert "group_max(G0)" in X.columns
+    expected = hd.C[:, "G0"].X.ravel()
     expected = (
-        pd.Series(np.asarray(expected).ravel(), index=dd.C.obs_names)
-        .groupby(dd.C.obs[dd.donor_id], observed=True)
+        pd.Series(np.asarray(expected).ravel(), index=hd.C.obs_names)
+        .groupby(hd.C.obs[hd.group_id], observed=True)
         .max()
     )
-    np.testing.assert_allclose(X["dmax(G0)"].to_numpy(), expected.reindex(X.index).to_numpy())
+    np.testing.assert_allclose(X["group_max(G0)"].to_numpy(), expected.reindex(X.index).to_numpy())
 
 
-def test_get_model_matrix_cell_aggregation_crepeat(dd):
-    """crepeat(<donor-level var>) broadcasts a donor-level variable down to every cell."""
-    X = get_model_matrix(dd, "crepeat(age)", target_level="cell")
-    assert X.shape == (dd.C.n_obs, 2)  # Intercept, crepeat(age)
-    expected = dd.C.obs[dd.donor_id].map(dd.D.obs["age"]).to_numpy()
+def test_group_aggregation_names_parse_in_formulas(hd):
+    """Aggregation names with underscores resolve next to other terms and around nested calls."""
+    X = get_model_matrix(hd, "age + group_mean(G0) + group_max(np.square(G1)) - 1", target_level="group")
+    assert list(X.columns) == ["age", "group_mean(G0)", "group_max(np.square(G1))"]
+    cells = pd.DataFrame(np.asarray(hd.C[:, ["G0", "G1"]].X), index=hd.C.obs_names, columns=["G0", "G1"])
+    by_group = cells.groupby(hd.C.obs[hd.group_id], observed=True)
+    np.testing.assert_allclose(X["group_mean(G0)"].to_numpy(), by_group["G0"].mean().reindex(X.index).to_numpy())
+    expected = np.square(cells["G1"]).groupby(hd.C.obs[hd.group_id], observed=True).max()
+    np.testing.assert_allclose(X["group_max(np.square(G1))"].to_numpy(), expected.reindex(X.index).to_numpy())
+
+
+def test_gwas_resolves_group_aggregations(hd):
+    gwas = GWAS(Y="phenotype", F="age + group_mean(G0)", data=hd, target_level="group")
+    assert gwas.F.shape == (hd.G.n_obs, 3)  # Intercept, age, group_mean(G0)
+    gwas.test_association(np.random.default_rng(1).standard_normal((hd.G.n_obs, 3)))
+    assert np.isfinite(gwas.getPv()).all()
+
+
+def test_get_model_matrix_cell_aggregation_crepeat(hd):
+    """crepeat(<group-level var>) broadcasts a group-level variable down to every cell."""
+    X = get_model_matrix(hd, "crepeat(age)", target_level="cell")
+    assert X.shape == (hd.C.n_obs, 2)  # Intercept, crepeat(age)
+    expected = hd.C.obs[hd.group_id].map(hd.G.obs["age"]).to_numpy()
     np.testing.assert_allclose(X["crepeat(age)"].to_numpy(), expected)
 
 
@@ -76,11 +94,11 @@ def test_get_model_matrix_plain_anndata():
     np.testing.assert_allclose(y.to_numpy().ravel(), adata.obs["pheno"].to_numpy())
 
 
-def test_get_model_matrix_plain_anndata_rejects_donor_agg():
+def test_get_model_matrix_plain_anndata_rejects_group_agg():
     adata = sim_adata()
     adata.obs["pheno"] = np.random.randn(adata.n_obs)
     with pytest.raises(ValueError, match="not applicable for a single AnnData"):
-        get_model_matrix(adata, "dmean(pheno) - 1")
+        get_model_matrix(adata, "group_mean(pheno) - 1")
 
 
 def test_get_model_matrix_dataframe_passthrough():
@@ -111,10 +129,10 @@ def test_gwas_data_equals_raw_numpy():
     np.testing.assert_allclose(gwas_formula.getBetaSNP(), gwas_raw.getBetaSNP(), rtol=1e-8)
 
 
-def test_gwas_donordata_formula_runs(dd):
-    """GWAS against a DonorData with formula strings runs end to end and gives finite p-values."""
-    gwas = GWAS(Y="phenotype", F="age", data=dd, target_level="donor")
-    g = np.random.default_rng(2).standard_normal((dd.D.n_obs, 4))
+def test_gwas_hidata_formula_runs(hd):
+    """GWAS against a HiData with formula strings runs end to end and gives finite p-values."""
+    gwas = GWAS(Y="phenotype", F="age", data=hd, target_level="group")
+    g = np.random.default_rng(2).standard_normal((hd.G.n_obs, 4))
     gwas.test_association(g)
     pv = gwas.getPv()
     assert np.all(np.isfinite(pv))
@@ -129,7 +147,7 @@ def test_gwas_missing_data_raises_on_formula_string():
 def test_skat_data_resolver_multiple_variants():
     """Regression test: `Skat.run_test(data=..., X=...)` used to raise TypeError
     (`isinstance(X, str | list[str])` is invalid at runtime) and, even past that,
-    the DonorData branch referenced a nonexistent `.donor_data` attribute. Both are
+    the HiData branch referenced a nonexistent attribute. Both are
     fixed; this exercises all three data containers with both a single column name
     and a multi-column formula string for X."""
     pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
@@ -154,11 +172,11 @@ def test_skat_data_resolver_multiple_variants():
     pv_df = skat.run_test(data=df, Y="pheno", X=snp_formula)
     np.testing.assert_allclose(pv_df, pv_multi)
 
-    dd = DonorData(D=sim_gdata(), C=sim_adata())
-    dd.D.obs["pheno"] = rng.standard_normal(dd.D.n_obs)
-    dd.D.obs[snp_cols] = rng.integers(0, 3, size=(dd.D.n_obs, 5)).astype(float)
-    pv_dd = skat.run_test(data=dd, Y="pheno", X=snp_formula)
-    assert np.isfinite(pv_dd)
+    hd = HiData(G=sim_gdata(), C=sim_adata(), group_id="donor_id")
+    hd.G.obs["pheno"] = rng.standard_normal(hd.G.n_obs)
+    hd.G.obs[snp_cols] = rng.integers(0, 3, size=(hd.G.n_obs, 5)).astype(float)
+    pv_hd = skat.run_test(data=hd, Y="pheno", X=snp_formula)
+    assert np.isfinite(pv_hd)
 
 
 def test_skat_data_equals_raw_numpy():
@@ -179,19 +197,19 @@ def test_skat_data_equals_raw_numpy():
     np.testing.assert_allclose(pv_formula, pv_raw)
 
 
-def test_skat_donordata_defaults_to_donor_level():
-    """Skat's variants are donor-level; a DonorData resolves against `.D` without target_level="donor"."""
+def test_skat_hidata_defaults_to_group_level():
+    """Skat's variants are group-level; a HiData resolves against `.G` without target_level="group"."""
     pytest.importorskip("chiscore", reason="Skat needs chiscore, install with `conda install -c conda-forge chiscore`")
     from cellink.at.skat import Skat
 
     rng = np.random.default_rng(7)
     snp_cols = [f"snp{i}" for i in range(5)]
-    dd = DonorData(D=sim_gdata(), C=sim_adata())
-    dd.D.obs["pheno"] = rng.standard_normal(dd.D.n_obs)
-    dd.D.obs[snp_cols] = rng.integers(0, 3, size=(dd.D.n_obs, 5)).astype(float)
+    hd = HiData(G=sim_gdata(), C=sim_adata(), group_id="donor_id")
+    hd.G.obs["pheno"] = rng.standard_normal(hd.G.n_obs)
+    hd.G.obs[snp_cols] = rng.integers(0, 3, size=(hd.G.n_obs, 5)).astype(float)
 
     skat = Skat(min_threshold=1)
-    pv = skat.run_test(data=dd, Y="pheno", X=" + ".join(snp_cols))
+    pv = skat.run_test(data=hd, Y="pheno", X=" + ".join(snp_cols))
     assert np.isfinite(pv)
 
 
@@ -222,32 +240,32 @@ def test_get_model_matrix_family_operator_with_function_wrap():
     np.testing.assert_allclose(X["np.log1p(X_1)"].to_numpy(), np.log1p(df["X_1"].to_numpy()))
 
 
-@pytest.mark.parametrize("agg_func", ["dmean", "dmax", "dmedian", "dfirst"])
-def test_get_model_matrix_donor_aggregation_functions(dd, agg_func):
-    X = get_model_matrix(dd, f"{agg_func}(G0) - 1", target_level="donor")
-    assert X.shape == (dd.D.n_obs, 1)
+@pytest.mark.parametrize("agg_func", ["group_mean", "group_max", "group_median", "group_first"])
+def test_get_model_matrix_group_aggregation_functions(hd, agg_func):
+    X = get_model_matrix(hd, f"{agg_func}(G0) - 1", target_level="group")
+    assert X.shape == (hd.G.n_obs, 1)
     assert X.columns[0] == f"{agg_func}(G0)"
 
 
-def test_get_model_matrix_donordata_requires_target_level(dd):
+def test_get_model_matrix_hidata_requires_target_level(hd):
     with pytest.raises(ValueError, match="target_level"):
-        get_model_matrix(dd, "age - 1")
+        get_model_matrix(hd, "age - 1")
 
 
-def test_get_model_matrix_rejects_crepeat_in_donor_formula(dd):
+def test_get_model_matrix_rejects_crepeat_in_group_formula(hd):
     with pytest.raises(ValueError, match="crepeat"):
-        get_model_matrix(dd, "crepeat(age)", target_level="donor")
+        get_model_matrix(hd, "crepeat(age)", target_level="group")
 
 
-def test_get_model_matrix_rejects_donor_agg_in_cell_formula(dd):
-    with pytest.raises(ValueError, match="Donor aggregation functions"):
-        get_model_matrix(dd, "dmean(G0)", target_level="cell")
+def test_get_model_matrix_rejects_group_agg_in_cell_formula(hd):
+    with pytest.raises(ValueError, match="Group aggregation functions"):
+        get_model_matrix(hd, "group_mean(G0)", target_level="cell")
 
 
-def test_get_model_matrix_dataframe_rejects_donor_agg():
+def test_get_model_matrix_dataframe_rejects_group_agg():
     df = pd.DataFrame({"y": np.arange(5.0)})
     with pytest.raises(ValueError, match="not applicable for a pandas DataFrame"):
-        get_model_matrix(df, "dmean(y) - 1")
+        get_model_matrix(df, "group_mean(y) - 1")
     with pytest.raises(ValueError, match="not applicable for a pandas DataFrame"):
         get_model_matrix(df, "crepeat(y) - 1")
 

@@ -10,7 +10,7 @@ from annbatch.abc import Sampler
 from annbatch.utils import split_given_size
 
 
-class DonorSampler(Sampler):
+class GroupSampler(Sampler):
     def __init__(self, categories, obs_names, preload_nbatches=4):
         self._batch_size = 1
         self._preload_nbatches = preload_nbatches
@@ -50,7 +50,7 @@ class DonorSampler(Sampler):
 
 
 def load_obs_from_random_sampler(sampler, obs):
-    """Gives the unique donor ids per batch."""
+    """Gives the unique group ids per batch."""
     for lr in sampler.sample(len(obs)):
         chunks_key = lr.get("chunks", lr.get("requests"))
         indices = np.concatenate([np.arange(x.start, x.stop) for x in chunks_key])
@@ -59,7 +59,7 @@ def load_obs_from_random_sampler(sampler, obs):
             yield sampled_obs.iloc[split].unique()
 
 
-def train_yields(n_epochs, batch_size, chunk_size, preload_nchunks, preload_ndonors):
+def train_yields(n_epochs, batch_size, chunk_size, preload_nchunks, preload_ngroups):
     rs1 = RandomSampler(
         batch_size=batch_size,
         chunk_size=chunk_size,
@@ -72,44 +72,44 @@ def train_yields(n_epochs, batch_size, chunk_size, preload_nchunks, preload_ndon
     loader_C = Loader(
         return_index=True,
         batch_sampler=rs1,
-    ).use_collection(DatasetCollection("dd_C_collection.zarr"))
+    ).use_collection(DatasetCollection("hd_C_collection.zarr"))
 
     obs = pd.concat(x["donor_id"] for x in loader_C._obs)
 
-    dd_G_collection = DatasetCollection("dd_G_collection.zarr")
-    dd_G_obs_names = []
-    for group in dd_G_collection:
-        dd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
+    hd_G_collection = DatasetCollection("hd_G_collection.zarr")
+    hd_G_obs_names = []
+    for group in hd_G_collection:
+        hd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
 
     for _epoch in range(n_epochs):
-        flattened_donors = []
-        n_donors_per_batch = []
-        for batch_donors in load_obs_from_random_sampler(rs1, obs):
-            flattened_donors.extend(batch_donors)
-            n_donors_per_batch.append(len(batch_donors))
+        flattened_groups = []
+        n_groups_per_batch = []
+        for batch_groups in load_obs_from_random_sampler(rs1, obs):
+            flattened_groups.extend(batch_groups)
+            n_groups_per_batch.append(len(batch_groups))
 
-        donor_sampler = DonorSampler(
-            categories=flattened_donors, obs_names=dd_G_obs_names, preload_nbatches=preload_ndonors
+        group_sampler = GroupSampler(
+            categories=flattened_groups, obs_names=hd_G_obs_names, preload_nbatches=preload_ngroups
         )
         loader_G = Loader(
             return_index=True,
-            batch_sampler=donor_sampler,
+            batch_sampler=group_sampler,
             preload_to_gpu=False,
-        ).use_collection(dd_G_collection)
+        ).use_collection(hd_G_collection)
         loader_G_iter = iter(loader_G)
 
-        n_donors_per_batch_iter = iter(n_donors_per_batch)
+        n_groups_per_batch_iter = iter(n_groups_per_batch)
         for batch in loader_C:
-            n_donors = next(n_donors_per_batch_iter)
-            donors_g = []
-            for _ in range(n_donors):
+            n_groups = next(n_groups_per_batch_iter)
+            groups_g = []
+            for _ in range(n_groups):
                 batch_g = next(loader_G_iter)
-                donors_g.append(batch_g)
-            batch["donor_g"] = donors_g
+                groups_g.append(batch_g)
+            batch["group_g"] = groups_g
             yield batch
 
 
-a = train_yields(1, batch_size=1024, chunk_size=128, preload_nchunks=64, preload_ndonors=1024)
+a = train_yields(1, batch_size=1024, chunk_size=128, preload_nchunks=64, preload_ngroups=1024)
 
 print("Pre-warming/Running first next(a)...")
 b = next(a)

@@ -8,7 +8,7 @@ import pandas as pd
 import scipy.linalg as la
 import scipy.stats as st
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import ensure_float64_array
 
@@ -23,8 +23,8 @@ class GWAS:
         Y: np.ndarray | str,
         F: np.ndarray | str | None = None,
         *,
-        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
-        target_level: Literal["donor", "cell"] | None = None,
+        data: HiData | anndata.AnnData | pd.DataFrame | None = None,
+        target_level: Literal["group", "cell"] | None = None,
     ) -> None:
         """
         Initialize the GWAS class.
@@ -40,13 +40,13 @@ class GWAS:
                 a numpy array directly, or, when `data` is provided, a formula
                 string (e.g. ``"age + sex"``) resolved against `data`; an
                 intercept column is kept for a string formula (unlike `Y`).
-            data : DonorData, AnnData, or pandas.DataFrame, optional
+            data : HiData, AnnData, or pandas.DataFrame, optional
                 Data container `Y`/`F` are resolved against when either is
                 given as a string. Ignored (and not required) when `Y`/`F`
                 are already numpy arrays.
-            target_level : {"donor", "cell"}, optional
-                Required when `data` is a `DonorData` and `Y`/`F` are formula
-                strings, since a `DonorData` has values at both levels.
+            target_level : {"group", "cell"}, optional
+                Required when `data` is a `HiData` and `Y`/`F` are formula
+                strings, since a `HiData` has values at both levels.
 
         Notes
         -----

@@ -5,62 +5,62 @@ import gzip
 import pandas as pd
 import pytest
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink.tl.external._gsmap import load_gsmap_results
 from cellink.tl.external._ld import calculate_ld
 from cellink.tl.external._pc import calculate_pcs
 
 
 @pytest.fixture
-def dd(adata, gdata):
+def hd(adata, gdata):
     gdata.obs["donor_id"] = gdata.obs.index
-    return DonorData(D=gdata, C=adata)
+    return HiData(G=gdata, C=adata, group_id="donor_id")
 
 
-def test_calculate_pcs_command_construction(dd, tmp_path):
+def test_calculate_pcs_command_construction(hd, tmp_path):
     prefix = str(tmp_path / "geno")
-    cmd = calculate_pcs(dd, prefix, num_pcs=5, run=False)
+    cmd = calculate_pcs(hd, prefix, num_pcs=5, run=False)
     assert cmd == f"plink --bfile {prefix} --pca 5 --out {prefix}_pca"
 
 
-def test_calculate_pcs_custom_out_prefix(dd, tmp_path):
+def test_calculate_pcs_custom_out_prefix(hd, tmp_path):
     prefix = str(tmp_path / "geno")
     out = str(tmp_path / "custom_pca_out")
-    cmd = calculate_pcs(dd, prefix, out=out, num_pcs=3, run=False)
+    cmd = calculate_pcs(hd, prefix, out=out, num_pcs=3, run=False)
     assert f"--out {out}" in cmd
     assert f"--pca 3" in cmd
 
 
-def test_calculate_pcs_save_cmd_file(dd, tmp_path):
+def test_calculate_pcs_save_cmd_file(hd, tmp_path):
     prefix = str(tmp_path / "geno")
     cmd_file = tmp_path / "cmd.sh"
-    result = calculate_pcs(dd, prefix, num_pcs=5, run=False, save_cmd_file=str(cmd_file))
+    result = calculate_pcs(hd, prefix, num_pcs=5, run=False, save_cmd_file=str(cmd_file))
     assert result is None
     assert cmd_file.exists()
     assert cmd_file.read_text().strip() == f"plink --bfile {prefix} --pca 5 --out {prefix}_pca"
 
 
-def test_calculate_pcs_raises_without_plink_binary(dd, tmp_path, monkeypatch):
+def test_calculate_pcs_raises_without_plink_binary(hd, tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda _: None)
     with pytest.raises(ImportError, match="plink is required"):
-        calculate_pcs(dd, str(tmp_path / "geno"), run=True)
+        calculate_pcs(hd, str(tmp_path / "geno"), run=True)
 
 
-def test_calculate_ld_command_construction(dd, tmp_path):
+def test_calculate_ld_command_construction(hd, tmp_path):
     prefix = str(tmp_path / "geno")
-    cmd = calculate_ld(dd, prefix, window_kb=250, ld_window=500, r2_threshold=0.1, run=False)
+    cmd = calculate_ld(hd, prefix, window_kb=250, ld_window=500, r2_threshold=0.1, run=False)
     assert cmd == (
         f"plink --bfile {prefix} --r2 --ld-window-kb 250 --ld-window 500 "
         f"--ld-window-r2 0.1 --out {prefix}_ld"
     )
 
 
-def test_calculate_ld_raises_without_plink_binary_uses_correct_function_name(dd, tmp_path, monkeypatch):
+def test_calculate_ld_raises_without_plink_binary_uses_correct_function_name(hd, tmp_path, monkeypatch):
     """Regression test: the error message previously named `calculate_pcs`
     (copy-paste from _pc.py) even when raised from `calculate_ld`."""
     monkeypatch.setattr("shutil.which", lambda _: None)
     with pytest.raises(ImportError, match="calculate_ld"):
-        calculate_ld(dd, str(tmp_path / "geno"), run=True)
+        calculate_ld(hd, str(tmp_path / "geno"), run=True)
 
 
 def test_load_gsmap_results_missing_workdir_returns_none_fields(tmp_path):

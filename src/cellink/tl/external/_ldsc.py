@@ -10,7 +10,7 @@ import pandas as pd
 import polars as pl
 
 from cellink._config import load_config
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.schema import require_genotypes
 from cellink.io import to_plink
 from cellink.tl._runner import BaseToolRunner
@@ -803,8 +803,8 @@ def estimate_ld_scores_from_bimfile(
     return results
 
 
-def estimate_ld_scores_from_donor_data(
-    dd: DonorData,
+def estimate_ld_scores_from_hidata(
+    hd: HiData,
     out_prefix: str = "ldscores",
     ld_wind_cm: float | None = None,
     ld_wind_kb: int | None = None,
@@ -820,15 +820,15 @@ def estimate_ld_scores_from_donor_data(
     **kwargs,
 ) -> dict[str, Any]:
     """
-    Estimate LD scores from DonorData object
+    Estimate LD scores from HiData object
 
-    This convenience function exports genotype data from DonorData to PLINK format,
+    This convenience function exports genotype data from HiData to PLINK format,
     then computes LD scores.
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing genotype information
+    hd : HiData
+        HiData object containing genotype information
     out_prefix : str, default "ldscores"
         Prefix for output files (also used for temporary PLINK files)
     cleanup_files : bool, default True
@@ -850,8 +850,8 @@ def estimate_ld_scores_from_donor_data(
 
     Examples
     --------
-    >>> result = estimate_ld_scores_from_donor_data(
-    ...     dd=my_donor_data, out_prefix="my_ldscores", annot_file="immune_genes.annot.gz", ld_wind_kb=1000
+    >>> result = estimate_ld_scores_from_hidata(
+    ...     hd=hd, out_prefix="my_ldscores", annot_file="immune_genes.annot.gz", ld_wind_kb=1000
     ... )
     """
     if runner is None:
@@ -861,7 +861,7 @@ def estimate_ld_scores_from_donor_data(
         plink_export_kwargs = {}
 
     logger.info("Exporting genotype data to PLINK format for LD score estimation")
-    to_plink(require_genotypes(dd), out_prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(hd), out_prefix, **plink_export_kwargs)
     ld_wind_cm, ld_wind_kb = _ld_window_for_exported_bim(f"{out_prefix}.bim", ld_wind_cm, ld_wind_kb, ld_wind_snp)
 
     results = estimate_ld_scores_from_bimfile(
@@ -1678,8 +1678,8 @@ def make_annot_from_bimfile(
     return results
 
 
-def make_annot_from_donor_data(
-    dd: DonorData,
+def make_annot_from_hidata(
+    hd: HiData,
     annot_file: str,
     gene_set_file: str | None = None,
     bed_file: str | None = None,
@@ -1696,7 +1696,7 @@ def make_annot_from_donor_data(
     **kwargs,
 ) -> dict[str, Any]:
     """
-    Create a binary or continuous S-LDSC annotation file from a DonorData object.
+    Create a binary or continuous S-LDSC annotation file from a HiData object.
 
     Exports genotype data to PLINK format, then delegates to
     :func:`make_annot_from_bimfile`. Pass ``scores`` for continuous mode or
@@ -1704,8 +1704,8 @@ def make_annot_from_donor_data(
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing genotype information.
+    hd : HiData
+        HiData object containing genotype information.
     annot_file : str
         Output annotation file. Should end in ``.annot.gz``.
     gene_set_file : str, optional
@@ -1745,8 +1745,8 @@ def make_annot_from_donor_data(
     --------
     Binary annotation:
 
-    >>> make_annot_from_donor_data(
-    ...     dd=my_donor_data,
+    >>> make_annot_from_hidata(
+    ...     hd=hd,
     ...     annot_file="CD8_Naive.annot.gz",
     ...     gene_set_file="CD8_Naive.GeneSet",
     ...     gene_coord_file="gene_coords.txt",
@@ -1754,8 +1754,8 @@ def make_annot_from_donor_data(
 
     Continuous annotation:
 
-    >>> make_annot_from_donor_data(
-    ...     dd=my_donor_data,
+    >>> make_annot_from_hidata(
+    ...     hd=hd,
     ...     annot_file="CD8_Naive.annot.gz",
     ...     scores=specificity_df["CD8 Naive"],
     ...     gene_coord_file="gene_coords.txt",
@@ -1764,7 +1764,7 @@ def make_annot_from_donor_data(
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
     logger.info("Exporting genotype data to PLINK format for annotation creation")
-    to_plink(require_genotypes(dd), out_prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(hd), out_prefix, **plink_export_kwargs)
     bimfile = f"{out_prefix}.bim"
 
     results = make_annot_from_bimfile(
@@ -1845,7 +1845,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
         Typically from 1000 Genomes reference panel, e.g.,
         "1000G_EUR_Phase3_plink/1000G.EUR.QC.22"
     annot_file : str
-        Path to the annotation file created by make_annot_from_donor_data()
+        Path to the annotation file created by make_annot_from_hidata()
         or make_annot_from_bimfile(). Should end in .annot.gz
         Example: "CD8_Naive.22.annot.gz"
     out_prefix : str
@@ -1869,7 +1869,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
     thin_annot : bool, default False
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
         Should typically be False for annotations created by make_annot_from_bimfile /
-        make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
+        make_annot_from_hidata, which write the full CHR/BP/SNP/CM/ANNOT format.
     maf_min : float or None, default None
         Minimum minor allele frequency of the SNPs used for the LD scores, passed to
         ldsc as ``--maf``. None (default) applies no MAF filter (ldsc's default, also used for
@@ -1920,7 +1920,7 @@ def compute_ld_scores_with_annotations_from_bimfile(
     -----
     - This function is specifically for cell-type-specific analysis workflow
     - Should be run separately for each chromosome (1-22)
-    - The annotation file should be created first using make_annot_from_donor_data()
+    - The annotation file should be created first using make_annot_from_hidata()
       or make_annot_from_bimfile()
     - print_snps is typically used to restrict to HapMap3 SNPs for better
       matching with standard reference LD scores
@@ -1929,8 +1929,8 @@ def compute_ld_scores_with_annotations_from_bimfile(
 
     See Also
     --------
-    compute_ld_scores_with_annotations_from_donor_data : Compute from DonorData
-    make_annot_from_donor_data : Create annotations from DonorData
+    compute_ld_scores_with_annotations_from_hidata : Compute from HiData
+    make_annot_from_hidata : Create annotations from HiData
     estimate_celltype_specific_heritability : Run cell-type-specific analysis
     """
     if runner is None:
@@ -1999,8 +1999,8 @@ def compute_ld_scores_with_annotations_from_bimfile(
         return {"command": runner._build_container_command(cmd, file_paths)}
 
 
-def compute_ld_scores_with_annotations_from_donor_data(
-    dd: DonorData,
+def compute_ld_scores_with_annotations_from_hidata(
+    hd: HiData,
     annot_file: str,
     out_prefix: str = "ldscores_annot",
     ld_wind_cm: float | None = None,
@@ -2017,19 +2017,19 @@ def compute_ld_scores_with_annotations_from_donor_data(
     **kwargs,
 ) -> dict[str, Any]:
     """
-    Compute LD scores with cell-type-specific annotations from DonorData object
+    Compute LD scores with cell-type-specific annotations from HiData object
 
-    This convenience function exports genotype data from DonorData to PLINK format,
+    This convenience function exports genotype data from HiData to PLINK format,
     then computes LD scores with cell-type-specific annotations. This is useful when
     you want to compute LD scores from your own genotype data rather than using a
     reference panel like 1000 Genomes.
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing genotype information
+    hd : HiData
+        HiData object containing genotype information
     annot_file : str
-        Path to the annotation file created by make_annot_from_donor_data()
+        Path to the annotation file created by make_annot_from_hidata()
         or make_annot_from_bimfile(). Should end in .annot.gz
         Example: "CD8_Naive.annot.gz"
     out_prefix : str, default "ldscores_annot"
@@ -2054,7 +2054,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
     thin_annot : bool, default False
         Assume annotation files only have annotations (no SNP, CM, CHR, BP columns).
         Should typically be False for annotations created by make_annot_from_bimfile /
-        make_annot_from_donor_data, which write the full CHR/BP/SNP/CM/ANNOT format.
+        make_annot_from_hidata, which write the full CHR/BP/SNP/CM/ANNOT format.
     maf_min : float or None, default None
         Minimum minor allele frequency of the SNPs used for the LD scores, passed to
         ldsc as ``--maf``. None (default) applies no MAF filter (ldsc's default, also used for
@@ -2084,17 +2084,17 @@ def compute_ld_scores_with_annotations_from_donor_data(
     Examples
     --------
     Basic usage:
-    >>> result = compute_ld_scores_with_annotations_from_donor_data(
-    ...     dd=my_donor_data,
+    >>> result = compute_ld_scores_with_annotations_from_hidata(
+    ...     hd=hd,
     ...     annot_file="CD8_Naive.annot.gz",
     ...     out_prefix="CD8_Naive_ldscores",
     ...     print_snps="hapmap3_snps.txt",
     ... )
 
     Complete workflow for cell-type analysis:
-    >>> # 1. Create annotation from DonorData
-    >>> annot_result = make_annot_from_donor_data(
-    ...     dd=my_donor_data,
+    >>> # 1. Create annotation from HiData
+    >>> annot_result = make_annot_from_hidata(
+    ...     hd=hd,
     ...     annot_file="CD8_Naive.annot.gz",
     ...     gene_set_file="CD8_Naive.GeneSet",
     ...     gene_coord_file="gene_coords.txt",
@@ -2102,26 +2102,26 @@ def compute_ld_scores_with_annotations_from_donor_data(
     ... )
 
     >>> # 2. Compute LD scores with annotations
-    >>> ldsc_result = compute_ld_scores_with_annotations_from_donor_data(
-    ...     dd=my_donor_data, annot_file="CD8_Naive.annot.gz", out_prefix="CD8_Naive_ldscores"
+    >>> ldsc_result = compute_ld_scores_with_annotations_from_hidata(
+    ...     hd=hd, annot_file="CD8_Naive.annot.gz", out_prefix="CD8_Naive_ldscores"
     ... )
 
     Keep temporary PLINK files:
-    >>> result = compute_ld_scores_with_annotations_from_donor_data(
-    ...     dd=my_donor_data, annot_file="immune_genes.annot.gz", out_prefix="my_ldscores", cleanup_files=False
+    >>> result = compute_ld_scores_with_annotations_from_hidata(
+    ...     hd=hd, annot_file="immune_genes.annot.gz", out_prefix="my_ldscores", cleanup_files=False
     ... )
 
     Just generate command:
-    >>> result = compute_ld_scores_with_annotations_from_donor_data(
-    ...     dd=my_donor_data, annot_file="CD8_Naive.annot.gz", out_prefix="CD8_Naive_ldscores", run=False
+    >>> result = compute_ld_scores_with_annotations_from_hidata(
+    ...     hd=hd, annot_file="CD8_Naive.annot.gz", out_prefix="CD8_Naive_ldscores", run=False
     ... )
     >>> print(result["command"])
 
     Notes
     -----
-    - This function exports dd.D to PLINK format, computes LD scores with annotations,
+    - This function exports hd.G to PLINK format, computes LD scores with annotations,
       then optionally cleans up the temporary PLINK files
-    - The annotation file must match the SNPs in the DonorData object
+    - The annotation file must match the SNPs in the HiData object
     - Typically used when you have your own genotype data and want to compute
       custom LD scores rather than using pre-computed reference LD scores
     - For standard cell-type-specific heritability analysis, it's more common to use
@@ -2132,7 +2132,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
     See Also
     --------
     compute_ld_scores_with_annotations_from_bimfile : Compute from existing PLINK files
-    make_annot_from_donor_data : Create annotations from DonorData
+    make_annot_from_hidata : Create annotations from HiData
     estimate_celltype_specific_heritability : Run cell-type-specific analysis
     """
     if runner is None:
@@ -2142,7 +2142,7 @@ def compute_ld_scores_with_annotations_from_donor_data(
         plink_export_kwargs = {}
 
     logger.info("Exporting genotype data to PLINK format for LD score computation")
-    to_plink(require_genotypes(dd), out_prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(hd), out_prefix, **plink_export_kwargs)
     ld_wind_cm, ld_wind_kb = _ld_window_for_exported_bim(f"{out_prefix}.bim", ld_wind_cm, ld_wind_kb, ld_wind_snp)
 
     results = compute_ld_scores_with_annotations_from_bimfile(
@@ -2267,8 +2267,8 @@ def estimate_celltype_specific_heritability(
     >>> # 1. Prepare annotations for each cell type and chromosome
     >>> for cell_type in ["CD8_Naive", "CD4_Memory"]:
     ...     for chrom in range(1, 23):
-    ...         make_annot_from_donor_data(
-    ...             dd=dd_chr,
+    ...         make_annot_from_hidata(
+    ...             hd=hd_chr,
     ...             annot_file=f"annots/{cell_type}.{chrom}.annot.gz",
     ...             gene_set_file=f"genesets/{cell_type}.GeneSet",
     ...             gene_coord_file="gene_coords.txt",
@@ -2311,7 +2311,7 @@ def estimate_celltype_specific_heritability(
     See Also
     --------
     compute_ld_scores_with_annotations : Compute LD scores with annotations
-    make_annot_from_donor_data : Create cell-type-specific annotations
+    make_annot_from_hidata : Create cell-type-specific annotations
     munge_sumstats : Prepare GWAS summary statistics
     """
     if runner is None:

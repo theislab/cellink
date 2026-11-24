@@ -1,10 +1,21 @@
 from dataclasses import dataclass
 
-from donordata import CAnn, DAnn
+from hidata import CAnn
 
 __all__ = ["AAnn", "CAnn", "DAnn", "GAnn", "VAnn"]
 
 DONOR_KEY = "donor_id"
+
+
+@dataclass(frozen=True)
+class DAnn:
+    """Donor annotation fields in the group level and in C.obs"""
+
+    donor: str = DONOR_KEY
+    donor_family: str = "donor_family_id"
+    donor_paternal_id: str = "donor_paternal_id"
+    donor_maternal_id: str = "donor_maternal_id"
+    donor_sex: str = "sex"
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ jobs:
         # Only notebooks that run on synthetic data / tests/data and need nothing beyond pip.
         notebook:
           [
-            "docs/tutorials/donordata_basics.ipynb",
+            "docs/tutorials/hidata_basics.ipynb",
             "docs/tutorials/formula_resolver.ipynb",
           ]
     steps:
