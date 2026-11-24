@@ -15,7 +15,7 @@ import pandas as pd
 import scanpy as sc
 from anndata.utils import asarray
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.schema import require_genotypes
 from cellink._extras import missing_dependency_message
 from cellink.io import to_pgen
@@ -541,7 +541,7 @@ def _run_tensorqtl_python_api(
 
 
 def run_tensorqtl(
-    dd: DonorData,
+    hd: HiData,
     n_pcs: int = 50,
     mode: Literal["cis_nominal", "cis_independent", "cis", "trans", "cis_susie", "trans_susie"] = None,
     permutations: int = 10000,
@@ -583,12 +583,12 @@ def run_tensorqtl(
     prior_weights: dict[str, pd.Series] | None = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] | tuple[dict, pd.DataFrame] | str:
     """
-    Run cis- or trans-QTL mapping using TensorQTL on donor-level aggregated expression and genotype data.
+    Run cis- or trans-QTL mapping using TensorQTL on group-level aggregated expression and genotype data.
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing single-cell gene expression (`dd.C`) and donor-level genotype data (`dd.D`).
+    hd : HiData
+        HiData object containing single-cell gene expression (`hd.C`) and group-level genotype data (`hd.G`).
     mode : {'cis_nominal', 'cis_independent',
             'cis', 'trans', 'cis_susie', 'trans_susie'}, optional
         Type of QTL analysis to perform.
@@ -620,7 +620,7 @@ def run_tensorqtl(
         for weeks before it was caught, hence no fallback exists anymore).
     window : int, default=1000000
         cis window in base pairs. Variants at 1-based positions in
-        ``[start - window, end + window]`` of the gene's ``dd.C.var`` ``start``/``end`` (1-based,
+        ``[start - window, end + window]`` of the gene's ``hd.C.var`` ``start``/``end`` (1-based,
         inclusive) are tested, i.e. the gene body ± ``window``; set ``start == end`` (e.g. the TSS)
         for a window centred on one position. In ``mode="trans"`` pairs within this window are
         removed (tensorQTL's command line always removes ±5 Mb instead).
@@ -657,14 +657,14 @@ def run_tensorqtl(
         If True, warnings are issued for monomorphic variants.
     n_pcs : int, default=50
         Number of principal components to compute from single-cell expression data, donor-aggregated
-        (mean) into dd.D.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
+        (mean) into hd.G.obsm["X_pca"]. Only computed when "X_pca" is itself listed in
         additional_covariates; otherwise unused.
     encode_sex : bool, default=True
-        If True, includes donor sex (``dd.D.obs["sex"]``) as a covariate. Raises if any donor has no sex.
+        If True, includes donor sex (``hd.G.obs["sex"]``) as a covariate. Raises if any donor has no sex.
     encode_age : bool, default=True
         If True, includes donor age (z-normalized if needed) as a covariate.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.D.obs` or `dd.D.obsm` to include in the model. No intercept
+        Additional covariates from `hd.G.obs` or `hd.G.obsm` to include in the model. No intercept
         column is added: tensorQTL centers expression, genotypes and covariates. Constant
         covariates are dropped with a warning, and without any covariate tensorQTL only centers
         (not supported by the SuSiE modes). Covariates with missing values raise a ValueError.
@@ -672,7 +672,7 @@ def run_tensorqtl(
         Data type to cast covariates and matrices for QTL model input.
     use_python_api : bool, default=False
         If True, runs TensorQTL directly via its Python API without exporting intermediate files or
-        invoking a subprocess. Genotypes are loaded from `dd.D` in memory. If False (default), the
+        invoking a subprocess. Genotypes are loaded from `hd.G` in memory. If False (default), the
         CLI-based workflow is used, which exports PLINK, phenotype, and covariate files and calls
         TensorQTL via subprocess.
     run : bool, default=True
@@ -727,7 +727,7 @@ def run_tensorqtl(
         If required parameters (`prefix`, `cis_output`, `susie_loci`) are not provided for the selected
         mode, or a covariate is missing for some donors.
     """
-    require_genotypes(dd)
+    require_genotypes(hd)
     if plink_export_kwargs is None:
         plink_export_kwargs = {}
 
@@ -741,31 +741,31 @@ def run_tensorqtl(
             )
 
     if additional_covariates and "X_pca" in additional_covariates:
-        if "X_pca" not in dd.C.obsm:
+        if "X_pca" not in hd.C.obsm:
             logger.info("Calculating PCA.")
-            sc.pp.pca(dd.C, n_comps=n_pcs)
-        if "X_pca" not in dd.D.obsm:
-            dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
+            sc.pp.pca(hd.C, n_comps=n_pcs)
+        if "X_pca" not in hd.G.obsm:
+            hd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
-    dd.aggregate(key_added="PB", sync_var=True, verbose=True)
+    hd.aggregate(key_added="PB", sync_var=True, verbose=True)
 
-    phenotype_df = dd.D.obsm["PB"].T
+    phenotype_df = hd.G.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
-    phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+    phenotype_pos_df = hd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
     phenotype_pos_df["Geneid"] = phenotype_pos_df.index
 
     # no intercept column: tensorQTL centers every covariate, which turns a constant column into zeros
     covariate_list = []
 
     if encode_sex:
-        n_missing = int(dd.D.obs["sex"].isna().sum())
+        n_missing = int(hd.G.obs["sex"].isna().sum())
         if n_missing:
-            raise ValueError(f"{n_missing} donor(s) have no sex in dd.D.obs; drop them or pass encode_sex=False.")
-        sex_codes = dd.D.obs["sex"].astype("category").cat.codes
+            raise ValueError(f"{n_missing} donor(s) have no sex in hd.G.obs; drop them or pass encode_sex=False.")
+        sex_codes = hd.G.obs["sex"].astype("category").cat.codes
         covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
     if encode_age:
-        age_values = dd.D.obs[["age"]].values.astype(dtype)
+        age_values = hd.G.obs[["age"]].values.astype(dtype)
         mean = age_values.mean()
         std = age_values.std()
         tolerance = 1e-2
@@ -777,13 +777,13 @@ def run_tensorqtl(
 
     if additional_covariates:
         for cov in additional_covariates:
-            if cov in dd.D.obs.columns:
+            if cov in hd.G.obs.columns:
                 covariate_df = pd.DataFrame(
-                    dd.D.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
+                    hd.G.obs[[cov]].values.astype(dtype), columns=[cov], index=phenotype_df.columns
                 )
                 covariate_list.append(covariate_df)
-            elif cov in dd.D.obsm:
-                cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
+            elif cov in hd.G.obsm:
+                cov_matrix = asarray(hd.G.obsm[cov]).astype(dtype)
                 if cov_matrix.ndim == 1:
                     covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                 else:
@@ -795,7 +795,7 @@ def run_tensorqtl(
                         )
                     )
             else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
+                raise ValueError(f"Covariate '{cov}' not found in hd.G.obs or hd.G.obsm.")
 
     covariates_df = pd.concat(covariate_list, axis=1) if covariate_list else None
     if covariates_df is not None:
@@ -815,7 +815,7 @@ def run_tensorqtl(
         if importlib.util.find_spec("tensorqtl") is None:
             raise ImportError(missing_dependency_message("tensorqtl", "tensorqtl", "`run_tensorqtl`"))
 
-        X = dd.D.X
+        X = hd.G.X
         X = X.toarray() if hasattr(X, "toarray") else np.asarray(X)
         # tensorQTL imputes only -9
         if np.issubdtype(X.dtype, np.integer):
@@ -824,8 +824,8 @@ def run_tensorqtl(
         else:
             X = X.astype(np.float32, copy=True)
             X[~np.isfinite(X) | (X < 0)] = -9
-        genotype_df = pd.DataFrame(X.T, index=dd.D.var.index, columns=dd.D.obs.index)
-        variant_df = dd.D.var[["chrom", "pos"]].copy()
+        genotype_df = pd.DataFrame(X.T, index=hd.G.var.index, columns=hd.G.obs.index)
+        variant_df = hd.G.var[["chrom", "pos"]].copy()
         variant_df["index"] = range(len(variant_df))
 
         return _run_tensorqtl_python_api(
@@ -920,7 +920,7 @@ def run_tensorqtl(
     # tensorQTL reads the genotypes from {prefix}.pgen/.pvar/.psam
     has_pgen = all(os.path.isfile(f"{prefix}.{ext}") for ext in ("pgen", "psam", "pvar"))
     if not has_pgen or overwrite_plink_export:
-        to_pgen(dd.D, prefix, **{"dosages": None if dosages else False, **plink_export_kwargs})
+        to_pgen(hd.G, prefix, **{"dosages": None if dosages else False, **plink_export_kwargs})
 
     cmd = [sys.executable, "-m", "cellink.tl.external._tensorqtl_main", geno, pheno, prefix]
     if covariates_df is not None:
@@ -978,7 +978,7 @@ def run_tensorqtl(
 
 
 def run_dense_trans_scan(
-    dd: DonorData,
+    hd: HiData,
     variant_id: str,
     gene_of_interest: str | None = None,
     n_pcs: int = 20,
@@ -994,7 +994,7 @@ def run_dense_trans_scan(
     """
     Dense, unfiltered genome-wide trans-QTL scan of one fixed variant against every gene.
 
-    A thin, specific mode of ``run_tensorqtl``: subsets ``dd.D`` to exactly
+    A thin, specific mode of ``run_tensorqtl``: subsets ``hd.G`` to exactly
     one variant and calls ``run_tensorqtl(..., mode="trans", pval_threshold=1.0)``,
     which bypasses TensorQTL's own sparse write-time filter (normally, trans
     mode only keeps pairs below some p-value threshold). The result is the
@@ -1004,18 +1004,18 @@ def run_dense_trans_scan(
 
     Parameters
     ----------
-    dd : DonorData
-        DonorData object containing single-cell gene expression (`dd.C`) and
-        donor-level genotype data (`dd.D`). Both are used as-is; any
+    hd : HiData
+        HiData object containing single-cell gene expression (`hd.C`) and
+        group-level genotype data (`hd.G`). Both are used as-is; any
         celltype/expression-level filtering is the caller's responsibility.
     variant_id : str
         The single variant to test against every gene, matched exactly
-        against ``dd.D.var_names``.
+        against ``hd.G.var_names``.
     gene_of_interest : str, optional
         If given, logs that gene's rank and p-value in the returned scan
         (or a warning if it's absent, e.g. excluded by ``window``).
     n_pcs : int, default=20
-        Number of leading genotype PCs kept from ``dd.D.obsm["gPCs"]`` (if
+        Number of leading genotype PCs kept from ``hd.G.obsm["gPCs"]`` (if
         present) when passed through as an additional covariate.
     window : int, default=1_000_000
         Genomic window (in base pairs) used to drop pairs where the variant
@@ -1032,15 +1032,15 @@ def run_dense_trans_scan(
         If True, includes donor sex as a covariate; donors with missing sex
         are dropped first, since ``run_tensorqtl`` rejects a sex covariate
         with missing values. If None (default), auto-detected from whether
-        ``dd.D.obs["sex"]`` has any real signal.
+        ``hd.G.obs["sex"]`` has any real signal.
     encode_age : bool, default=False
         If True, includes donor age as a covariate. Default False, matching
         this scan's typical use as a discovery/ranking tool rather than a
         fully covariate-adjusted association test.
     additional_covariates : list of str, optional
-        Additional covariates from `dd.D.obs` or `dd.D.obsm` to include in
+        Additional covariates from `hd.G.obs` or `hd.G.obsm` to include in
         the model. If None (default), ``"gPCs"`` is used automatically when
-        present in ``dd.D.obsm``.
+        present in ``hd.G.obsm``.
     prefix : str, optional
         File prefix for intermediate files. Only used when
         ``use_python_api=False``; unused (no files are written) otherwise.
@@ -1055,45 +1055,45 @@ def run_dense_trans_scan(
     pd.DataFrame
         One row per gene, columns as returned by ``run_tensorqtl(mode="trans")``
         (``phenotype_id``, ``variant_id``, ``beta``, ``pval``, ...) plus
-        ``chrom``/``start``/``end`` (from ``dd.C.var``) and ``rank_by_pval``
+        ``chrom``/``start``/``end`` (from ``hd.C.var``) and ``rank_by_pval``
         (1 = lowest p-value), sorted by ascending p-value.
 
     Raises
     ------
     ValueError
-        If ``variant_id`` does not match exactly one entry in ``dd.D.var_names``.
+        If ``variant_id`` does not match exactly one entry in ``hd.G.var_names``.
     """
-    var_mask = np.asarray(require_genotypes(dd).var_names == variant_id)
+    var_mask = np.asarray(require_genotypes(hd).var_names == variant_id)
     n_hits = int(var_mask.sum())
     if n_hits != 1:
-        raise ValueError(f"expected exactly 1 match for variant_id={variant_id!r} in dd.D.var_names, found {n_hits}")
+        raise ValueError(f"expected exactly 1 match for variant_id={variant_id!r} in hd.G.var_names, found {n_hits}")
 
-    G_target = dd.D[:, var_mask].copy()
-    dd_scan = DonorData(D=G_target, C=dd.C, donor_id=dd.donor_id)
+    G_target = hd.G[:, var_mask].copy()
+    hd_scan = HiData(G=G_target, C=hd.C, group_id=hd.group_id)
 
     if encode_sex is None:
-        encode_sex = "sex" in dd_scan.D.obs.columns and dd_scan.D.obs["sex"].notna().any()
-    if encode_sex and "sex" in dd_scan.D.obs.columns and dd_scan.D.obs["sex"].isna().any():
-        n_before = dd_scan.D.n_obs
-        dd_scan = DonorData(
-            D=dd_scan.D[dd_scan.D.obs["sex"].notna()].copy(), C=dd_scan.C, donor_id=dd_scan.donor_id
+        encode_sex = "sex" in hd_scan.G.obs.columns and hd_scan.G.obs["sex"].notna().any()
+    if encode_sex and "sex" in hd_scan.G.obs.columns and hd_scan.G.obs["sex"].isna().any():
+        n_before = hd_scan.G.n_obs
+        hd_scan = HiData(
+            G=hd_scan.G[hd_scan.G.obs["sex"].notna()].copy(), C=hd_scan.C, group_id=hd_scan.group_id
         )
         logger.info(
-            f"run_dense_trans_scan: dropped {n_before - dd_scan.D.n_obs} donor(s) with missing sex "
+            f"run_dense_trans_scan: dropped {n_before - hd_scan.G.n_obs} donor(s) with missing sex "
             "(sex is a covariate)."
         )
 
-    if "gPCs" in dd_scan.D.obsm:
-        dd_scan.D.obsm["gPCs"] = dd_scan.D.obsm["gPCs"][:, :n_pcs]
+    if "gPCs" in hd_scan.G.obsm:
+        hd_scan.G.obsm["gPCs"] = hd_scan.G.obsm["gPCs"][:, :n_pcs]
     if additional_covariates is None:
-        additional_covariates = ["gPCs"] if "gPCs" in dd_scan.D.obsm else None
+        additional_covariates = ["gPCs"] if "gPCs" in hd_scan.G.obsm else None
 
     logger.info(
-        f"run_dense_trans_scan: dense trans scan of {variant_id!r} against {dd_scan.C.n_vars} genes "
-        f"({dd_scan.D.n_obs} donors); mode='trans', pval_threshold=1.0."
+        f"run_dense_trans_scan: dense trans scan of {variant_id!r} against {hd_scan.C.n_vars} genes "
+        f"({hd_scan.G.n_obs} donors); mode='trans', pval_threshold=1.0."
     )
     df = run_tensorqtl(
-        dd_scan,
+        hd_scan,
         mode="trans",
         pval_threshold=1.0,
         maf_threshold=maf_threshold,
@@ -1107,7 +1107,7 @@ def run_dense_trans_scan(
         use_python_api=use_python_api,
     )
 
-    gene_pos = dd_scan.C.var[["chrom", "start", "end"]].copy()
+    gene_pos = hd_scan.C.var[["chrom", "start", "end"]].copy()
     gene_pos.index.name = "phenotype_id"
     df = df.merge(gene_pos, left_on="phenotype_id", right_index=True, how="left")
     df = df.sort_values("pval").reset_index(drop=True)
@@ -1123,7 +1123,7 @@ def run_dense_trans_scan(
         else:
             logger.warning(
                 f"run_dense_trans_scan: {gene_of_interest} not found in the scan output "
-                f"({len(goi_row)} rows); likely excluded by the cis-window filter or absent from dd.C."
+                f"({len(goi_row)} rows); likely excluded by the cis-window filter or absent from hd.C."
             )
 
     return df

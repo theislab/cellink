@@ -30,24 +30,24 @@ your data, and cellink takes care of the file formats and conventions each of th
 
 ## Data
 
-cellink works on [`DonorData`](https://donordata.readthedocs.io) objects, which link the cells of a cohort to their
-donors. In cellink the donor level `dd.D` holds the genotypes, with one row per donor and one column per variant, and
-`dd.C` holds the cells as an AnnData or MuData. Selecting donors, variants or cells keeps both levels aligned, so
+cellink works on [`HiData`](https://hidata.readthedocs.io) objects, which link the cells of a cohort to their
+donors. In cellink the group level `hd.G` holds the genotypes, one row per donor and one column per variant, and
+`hd.C` holds the cells as an AnnData or MuData. Selecting donors, variants or cells keeps both levels aligned, so
 genotypes and expression always describe the same people.
 
 ```python
 import cellink as cl
 
 genotypes = cl.io.read_plink("cohort")
-dd = cl.DonorData(D=genotypes, C=adata, donor_id="individual")
-dd = dd[..., dd.C.obs["cell_type"] == "CD4 T", :]
-cl.io.write_dd(dd, "cohort.dd.zarr")
+hd = cl.HiData(G=genotypes, C=adata, group_id="individual")
+hd = hd[..., hd.C.obs["cell_type"] == "CD4 T", :]
+cl.io.write_hd(hd, "cohort.hd.zarr")
 ```
 
-`DonorData` is imported from the [DonorData](https://github.com/theislab/donordata) package and is installed with cellink. The
-[DonorData documentation](https://donordata.readthedocs.io) explains how these objects are built and stored, and
-how to add a sample level or the
-[electronic health records](https://donordata.readthedocs.io/en/latest/tutorials/ehr_cohort.html) of the donors.
+`HiData` is imported from the [HiData](https://github.com/theislab/hidata) package and is installed with cellink. The
+[HiData documentation](https://hidata.readthedocs.io) explains how these objects are built and stored, and
+how to add a subgroup level, such as samples, or the
+[electronic health records](https://hidata.readthedocs.io/en/latest/tutorials/ehr_cohort.html) of the donors.
 
 ## Analyses
 
@@ -70,14 +70,14 @@ how to add a sample level or the
 
 **Deep learning**
 - [Predicting single cell coverage from sequence and scoring variants with scooby](https://cellink-docs.readthedocs.io/en/latest/tutorials/scooby.html)
-- [Dataloaders for deep learning](https://cellink-docs.readthedocs.io/en/latest/tutorials/run_dataloader.html), including multiple instance learning over the cells of each donor
+- [Dataloaders and multiple instance learning over the cells of each donor](https://hidata.readthedocs.io/en/latest/tutorials/mil_model.html), with `hidata.ml` from HiData
 
 **Variants**
 - [Quality control, annotation and selection of genetic variants](https://cellink-docs.readthedocs.io/en/latest/tutorials/explore_annotations.html)
 
 ## Getting started
 
-Install cellink from PyPI, where it is published as `cellink-tools`. This also installs DonorData:
+Install cellink from PyPI, where it is published as `cellink-tools`. This also installs HiData:
 
 ```bash
 pip install cellink-tools
@@ -91,7 +91,7 @@ pip install git+https://github.com/theislab/cellink.git@main
 
 The [installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) lists the optional extras
 for the external tools. If you are new to cellink, start with
-[DonorData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/donordata_basics.html), which reads
+[HiData basics](https://cellink-docs.readthedocs.io/en/latest/tutorials/hidata_basics.html), which reads
 genotype files into an object, subsets it and saves it without running any analysis.
 
 ## Documentation
@@ -101,7 +101,7 @@ genotype files into an object, subsets it and saves it without running any analy
 | [Installation guide](https://cellink-docs.readthedocs.io/en/latest/installation.html) | Requirements and the optional extras (`pip install 'cellink-tools[extra-name]'`) |
 | [Tutorials](https://cellink-docs.readthedocs.io/en/latest/tutorials/index.html) | Step by step guides for the analyses above |
 | [API reference](https://cellink-docs.readthedocs.io/en/latest/api/index.html) | Every public function and class, organized by module |
-| [DonorData documentation](https://donordata.readthedocs.io) | The `DonorData` object, its sample level and its file format |
+| [HiData documentation](https://hidata.readthedocs.io) | The `HiData` object, its subgroup level and its file format |
 | [Contributing guide](https://cellink-docs.readthedocs.io/en/latest/contributing.html) | Development setup, tests and the pull request workflow |
 | [Changelog](https://cellink-docs.readthedocs.io/en/latest/changelog.html) | What changed in each release |
 

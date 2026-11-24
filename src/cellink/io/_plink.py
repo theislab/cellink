@@ -76,7 +76,7 @@ def _dense_block(X, start: int, stop: int) -> np.ndarray:
     """Return columns ``start:stop`` of a (samples, variants) matrix as a dense numpy array.
 
     Negative values of a signed integer matrix are missing calls, as in the int8 genotype
-    stores of :func:`cellink.io.read_zarr_dd` and :func:`cellink.io.read_pgen_zarr` with
+    stores of :func:`cellink.io.read_zarr_hd` and :func:`cellink.io.read_pgen_zarr` with
     ``backend="zarr"``, and become ``nan``.
     """
     block = X[:, start:stop]

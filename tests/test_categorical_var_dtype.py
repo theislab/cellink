@@ -14,7 +14,7 @@ def _str_and_categorical_gdata():
     an earlier version of this fixture did) compares two different random
     genotypes, not the same data under two dtypes.
     """
-    gdata_str = sim_gdata(n_donors=20, n_snps=30)
+    gdata_str = sim_gdata(n_groups=20, n_snps=30)
     gdata_str.var["chrom"] = gdata_str.var["chrom"].astype(str)
     gdata_cat = gdata_str.copy()
     gdata_cat.var["chrom"] = gdata_cat.var["chrom"].astype("category")

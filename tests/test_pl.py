@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cellink import DonorData
+from cellink import HiData
 from cellink._core.dummy_data import sim_adata, sim_gdata
 from cellink.pl import expression_by_genotype, locus, manhattan, qq, volcano
 from cellink.pl._ldsc_magma import enrichment_scatter
@@ -86,11 +86,11 @@ def test_manhattan():
 
 
 def test_expression_by_genotype(tmp_path, adata, gdata):
-    dd = DonorData(D=gdata, C=adata).copy()
-    print(dd.C.obs)
-    print(dd.C.var)
+    hd = HiData(G=gdata, C=adata, group_id="donor_id").copy()
+    print(hd.C.obs)
+    print(hd.C.var)
 
-    fig = expression_by_genotype(dd, snp="SNP0", gene_filter=["G0"])
+    fig = expression_by_genotype(hd, snp="SNP0", gene_filter=["G0"])
     assert fig is not None
 
 
@@ -101,28 +101,28 @@ def _close_figures():
 
 
 @pytest.fixture
-def dd():
+def hd():
     adata = sim_adata()
-    return DonorData(D=sim_gdata(adata=adata), C=adata).copy()
+    return HiData(G=sim_gdata(adata=adata), C=adata, group_id="donor_id").copy()
 
 
-def test_expression_by_genotype_rejects_unknown_gene(dd):
+def test_expression_by_genotype_rejects_unknown_gene(hd):
     with pytest.raises(KeyError, match="GO"):
-        expression_by_genotype(dd, snp="SNP0", gene_filter=["GO"], show=False)
+        expression_by_genotype(hd, snp="SNP0", gene_filter=["GO"], show=False)
 
 
-def test_expression_by_genotype_all_genes_by_default_and_several_genes(dd):
-    assert expression_by_genotype(dd, snp="SNP0", show=False) is not None
-    assert expression_by_genotype(dd, snp="SNP0", gene_filter=["G0", "G1"], mode="gene", show=False) is not None
+def test_expression_by_genotype_all_genes_by_default_and_several_genes(hd):
+    assert expression_by_genotype(hd, snp="SNP0", show=False) is not None
+    assert expression_by_genotype(hd, snp="SNP0", gene_filter=["G0", "G1"], mode="gene", show=False) is not None
 
 
-def test_expression_by_genotype_uses_donordata_donor_key():
+def test_expression_by_genotype_uses_hidata_donor_key():
     adata = sim_adata()
     gdata = sim_gdata(adata=adata)
     adata.obs = adata.obs.rename(columns={"donor_id": "individual"})
     gdata.obs.index.name = "individual"
-    dd = DonorData(D=gdata, C=adata, donor_id="individual")
-    assert expression_by_genotype(dd, snp="SNP0", gene_filter=["G0"], show=False) is not None
+    hd = HiData(G=gdata, C=adata, group_id="individual")
+    assert expression_by_genotype(hd, snp="SNP0", gene_filter=["G0"], show=False) is not None
 
 
 def test_manhattan_leaves_caller_frame_and_reads_chr_prefix():

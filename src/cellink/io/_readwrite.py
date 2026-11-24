@@ -5,11 +5,11 @@ from typing import Literal
 
 import anndata as ad
 import dask.array as da
-import donordata
+import hidata
 import numpy as np
 import scipy.sparse as sp
 import zarr
-from donordata import DonorData
+from hidata import HiData
 from mudata import MuData
 
 from cellink.io._codecs import Pack2Bit, to_genotype_codes
@@ -21,16 +21,16 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
-_LEVEL_GROUPS = {"donor": "D", "sample": "S", "cell": "C"}
+_LEVEL_GROUPS = {"group": "G", "subgroup": "S", "cell": "C"}
 
 
-def _anndatas(dd: DonorData, f: zarr.Group | None = None) -> Iterator[tuple[ad.AnnData, zarr.Group | None]]:
-    """Yield every AnnData of ``dd``, and the modalities of MuData levels, with its group in the store ``f``."""
-    for level, container in dd.levels.items():
+def _anndatas(hd: HiData, f: zarr.Group | None = None) -> Iterator[tuple[ad.AnnData, zarr.Group | None]]:
+    """Yield every AnnData of ``hd``, and the modalities of MuData levels, with its group in the store ``f``."""
+    for level, container in hd.levels.items():
         group = None
         if f is not None:
             key = _LEVEL_GROUPS[level]
-            group = f[key] if key in f or level != "donor" else f["G"]
+            group = f[key] if key in f or level != "group" else f["D"]
         if isinstance(container, MuData):
             for name, mod in container.mod.items():
                 yield mod, None if group is None else group["mod"][name]
@@ -51,44 +51,44 @@ def _matrices(adata: ad.AnnData) -> list[tuple[str, object]]:
 
 
 def _restore_matrices(
-    dd: DonorData,
+    hd: HiData,
     f: zarr.Group | None = None,
     backend: Literal["dask", "zarr"] = "dask",
     n_threads: int | None = None,
 ) -> None:
     """Load sparse `X` and layers into memory and, from the Zarr store ``f``, back dense ones with cellink's reader.
 
-    Missing calls of a 2-bit `D.X` become ``nan``, unless ``backend="zarr"``.
+    Missing calls of a 2-bit `G.X` become ``nan``, unless ``backend="zarr"``.
     """
-    donor_level = dd.levels["donor"]
-    for adata, group in _anndatas(dd, f):
+    group_level = hd.levels["group"]
+    for adata, group in _anndatas(hd, f):
         for name, value in _matrices(adata):
             if isinstance(value, ad.abc.CSRDataset | ad.abc.CSCDataset):
                 _set_matrix(adata, name, value.to_memory())
             elif group is not None and isinstance(value, da.Array) and isinstance(group.get(name), zarr.Array):
                 if adata.is_view:
                     raise ValueError(
-                        "The levels of this store do not match, so DonorData dropped or reordered units while "
-                        "reading it. Read it with donordata.read_zarr_dd and write it again."
+                        "The levels of this store do not match, so HiData dropped or reordered units while "
+                        "reading it. Read it with hidata.read_zarr_hd and write it again."
                     )
                 stored = group[name]
                 matrix = _lazy_matrix(stored, backend, n_threads)
-                if adata is donor_level and name == "X" and backend != "zarr":
+                if adata is group_level and name == "X" and backend != "zarr":
                     matrix = _two_bit_missing_to_nan(stored, matrix)
                 _set_matrix(adata, name, matrix)
 
 
-def read_h5_dd(path: str, lazy: bool = False) -> DonorData:
+def read_h5_hd(path: str, lazy: bool = False) -> HiData:
     """
-    Read a DonorData object from an HDF5 file on disk.
+    Read a HiData object from an HDF5 file on disk.
 
     Parameters
     ----------
     path : str
-        Path to the HDF5 file containing serialized DonorData.
+        Path to the HDF5 file containing serialized HiData, or written with donordata or cellink 0.1.0.
     lazy : bool, default=False
         If True, a dense `X` and dense layers of every level are Dask arrays that read
-        their blocks from the file when they are computed, as with :func:`read_zarr_dd`,
+        their blocks from the file when they are computed, as with :func:`read_zarr_hd`,
         so a subset can be selected before any genotypes are loaded. Blocks follow the
         HDF5 chunks, or span at most 4096 rows and columns for unchunked datasets. The
         file must stay in place while these arrays are used. Sparse matrices and all
@@ -96,45 +96,45 @@ def read_h5_dd(path: str, lazy: bool = False) -> DonorData:
 
     Returns
     -------
-    DonorData
-        A DonorData object with genotype (`D`), cell expression (`C`), and metadata.
+    HiData
+        A HiData object with genotype (`G`), cell expression (`C`), and metadata.
     """
-    dd = donordata.read_h5_dd(path, lazy=lazy)
+    hd = hidata.read_h5_hd(path, lazy=lazy)
     if lazy:
-        _restore_matrices(dd)
-    return dd
+        _restore_matrices(hd)
+    return hd
 
 
-def read_zarr_dd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None) -> DonorData:
+def read_zarr_hd(path: str, backend: Literal["dask", "zarr"] = "dask", n_threads: int | None = None) -> HiData:
     """
-    Read a DonorData object from a Zarr store on disk.
+    Read a HiData object from a Zarr store on disk.
 
     A dense `X` stays lazily backed rather than being materialized on load, so a
-    caller can select a subset (e.g. one cell type via ``dd.sel(C_obs=...)``) and
+    caller can select a subset (e.g. one cell type via ``hd.sel(C_obs=...)``) and
     only that subset is ever read off disk once it's actually computed/materialized.
     Sparse matrices and all annotations are read into memory.
 
     Parameters
     ----------
     path : str
-        Path to the Zarr store containing serialized DonorData.
+        Path to the Zarr store containing serialized HiData, or written with donordata or cellink 0.1.0.
     backend : {"dask", "zarr"}
-        Backing of a dense `X`/`layers` entry. ``"zarr"`` gives `D.X` the parallel
+        Backing of a dense `X`/`layers` entry. ``"zarr"`` gives `G.X` the parallel
         genotype reader (:func:`cellink.io.read_pgen_zarr`), fastest for subsetting donors.
     n_threads : int, optional
         Threads for ``backend="zarr"`` genotype reads. Default: available cores, at most 16.
 
     Returns
     -------
-    DonorData
-        A DonorData object with genotype (`D`), cell expression (`C`), and metadata.
-        Missing genotype calls of a 2-bit `D.X` (see :func:`cellink.io.write_zarr_dd`)
-        are ``nan`` and `D.X` is float32; with ``backend="zarr"`` `D.X` holds the
+    HiData
+        A HiData object with genotype (`G`), cell expression (`C`), and metadata.
+        Missing genotype calls of a 2-bit `G.X` (see :func:`cellink.io.write_zarr_hd`)
+        are ``nan`` and `G.X` is float32; with ``backend="zarr"`` `G.X` holds the
         stored int8 codes, with -1 for missing calls.
     """
-    dd = donordata.read_zarr_dd(path)
-    _restore_matrices(dd, zarr.open(str(path), mode="r"), backend=backend, n_threads=n_threads)
-    return dd
+    hd = hidata.read_zarr_hd(path)
+    _restore_matrices(hd, zarr.open(str(path), mode="r"), backend=backend, n_threads=n_threads)
+    return hd
 
 
 def _two_bit_missing_to_nan(stored, X):
@@ -150,9 +150,9 @@ def _two_bit_missing_to_nan(stored, X):
     return _missing_to_nan(X)
 
 
-def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
+def read_hd(path: str, fmt: str = None, lazy: bool = False) -> HiData:
     """
-    Read a DonorData object from disk in either HDF5 or Zarr format.
+    Read a HiData object from disk in either HDF5 or Zarr format.
 
     This function automatically detects the file format from the file extension
     unless explicitly specified.
@@ -160,16 +160,16 @@ def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
     Parameters
     ----------
     path : str
-        Path to the DonorData file (`.h5`, `.dd.h5`, `.zarr`, or `.dd.zarr`).
+        Path to the HiData file (`.h5`, `.hd.h5`, `.zarr`, or `.hd.zarr`).
     fmt : {'h5', 'zarr'}, optional
         File format to use. If None (default), inferred from the file extension.
     lazy : bool, default=False
-        Passed to :func:`read_h5_dd` for HDF5 files. Zarr stores are always read lazily
-        (:func:`read_zarr_dd`).
+        Passed to :func:`read_h5_hd` for HDF5 files. Zarr stores are always read lazily
+        (:func:`read_zarr_hd`).
 
     Returns
     -------
-    DonorData
+    HiData
 
     Raises
     ------
@@ -179,14 +179,14 @@ def read_dd(path: str, fmt: str = None, lazy: bool = False) -> DonorData:
 
     Examples
     --------
-    >>> dd = read_dd("donor_data.dd.h5")
-    >>> dd = read_dd("donor_data.dd.zarr")
-    >>> dd = read_dd("custom_data.h5", fmt="h5")
+    >>> hd = read_hd("cohort.hd.h5")
+    >>> hd = read_hd("cohort.hd.zarr")
+    >>> hd = read_hd("custom_data.h5", fmt="h5")
     """
     fmt = _format(str(path), fmt)
     if fmt == "h5":
-        return read_h5_dd(path, lazy=lazy)
-    return read_zarr_dd(path)
+        return read_h5_hd(path, lazy=lazy)
+    return read_zarr_hd(path)
 
 
 def _format(path: str, fmt: str | None) -> str:
@@ -201,45 +201,45 @@ def _format(path: str, fmt: str | None) -> str:
     return fmt
 
 
-def write_h5_dd(dd: DonorData, path: str) -> None:
-    """Write a DonorData object to an HDF5 file.
+def write_h5_hd(hd: HiData, path: str) -> None:
+    """Write a HiData object to an HDF5 file.
 
     Parameters
     ----------
-    dd : DonorData
+    hd : HiData
         The object to write.
     path : str
-        Destination, conventionally ending in ``.dd.h5``.
+        Destination, conventionally ending in ``.hd.h5``.
     """
-    dd.write_h5_dd(path)
+    hd.write_h5_hd(path)
 
 
-def write_zarr_dd(
-    dd: DonorData,
+def write_zarr_hd(
+    hd: HiData,
     path: str,
     x_chunks: tuple[int, int] | dict[str, tuple[int, int]] | None = None,
     genotype_encoding: Literal["2bit"] | None = "2bit",
 ) -> None:
-    """Write a DonorData object to a Zarr store, with the genotypes in `D.X` stored as 2-bit calls.
+    """Write a HiData object to a Zarr store, with the genotypes in `G.X` stored as 2-bit calls.
 
     Parameters
     ----------
-    dd : DonorData
+    hd : HiData
         The object to write.
     path : str
-        Destination, conventionally ending in ``.dd.zarr``.
+        Destination, conventionally ending in ``.hd.zarr``.
     x_chunks : tuple[int, int] | dict[str, tuple[int, int]], optional
         Chunk shape for a dense `X` and dense layers, e.g. `(4096, 4096)`. Pass a
-        dict (`{"D": ..., "C": ...}`) to set the levels independently. If not
+        dict (`{"G": ..., "C": ...}`) to set the levels independently. If not
         given: a dask-backed `X` keeps its own existing chunks (via
         `dask.array.to_zarr`); a plain array gets chunks capped at 4096
         per axis. Only applies to a dense `X`; sparse matrices are unaffected.
     genotype_encoding : {"2bit", None}
-        Storage of a dense `D.X`. ``None`` writes it unencoded, with its
+        Storage of a dense `G.X`. ``None`` writes it unencoded, with its
         values and dtype unchanged. ``"2bit"`` (default) stores it as 2-bit
         packed genotype calls, four per byte; a variant chunk size not
         divisible by 4 is rounded up to the next multiple of 4, with a
-        warning. Only `D.X` is affected: `obs`, `var`, `obsm`,
+        warning. Only `G.X` is affected: `obs`, `var`, `obsm`,
         `layers`, `uns`, `S` and `C` are written unchanged. With ``"2bit"``:
 
         - Integer values 0, 1 and 2 are stored as they are. Negative
@@ -248,78 +248,78 @@ def write_zarr_dd(
           nearest integer, halves to even (0.5 becomes 0, 1.5 becomes 2).
           NaN counts as missing.
         - Missing values stay missing: stored as the 2-bit code 3.
-          :func:`cellink.io.read_zarr_dd` returns them as ``nan`` (and `D.X`
+          :func:`cellink.io.read_zarr_hd` returns them as ``nan`` (and `G.X`
           as float32); with ``backend="zarr"`` it returns the stored codes,
           with -1 for missing.
         - A warning reports how many non-integer values were rounded and
           how many values are missing.
         - Every value must round to 0, 1 or 2: integers 0-2, or floats in
-          [-0.5, 2.5). If any value lies outside, the whole `D.X` is written
+          [-0.5, 2.5). If any value lies outside, the whole `G.X` is written
           unencoded, with its original values and dtype, and a warning.
         - Continuous data inside [-0.5, 2.5) cannot be told apart from
           dosages and is rounded. Pass ``None`` to keep such data unchanged.
 
     Example
     -------
-    >>> write_zarr_dd(dd, "path/to/donor_data.dd.zarr")
+    >>> write_zarr_hd(hd, "path/to/cohort.hd.zarr")
     """
     if genotype_encoding not in ("2bit", None):
         raise ValueError(f"genotype_encoding must be '2bit' or None, got {genotype_encoding!r}")
-    if genotype_encoding is None or dd.D_type != "anndata" or not _is_dense(dd.D.X):
-        dd.write_zarr_dd(path, x_chunks=x_chunks)
+    if genotype_encoding is None or hd.G_type != "anndata" or not _is_dense(hd.G.X):
+        hd.write_zarr_hd(path, x_chunks=x_chunks)
         return
     # the genotypes are written once, as 2-bit calls, one column block at a time
-    dd._check_not_reading_from(path)
-    X = dd.D.X
-    _without_genotypes(dd).write_zarr_dd(path, x_chunks=x_chunks)
-    chunks = x_chunks.get("D") if isinstance(x_chunks, dict) else x_chunks
-    _write_genotypes(f"{path}/D/X", X, chunks)
+    hd._check_not_reading_from(path)
+    X = hd.G.X
+    _without_genotypes(hd).write_zarr_hd(path, x_chunks=x_chunks)
+    chunks = x_chunks.get("G") if isinstance(x_chunks, dict) else x_chunks
+    _write_genotypes(f"{path}/G/X", X, chunks)
 
 
 def _is_dense(X) -> bool:
     return hasattr(X, "ndim") and not sp.issparse(X) and not isinstance(X, ad.abc.CSRDataset | ad.abc.CSCDataset)
 
 
-def _without_genotypes(dd: DonorData) -> DonorData:
-    """A shallow copy of ``dd`` whose donor level has no `X`, for writing everything but the genotypes."""
-    D = dd.D
+def _without_genotypes(hd: HiData) -> HiData:
+    """A shallow copy of ``hd`` whose group level has no `X`, for writing everything but the genotypes."""
+    G = hd.G
     shell = ad.AnnData(
-        obs=D.obs,
-        var=D.var,
-        uns=dict(D.uns),
-        obsm=dict(D.obsm),
-        varm=dict(D.varm),
-        obsp=dict(D.obsp),
-        varp=dict(D.varp),
-        layers={k: v for k, v in D.layers.items() if k is not None},
+        obs=G.obs,
+        var=G.var,
+        uns=dict(G.uns),
+        obsm=dict(G.obsm),
+        varm=dict(G.varm),
+        obsp=dict(G.obsp),
+        varp=dict(G.varp),
+        layers={k: v for k, v in G.layers.items() if k is not None},
     )
-    if D.raw is not None:
-        shell.raw = D.raw.to_adata()
-    new = copy.copy(dd)
-    new.D = shell
+    if G.raw is not None:
+        shell.raw = G.raw.to_adata()
+    new = copy.copy(hd)
+    new.G = shell
     return new
 
 
-def write_dd(dd: DonorData, path: str, fmt: Literal["h5", "zarr"] | None = None) -> None:
-    """Write a DonorData object to disk, choosing the format from the extension unless `fmt` is given.
+def write_hd(hd: HiData, path: str, fmt: Literal["h5", "zarr"] | None = None) -> None:
+    """Write a HiData object to disk, choosing the format from the extension unless `fmt` is given.
 
-    Zarr stores are written with :func:`write_zarr_dd`, so `D.X` is stored as 2-bit genotype calls.
+    Zarr stores are written with :func:`write_zarr_hd`, so `G.X` is stored as 2-bit genotype calls.
 
     Parameters
     ----------
-    dd : DonorData
+    hd : HiData
         The object to write.
     path : str
-        Destination ending in ``.h5`` or ``.zarr``. Without an extension, ``.dd.h5`` or
-        ``.dd.zarr`` is appended according to `fmt`.
+        Destination ending in ``.h5`` or ``.zarr``. Without an extension, ``.hd.h5`` or
+        ``.hd.zarr`` is appended according to `fmt`.
     fmt : {'h5', 'zarr'}, optional
         File format to use. If None (default), inferred from the file extension.
     """
     path = str(path)
     if _format(path, fmt) == "h5":
-        write_h5_dd(dd, path if path.endswith(".h5") else path + ".dd.h5")
+        write_h5_hd(hd, path if path.endswith(".h5") else path + ".hd.h5")
     else:
-        write_zarr_dd(dd, path if path.endswith(".zarr") else path + ".dd.zarr")
+        write_zarr_hd(hd, path if path.endswith(".zarr") else path + ".hd.zarr")
 
 
 def _write_genotypes(path: str, X, chunks: tuple[int, int] | None) -> None:
@@ -341,7 +341,7 @@ def _write_genotypes(path: str, X, chunks: tuple[int, int] | None) -> None:
         n_missing = _write_genotypes_2bit(path, X, packed_chunks)
     except ValueError:
         warnings.warn(
-            "D.X has values outside the 0-2 genotype range; it is written without 2-bit encoding.",
+            "G.X has values outside the 0-2 genotype range; it is written without 2-bit encoding.",
             UserWarning,
             stacklevel=3,
         )
@@ -350,7 +350,7 @@ def _write_genotypes(path: str, X, chunks: tuple[int, int] | None) -> None:
     arr = zarr.open_array(path, mode="r+")
     arr.attrs["encoding-type"] = "array"
     arr.attrs["encoding-version"] = "0.2.0"
-    arr.attrs["n_missing"] = n_missing  # read_zarr_dd turns them into nan
+    arr.attrs["n_missing"] = n_missing  # read_zarr_hd turns them into nan
 
 
 def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> int:
@@ -386,15 +386,15 @@ def _write_genotypes_2bit(path: str, X, chunks: tuple[int, int] | None) -> int:
         n_frac, n_missing = n_frac + frac, n_missing + miss
     if n_frac:
         warnings.warn(
-            f"D.X contains {n_frac:,} imputed (non-integer) values; the 2-bit genotype store keeps them rounded "
+            f"G.X contains {n_frac:,} imputed (non-integer) values; the 2-bit genotype store keeps them rounded "
             "to the nearest integer. Pass genotype_encoding=None to keep the original values.",
             UserWarning,
             stacklevel=4,
         )
     if n_missing:
         warnings.warn(
-            f"D.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them missing, "
-            "read back as nan (-1 with read_zarr_dd(backend='zarr')).",
+            f"G.X contains {n_missing:,} missing values; the 2-bit genotype store keeps them missing, "
+            "read back as nan (-1 with read_zarr_hd(backend='zarr')).",
             UserWarning,
             stacklevel=4,
         )

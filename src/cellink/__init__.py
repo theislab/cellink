@@ -1,8 +1,8 @@
 from importlib.metadata import version
 
-from . import at, io, ml, pl, pp, resources, tl
-from ._core import DonorData, DonorDataSchemaError, validate
+from . import at, io, pl, pp, resources, tl
+from ._core import HiData, HiDataSchemaError, validate
 
-__all__ = ["DonorData", "pl", "pp", "tl", "io", "at", "ml", "resources", "validate", "DonorDataSchemaError"]
+__all__ = ["HiData", "pl", "pp", "tl", "io", "at", "resources", "validate", "HiDataSchemaError"]
 
 __version__ = version("cellink-tools")

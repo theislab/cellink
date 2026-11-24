@@ -12,7 +12,7 @@ import pandas as pd
 import scanpy as sc
 from anndata.utils import asarray
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.schema import require_genotypes
 from cellink._extras import install_hint
 from cellink.io import to_plink
@@ -115,7 +115,7 @@ def _id_file(ids, path: str) -> tuple[str, bool]:
 
 
 def run_jaxqtl(
-    dd: DonorData,
+    hd: HiData,
     mode: Literal["cis", "nominal", "trans"] = "cis",
     prefix: str | None = None,
     out: str | None = None,
@@ -176,9 +176,9 @@ def run_jaxqtl(
     extra_args: list[str] | None = None,
 ) -> pd.DataFrame | str | list[str]:
     """
-    Run cis- or trans-eQTL mapping with jaxQTL on donor-level genotypes and pseudobulk expression.
+    Run cis- or trans-eQTL mapping with jaxQTL on group-level genotypes and pseudobulk expression.
 
-    This function writes the jaxQTL inputs from a `DonorData` object (genotypes, a phenotype BED and a
+    This function writes the jaxQTL inputs from a `HiData` object (genotypes, a phenotype BED and a
     covariate table), builds the ``jaxqtl`` commands and optionally runs them. If `expression_pcs` is set,
     ``jaxqtl compute-pcs`` first appends gene expression PCs to the covariates. Every option of
     ``jaxqtl cis``, ``nominal``, ``trans`` and ``compute-pcs`` (jaxqtl 0.3) is a parameter, named after
@@ -186,15 +186,15 @@ def run_jaxqtl(
     written as PLINK 1 hard calls (:func:`cellink.io.to_plink`, ``--bfile``).
 
     The pseudobulk phenotype depends on the model. The count models (``nb``, ``poisson``) get the
-    raw counts summed per donor (from `counts_layer`, or `dd.C.X`), fitted with the log library
+    raw counts summed per donor (from `counts_layer`, or `hd.C.X`), fitted with the log library
     size as offset, as jaxQTL intends; a warning is logged if the sums are not non-negative
     integers, which means the data are probably normalized. ``gaussian`` gets the mean of
-    `dd.C.X` per donor.
+    `hd.C.X` per donor.
 
     Parameters
     ----------
-    dd : DonorData
-        Object containing donor-level genotype (`dd.D`) and cell-level expression data (`dd.C`).
+    hd : HiData
+        Object containing group-level genotype (`hd.G`) and cell-level expression data (`hd.C`).
     mode : {'cis', 'nominal', 'trans'}, default='cis'
         The jaxQTL subcommand: ``cis`` reports the lead variant per gene with a gene-level p-value,
         ``nominal`` every cis variant-gene pair and ``trans`` a genome-wide scan.
@@ -222,15 +222,15 @@ def run_jaxqtl(
     tss_centered : bool, default=False
         Center the cis window on the TSS instead of spanning TSS to TES (``--tss-centered``).
     encode_sex : bool, default=True
-        If True, adds sex as a categorical covariate using `dd.D.obs['sex']`. Raises if any donor has no sex.
+        If True, adds sex as a categorical covariate using `hd.G.obs['sex']`. Raises if any donor has no sex.
     encode_age : bool, default=True
-        If True, adds age as a numeric covariate from `dd.D.obs['age']`.
+        If True, adds age as a numeric covariate from `hd.G.obs['age']`.
     additional_covariates : list of str, optional
-        Columns of `dd.D.obs` or keys of `dd.D.obsm` to add as covariates. Non-numeric columns are
+        Columns of `hd.G.obs` or keys of `hd.G.obsm` to add as covariates. Non-numeric columns are
         written as text and need `one_hot`.
     n_pcs : int, default=50
         Number of principal components computed from the single-cell expression data and donor-aggregated
-        (mean) into dd.D.obsm["X_pca"], only when "X_pca" is listed in `additional_covariates`.
+        (mean) into hd.G.obsm["X_pca"], only when "X_pca" is listed in `additional_covariates`.
     dtype : str, default='float32'
         Data type of the numeric covariates.
     covar_name : sequence of str, optional
@@ -260,24 +260,24 @@ def run_jaxqtl(
         (``compute-pcs --libsize-name-from-covar``).
     offset : str, optional
         Two-column (sample ID, offset) TSV of fixed model offsets (``--offset``), e.g. log library sizes
-        computed from all genes when `dd.C` holds only a subset of them.
+        computed from all genes when `hd.C` holds only a subset of them.
     offset_name_from_covar : str, optional
         Covariate column used as fixed model offset (``--offset-name-from-covar``).
     set_offset_from_libsize : bool, optional
         Use the log library size as offset (``--set-offset-from-libsize``). jaxQTL computes it as the
-        donor's total count over the genes written to the phenotype file, i.e. the genes in `dd.C`.
+        donor's total count over the genes written to the phenotype file, i.e. the genes in `hd.C`.
         Defaults to True for the count models (``nb``, ``poisson``) unless `offset`,
         `offset_name_from_covar` or `libsize_key` is given, and to False for ``gaussian``. Only one of `offset`,
         `offset_name_from_covar` and `set_offset_from_libsize` can be given.
     counts_layer : str, optional
-        Layer of `dd.C` with raw counts, summed per donor for the count models. Defaults to `dd.C.X`.
+        Layer of `hd.C` with raw counts, summed per donor for the count models. Defaults to `hd.C.X`.
         Not used with ``gaussian``.
     libsize_key : str, optional
-        Column of `dd.C.obs` with each cell's total count over all genes, e.g. ``"nCount_RNA"``. Summed
+        Column of `hd.C.obs` with each cell's total count over all genes, e.g. ``"nCount_RNA"``. Summed
         per donor, these are the library sizes: their log is the offset of the count models (passed as
         ``--offset``), and they normalize the expression PCA (``compute-pcs --libsize``). Without it,
-        jaxQTL sums the counts of the phenotype file, i.e. over the genes in `dd.C`, which
-        underestimates the library sizes when `dd.C` holds only some of the genes.
+        jaxQTL sums the counts of the phenotype file, i.e. over the genes in `hd.C`, which
+        underestimates the library sizes when `hd.C` holds only some of the genes.
     keep : str or sequence of str, optional
         Donors to analyze (``--keep``): a file with one ID per line, or the IDs. Cannot be combined
         with `exclude`.
@@ -349,7 +349,7 @@ def run_jaxqtl(
         If the ``jaxqtl`` executable is not found.
     ValueError
         If an option has an invalid value or options that exclude each other are combined, or a
-        covariate is not found in the DonorData object or is missing for some donors.
+        covariate is not found in the HiData object or is missing for some donors.
 
     Notes
     -----
@@ -359,7 +359,7 @@ def run_jaxqtl(
     record, which PGEN files store only for variants with non-integer values, so `run_jaxqtl` tests
     hard calls.
     """
-    require_genotypes(dd)
+    require_genotypes(hd)
     for name, value in (
         ("mode", mode),
         ("model", model),
@@ -427,17 +427,17 @@ def run_jaxqtl(
         )
 
     if additional_covariates and "X_pca" in additional_covariates:
-        if "X_pca" not in dd.C.obsm:
+        if "X_pca" not in hd.C.obsm:
             logger.info("Calculating PCA.")
-            sc.pp.pca(dd.C, n_comps=n_pcs)
-        if "X_pca" not in dd.D.obsm:
-            dd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
+            sc.pp.pca(hd.C, n_comps=n_pcs)
+        if "X_pca" not in hd.G.obsm:
+            hd.aggregate(obsm="X_pca", key_added="X_pca", func="mean", verbose=True)
 
     if count_model:
-        dd.aggregate(key_added="PB", layer=counts_layer, func="sum", sync_var=True, verbose=True)
+        hd.aggregate(key_added="PB", layer=counts_layer, func="sum", sync_var=True, verbose=True)
     else:
-        dd.aggregate(key_added="PB", sync_var=True, verbose=True)
-    phenotype_df = dd.D.obsm["PB"].T
+        hd.aggregate(key_added="PB", sync_var=True, verbose=True)
+    phenotype_df = hd.G.obsm["PB"].T
     phenotype_df.index.name = "Geneid"
     if count_model:
         values = phenotype_df.to_numpy(dtype=float)
@@ -445,13 +445,13 @@ def run_jaxqtl(
         if (values < 0).any() or not np.allclose(values, np.round(values)):
             logger.warning(
                 f"model={model!r} expects raw counts, but the summed expression is not non-negative "
-                f"integers; {'dd.C.X' if counts_layer is None else f'layer {counts_layer!r}'} is probably "
+                f"integers; {'hd.C.X' if counts_layer is None else f'layer {counts_layer!r}'} is probably "
                 "normalized. Pass `counts_layer` with raw counts or use model='gaussian'."
             )
 
     pheno = f"{prefix}_phenotype.bed.gz"
     if not os.path.isfile(pheno) or overwrite_phenotype_export:
-        phenotype_pos_df = dd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
+        phenotype_pos_df = hd.C.var[["chrom", "start", "end"]].rename(columns={"chrom": "chr"})
         missing_pos = phenotype_pos_df[["start", "end"]].isna().any(axis=1)
         if missing_pos.any():
             logger.warning(f"Dropping {int(missing_pos.sum())} genes without start/end coordinates.")
@@ -468,19 +468,19 @@ def run_jaxqtl(
         covariate_list = []
 
         if encode_sex:
-            n_missing = int(dd.D.obs["sex"].isna().sum())
+            n_missing = int(hd.G.obs["sex"].isna().sum())
             if n_missing:
-                raise ValueError(f"{n_missing} donor(s) have no sex in dd.D.obs; drop them or pass encode_sex=False.")
-            sex_codes = dd.D.obs["sex"].astype("category").cat.codes
+                raise ValueError(f"{n_missing} donor(s) have no sex in hd.G.obs; drop them or pass encode_sex=False.")
+            sex_codes = hd.G.obs["sex"].astype("category").cat.codes
             covariate_list.append(pd.DataFrame(sex_codes.values, columns=["sex"], index=phenotype_df.columns))
 
         if encode_age:
-            age_values = dd.D.obs[["age"]].values.astype(dtype)
+            age_values = hd.G.obs[["age"]].values.astype(dtype)
             covariate_list.append(pd.DataFrame(age_values, columns=["age"], index=phenotype_df.columns))
 
         for cov in additional_covariates or []:
-            if cov in dd.D.obs.columns:
-                column = dd.D.obs[cov]
+            if cov in hd.G.obs.columns:
+                column = hd.G.obs[cov]
                 if pd.api.types.is_numeric_dtype(column) and not pd.api.types.is_bool_dtype(column):
                     values = column.to_numpy().astype(dtype)
                 elif one_hot:
@@ -488,8 +488,8 @@ def run_jaxqtl(
                 else:
                     raise ValueError(f"Covariate '{cov}' is not numeric; pass one_hot=True to one-hot encode it.")
                 covariate_list.append(pd.DataFrame({cov: values}, index=phenotype_df.columns))
-            elif cov in dd.D.obsm:
-                cov_matrix = asarray(dd.D.obsm[cov]).astype(dtype)
+            elif cov in hd.G.obsm:
+                cov_matrix = asarray(hd.G.obsm[cov]).astype(dtype)
                 if cov_matrix.ndim == 1:
                     covariate_list.append(pd.DataFrame(cov_matrix, columns=[cov], index=phenotype_df.columns))
                 else:
@@ -501,7 +501,7 @@ def run_jaxqtl(
                         )
                     )
             else:
-                raise ValueError(f"Covariate '{cov}' not found in dd.D.obs or dd.D.obsm.")
+                raise ValueError(f"Covariate '{cov}' not found in hd.G.obs or hd.G.obsm.")
 
         covariates_df = (
             pd.concat(covariate_list, axis=1) if covariate_list else pd.DataFrame(index=phenotype_df.columns)
@@ -516,7 +516,7 @@ def run_jaxqtl(
 
     geno_ext = (".bed", ".bim", ".fam")
     if not all(os.path.isfile(prefix + ext) for ext in geno_ext) or overwrite_plink_export:
-        to_plink(dd.D, prefix, **plink_export_kwargs)
+        to_plink(hd.G, prefix, **plink_export_kwargs)
 
     written = [pheno, covar, *(prefix + ext for ext in geno_ext)]
     keep_file = exclude_file = None
@@ -528,12 +528,12 @@ def run_jaxqtl(
         written += [exclude_file] if new else []
 
     if libsize_key is not None:
-        totals = pd.to_numeric(dd.C.obs[libsize_key], errors="coerce")
+        totals = pd.to_numeric(hd.C.obs[libsize_key], errors="coerce")
         libsize = (
-            totals.groupby(dd.C.obs[dd.donor_id].astype(str).to_numpy()).sum().reindex(phenotype_df.columns.astype(str))
+            totals.groupby(hd.C.obs[hd.group_id].astype(str).to_numpy()).sum().reindex(phenotype_df.columns.astype(str))
         )
         if libsize.isna().any() or (libsize <= 0).any():
-            raise ValueError(f"dd.C.obs[{libsize_key!r}] gives no positive library size for some donors.")
+            raise ValueError(f"hd.C.obs[{libsize_key!r}] gives no positive library size for some donors.")
         libsize_file = f"{prefix}_libsize.tsv"
         pd.DataFrame({"iid": phenotype_df.columns, "libsize": libsize.to_numpy()}).to_csv(
             libsize_file, sep="\t", index=False

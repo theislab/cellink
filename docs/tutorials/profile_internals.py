@@ -20,26 +20,26 @@ rs1 = RandomSampler(
 loader_C = Loader(
     return_index=True,
     batch_sampler=rs1,
-).use_collection(DatasetCollection("dd_C_collection.zarr"))
+).use_collection(DatasetCollection("hd_C_collection.zarr"))
 
 obs = pd.concat(x["donor_id"] for x in loader_C._obs)
 
-dd_G_collection = DatasetCollection("dd_G_collection.zarr")
-dd_G_obs_names = []
-for group in dd_G_collection:
-    dd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
+hd_G_collection = DatasetCollection("hd_G_collection.zarr")
+hd_G_obs_names = []
+for group in hd_G_collection:
+    hd_G_obs_names.extend(ad.io.read_elem(group["obs"]).index.tolist())
 
-# Import DonorSampler
-from profile_yields import DonorSampler
+# Import GroupSampler
+from profile_yields import GroupSampler
 
-# Just sample the first 120 unique donors
-unique_donors = list(obs.unique())[:120]
+# Just sample the first 120 unique groups
+unique_groups = list(obs.unique())[:120]
 
-donor_sampler = DonorSampler(categories=unique_donors, obs_names=dd_G_obs_names, preload_nbatches=120)
+group_sampler = GroupSampler(categories=unique_groups, obs_names=hd_G_obs_names, preload_nbatches=120)
 loader_G = Loader(
     return_index=True,
-    batch_sampler=donor_sampler,
-).use_collection(dd_G_collection)
+    batch_sampler=group_sampler,
+).use_collection(hd_G_collection)
 
 print("Preparing to run one load request of loader_G...")
 # Trigger any lazy imports/initializations (CUDA setup, etc.)
@@ -50,7 +50,7 @@ next(iter_G)
 print("\nProfiling internal operations:")
 
 # Get the first load request
-load_request = next(iter(donor_sampler.sample(loader_G.n_obs)))
+load_request = next(iter(group_sampler.sample(loader_G.n_obs)))
 chunks_to_load = load_request["chunks"]
 splits = load_request["splits"]
 

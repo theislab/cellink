@@ -4,7 +4,7 @@
 :hidden: true
 :maxdepth: 1
 
-donordata_basics
+hidata_basics
 formula_resolver
 pseudobulk_eqtl
 pseudobulk_eqtl_jaxqtl_tensorqtl
@@ -15,7 +15,6 @@ colocalization
 scdrs_seismic
 gsmap
 single_cell_eqtl_saigeqtl
-run_dataloader
 cell_level_ldsc_analysis
 magma_analysis_tutorial
 sclinker

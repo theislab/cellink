@@ -9,7 +9,7 @@ import pandas as pd
 import scipy.linalg as la
 from tqdm import tqdm
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import compute_eigenvals, davies_pvalue, ensure_float64_array
 
@@ -31,8 +31,8 @@ class StructLMM:
         F: np.ndarray | str | None = None,
         verbose: bool = False,
         *,
-        data: DonorData | anndata.AnnData | pd.DataFrame | None = None,
-        target_level: Literal["donor", "cell"] | None = None,
+        data: HiData | anndata.AnnData | pd.DataFrame | None = None,
+        target_level: Literal["group", "cell"] | None = None,
     ) -> None:
         """Initialize the OurStructLMM class.
 
@@ -49,11 +49,11 @@ class StructLMM:
             a numpy array directly, or, when `data` is provided, a formula
             string resolved against `data` (with an intercept column kept).
         verbose: bool, optional
-        data : DonorData, AnnData, or pandas.DataFrame, optional
+        data : HiData, AnnData, or pandas.DataFrame, optional
             Data container `y`/`F` are resolved against when either is given
             as a string.
-        target_level : {"donor", "cell"}, optional
-            Required when `data` is a `DonorData` and `y`/`F` are formula
+        target_level : {"group", "cell"}, optional
+            Required when `data` is a `HiData` and `y`/`F` are formula
             strings.
         """
         if isinstance(y, str):

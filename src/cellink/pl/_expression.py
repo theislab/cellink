@@ -10,7 +10,7 @@ from adjustText import adjust_text
 from matplotlib.figure import Figure
 from scipy.sparse import issparse
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.data_fields import CAnn, VAnn
 from cellink._core.schema import require_genotypes
 
@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 def expression_by_genotype(
-    dd: DonorData,
+    hd: HiData,
     snp: str | int = None,
     celltype_key: str = CAnn.celltype,
     gene_filter: list = None,
@@ -46,15 +46,15 @@ def expression_by_genotype(
 
     Parameters
     ----------
-    dd : DonorData
-        Donor-level expression and genotype data.
+    hd : HiData
+        Group-level expression and genotype data.
     snp : str or int
         SNP ID or index to stratify by genotype.
     celltype_key : str
         Column in `.obs` denoting cell type.
     gene_filter : list, optional
-        Genes (names in ``dd.C.var_names``) to include in the plot. Defaults to all genes.
-        A gene that is not in ``dd.C.var_names`` raises a ``KeyError``.
+        Genes (names in ``hd.C.var_names``) to include in the plot. Defaults to all genes.
+        A gene that is not in ``hd.C.var_names`` raises a ``KeyError``.
     celltype_filter : list
         Optional list of cell types to include.
     mode : {'cell_type', 'gene'}
@@ -99,39 +99,39 @@ def expression_by_genotype(
     labelsize = labelsize or plt.rcParams.get("axes.labelsize", 12)
     titlesize = titlesize or plt.rcParams.get("axes.titlesize", 14)
 
-    dd_C = dd.C
-    dd_D = require_genotypes(dd)
+    hd_C = hd.C
+    hd_G = require_genotypes(hd)
 
     if celltype_filter is not None:
-        dd_C = dd_C[np.where(dd_C.obs[celltype_key].isin(celltype_filter))[0], :]
-    gene_filter = list(dd_C.var_names) if gene_filter is None else list(gene_filter)
-    missing = [gene for gene in gene_filter if gene not in dd_C.var_names]
+        hd_C = hd_C[np.where(hd_C.obs[celltype_key].isin(celltype_filter))[0], :]
+    gene_filter = list(hd_C.var_names) if gene_filter is None else list(gene_filter)
+    missing = [gene for gene in gene_filter if gene not in hd_C.var_names]
     if missing:
-        raise KeyError(f"Genes {missing} not found in DonorData.C.var_names.")
-    dd_C = dd_C[:, dd_C.var.index.get_indexer(gene_filter)]
-    cell_donors = np.asarray(dd_C.obs[dd.donor_id], dtype=object)
+        raise KeyError(f"Genes {missing} not found in HiData.C.var_names.")
+    hd_C = hd_C[:, hd_C.var.index.get_indexer(gene_filter)]
+    cell_donors = np.asarray(hd_C.obs[hd.group_id], dtype=object)
 
-    if snp in dd_D.var.index:
-        dd_D = dd_D[:, dd_D.var.index.get_indexer([snp])]
+    if snp in hd_G.var.index:
+        hd_G = hd_G[:, hd_G.var.index.get_indexer([snp])]
     elif isinstance(snp, int):
-        dd_D = dd_D[:, snp]
+        hd_G = hd_G[:, snp]
     else:
-        raise ValueError(f"{snp} can't be found in DonorData.D.")
+        raise ValueError(f"{snp} can't be found in HiData.G.")
 
     geno_label_map = {
-        0: dd_D.var[a0].iloc[0] * 2,
-        1: dd_D.var[a0].iloc[0] + dd_D.var[a1].iloc[0],
-        2: dd_D.var[a1].iloc[0] * 2,
+        0: hd_G.var[a0].iloc[0] * 2,
+        1: hd_G.var[a0].iloc[0] + hd_G.var[a1].iloc[0],
+        2: hd_G.var[a1].iloc[0] * 2,
     }
-    X = dd_D.X
+    X = hd_G.X
     if isinstance(X, da.Array):
         X = X.compute()
-    donor_to_genotype = pd.Series(np.squeeze(X), index=dd_D.obs.index)
+    donor_to_genotype = pd.Series(np.squeeze(X), index=hd_G.obs.index)
     donor_to_genotype = donor_to_genotype.map(geno_label_map)
 
     merged = []
     for gene in gene_filter:
-        gene_expression = dd_C.X[:, dd_C.var.index.get_indexer([gene])]
+        gene_expression = hd_C.X[:, hd_C.var.index.get_indexer([gene])]
         if issparse(gene_expression):
             gene_expression = gene_expression.toarray()
         gene_expression = np.squeeze(gene_expression)
@@ -140,7 +140,7 @@ def expression_by_genotype(
             {
                 "expression": gene_expression,
                 "donor_id": cell_donors,
-                "cell_type": dd_C.obs[celltype_key].to_numpy(),
+                "cell_type": hd_C.obs[celltype_key].to_numpy(),
                 "gene": gene,
             }
         )
@@ -151,7 +151,7 @@ def expression_by_genotype(
 
     merged = pd.concat(merged, ignore_index=True)
 
-    genotype_order = [dd_D.var[a0].iloc[0] * 2, dd_D.var[a0].iloc[0] + dd_D.var[a1].iloc[0], dd_D.var[a1].iloc[0] * 2]
+    genotype_order = [hd_G.var[a0].iloc[0] * 2, hd_G.var[a0].iloc[0] + hd_G.var[a1].iloc[0], hd_G.var[a1].iloc[0] * 2]
     merged["genotype"] = pd.Categorical(merged["genotype"], categories=genotype_order, ordered=True)
 
     facet_col = mode

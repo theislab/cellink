@@ -11,7 +11,7 @@ __all__ = ["fetch_slot"]
 
 _INDEXED_EMB_RE = re.compile(r"^(?P<base>(?=.*[A-Za-z_])[A-Za-z0-9_]+)_(?P<idx>\d+)$")
 
-_LEVELS = {"D": "donor", "S": "sample", "C": "cell"}
+_LEVELS = {"G": "group", "S": "subgroup", "C": "cell"}
 
 try:
     from mudata import MuData
@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
 
 def _tag_axis(obj, axis, source=None):
     obj.attrs["axis"] = axis  # 'obs' or 'var'
-    if source is not None:  # e.g. 'C' or 'D' (or 'A','D:rna')
+    if source is not None:  # e.g. 'C' or 'G' (or 'A','G:rna')
         obj.attrs["source"] = source
     return obj
 
@@ -41,19 +41,19 @@ def _as_dataframe(A, arr, axis, base):
     return _tag_axis(pd.DataFrame(arr, index=idx, columns=cols), axis)
 
 
-def _iter_anndatas(dd, adatas=("D", "C"), modalities=None, delim=":"):
-    """Iterate over AnnData objects in a DonorData-like object.
+def _iter_anndatas(hd, adatas=("G", "C"), modalities=None, delim=":"):
+    """Iterate over AnnData objects in a HiData-like object.
 
     Yields ``(name, AnnData)`` across:
-      - plain AnnData -> ``('A', dd)``
-      - plain MuData -> ``(mod, dd.mod[mod])`` in requested order
-      - DonorData-like with ``.D``/``.C``; if ``.D``/``.C`` is MuData, flatten
-        as ``'D:mod'`` / ``'C:mod'``. A level held as a table, such as a donor table
-        in ``.D``, is searched through the AnnData that holds it, with the table as
+      - plain AnnData -> ``('A', hd)``
+      - plain MuData -> ``(mod, hd.mod[mod])`` in requested order
+      - HiData-like with ``.G``/``.C``; if ``.G``/``.C`` is MuData, flatten
+        as ``'G:mod'`` / ``'C:mod'``. A level held as a table, such as a group table
+        in ``.G``, is searched through the AnnData that holds it, with the table as
         ``obs``.
 
     ``modalities`` can be a sequence or a dict mapping outer name
-    (``'D'``, ``'C'``, ``'A'``) -> sequence.
+    (``'G'``, ``'C'``, ``'A'``) -> sequence.
     """
 
     def _mods(mud, outer):
@@ -63,28 +63,28 @@ def _iter_anndatas(dd, adatas=("D", "C"), modalities=None, delim=":"):
             return list(modalities.get(outer, mud.mod.keys()))
         return list(modalities)
 
-    if isinstance(dd, pd.DataFrame):
+    if isinstance(hd, pd.DataFrame):
         # Treat the DataFrame's columns as observations, allowing formulaic to find them.
-        yield ("A", ad.AnnData(obs=dd))
+        yield ("A", ad.AnnData(obs=hd))
         return
 
-    if isinstance(dd, ad.AnnData):
-        yield ("A", dd)
+    if isinstance(hd, ad.AnnData):
+        yield ("A", hd)
         return
 
-    if isinstance(dd, MuData):
-        for m in _mods(dd, "A"):
-            if m in dd.mod:
-                yield (m, dd.mod[m])
+    if isinstance(hd, MuData):
+        for m in _mods(hd, "A"):
+            if m in hd.mod:
+                yield (m, hd.mod[m])
         return
 
-    # DonorData-like
+    # HiData-like
     for outer in adatas:
-        A = getattr(dd, outer, None)
+        A = getattr(hd, outer, None)
         if A is None:
             continue
         if isinstance(A, pd.DataFrame):
-            A = dd.levels[_LEVELS[outer]]
+            A = hd.levels[_LEVELS[outer]]
         if isinstance(A, ad.AnnData):
             yield (outer, A)
         elif isinstance(A, MuData):
@@ -93,8 +93,8 @@ def _iter_anndatas(dd, adatas=("D", "C"), modalities=None, delim=":"):
                     yield (f"{outer}{delim}{m}", A.mod[m])
 
 
-def fetch_slot(dd, key, *, axis=None, adatas=("D", "C"), layer=None, raise_on_multiple=True, modalities=None):
-    """Fetch a named slot from a DonorData-like, AnnData, MuData, or DataFrame object.
+def fetch_slot(hd, key, *, axis=None, adatas=("G", "C"), layer=None, raise_on_multiple=True, modalities=None):
+    """Fetch a named slot from a HiData-like, AnnData, MuData, or DataFrame object.
 
     If ``axis`` is None, both ``obs`` and ``var`` are searched; a key found in
     neither, or in more than one place (with ``raise_on_multiple=True``),
@@ -161,7 +161,7 @@ def fetch_slot(dd, key, *, axis=None, adatas=("D", "C"), layer=None, raise_on_mu
 
     axes = ("obs", "var") if axis is None else (axis,)
     candidates = []
-    for name, A in _iter_anndatas(dd, adatas=adatas, modalities=modalities):
+    for name, A in _iter_anndatas(hd, adatas=adatas, modalities=modalities):
         for ax in axes:
             for loc, obj in search_axis(A, ax):
                 candidates.append((f"{name}{loc}", obj))
@@ -169,7 +169,7 @@ def fetch_slot(dd, key, *, axis=None, adatas=("D", "C"), layer=None, raise_on_mu
     if not candidates:
         src = (
             "modalities"
-            if isinstance(dd, MuData) or any(isinstance(getattr(dd, x, None), MuData) for x in adatas)
+            if isinstance(hd, MuData) or any(isinstance(getattr(hd, x, None), MuData) for x in adatas)
             else "adatas"
         )
         raise KeyError(

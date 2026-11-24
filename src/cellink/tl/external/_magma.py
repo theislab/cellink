@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from cellink._config import load_config
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.schema import require_genotypes
 from cellink.resources._utils import _download_file, get_data_home
 
@@ -231,7 +231,7 @@ def download_magma_references(
     -----
     For lightweight analyses or tutorials, it's recommended to:
     1. Download only the gene location file (reference_panel=None)
-    2. Use genotypes from your DonorData object as the LD reference
+    2. Use genotypes from your HiData object as the LD reference
 
     This avoids downloading large reference panels (~1GB) and uses your actual
     study population for LD estimation, which may be more appropriate.
@@ -314,8 +314,8 @@ def prepare_magma_inputs(
     output_prefix: str = "magma_input",
     genome_build: str = "GRCh38",
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
-    ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
-    dd: DonorData = None,
+    ld_source: Literal["hd_genotypes", "reference_panel", "external", None] = None,
+    hd: HiData = None,
     reference_panel: str | None = None,  # "EUR"/"EAS"/"AFR", only if ld_source="reference_panel"
     external_ld_prefix: str | Path | None = None,  # only if ld_source="external"
     col_mapping: dict = None,
@@ -338,12 +338,12 @@ def prepare_magma_inputs(
         Gene ID type: 'entrez', 'ensembl', or 'gene_name'.
     ld_source : str or None
         How to provide the LD reference for MAGMA gene analysis:
-        - 'dd_genotypes'   : export genotypes from a DonorData object (requires `dd`)
+        - 'hd_genotypes'   : export genotypes from a HiData object (requires `hd`)
         - 'reference_panel': download a 1000G panel (requires `reference_panel`)
         - 'external'       : use pre-built PLINK files you already have (requires `external_ld_prefix`)
         - None             : skip LD reference, you must supply it yourself to run_magma_gene_analysis
-    dd : DonorData, optional
-        Required only when ld_source='dd_genotypes'.
+    hd : HiData, optional
+        Required only when ld_source='hd_genotypes'.
     reference_panel : str, optional
         Population code ('EUR', 'EAS', 'AFR'). Required only when ld_source='reference_panel'.
     external_ld_prefix : str or Path, optional
@@ -370,10 +370,10 @@ def prepare_magma_inputs(
     since MAGMA cannot read them. Without an SNP ID column, IDs are built as
     ``chr_pos_effect_other``; an ID missing from the LD reference .bim whose swapped form
     ``chr_pos_other_effect`` is present (e.g. a ``chr_pos_ref_alt`` .bim exported from
-    DonorData) is renamed to the swapped form.
+    HiData) is renamed to the swapped form.
     """
-    if ld_source == "dd_genotypes" and dd is None:
-        raise ValueError("ld_source='dd_genotypes' requires a DonorData object via `dd`")
+    if ld_source == "hd_genotypes" and hd is None:
+        raise ValueError("ld_source='hd_genotypes' requires a HiData object via `hd`")
     if ld_source == "reference_panel" and reference_panel is None:
         raise ValueError("ld_source='reference_panel' requires a population code via `reference_panel`")
     if ld_source == "external" and external_ld_prefix is None:
@@ -428,13 +428,13 @@ def prepare_magma_inputs(
 
     ld_ref_prefix = None
 
-    if ld_source == "dd_genotypes":
-        logger.info("Exporting DonorData genotypes to PLINK format for LD reference")
+    if ld_source == "hd_genotypes":
+        logger.info("Exporting HiData genotypes to PLINK format for LD reference")
         ld_ref_prefix = Path(f"{output_prefix}_ld_ref")
 
         from cellink.io import to_plink
 
-        genotypes = require_genotypes(dd)
+        genotypes = require_genotypes(hd)
         maf = genotypes.X.sum(axis=0) / (2 * genotypes.n_obs)
         maf = np.minimum(maf, 1 - maf)
         common_variants = maf > 0.01
@@ -695,8 +695,8 @@ def run_magma_pipeline(
     gene_id_type: Literal["entrez", "ensembl", "gene_name"] = "ensembl",
     window_size: tuple[int, int] = (35, 10),
     n_samples: int = None,
-    ld_source: Literal["dd_genotypes", "reference_panel", "external", None] = None,
-    dd=None,
+    ld_source: Literal["hd_genotypes", "reference_panel", "external", None] = None,
+    hd=None,
     reference_panel: str | None = None,
     external_ld_prefix: str | Path | None = None,
     col_mapping: dict = None,
@@ -726,12 +726,12 @@ def run_magma_pipeline(
         GWAS sample size.
     ld_source : str or None
         LD reference strategy; see prepare_magma_inputs for full docs.
-        - 'dd_genotypes'   : use genotypes from DonorData (pass `dd`)
+        - 'hd_genotypes'   : use genotypes from HiData (pass `hd`)
         - 'reference_panel': download a 1000G panel (pass `reference_panel`)
         - 'external'       : use existing PLINK files (pass `external_ld_prefix`)
         - None             : raises an error, LD reference is required for gene analysis
-    dd : DonorData, optional
-        Required when ld_source='dd_genotypes'.
+    hd : HiData, optional
+        Required when ld_source='hd_genotypes'.
     reference_panel : str, optional
         Required when ld_source='reference_panel'. Options: 'EUR', 'EAS', 'AFR'.
     external_ld_prefix : str or Path, optional
@@ -764,8 +764,8 @@ def run_magma_pipeline(
     ...     gwas_df,
     ...     output_prefix="t2d",
     ...     n_samples=100000,
-    ...     ld_source="dd_genotypes",
-    ...     dd=my_donor_data,
+    ...     ld_source="hd_genotypes",
+    ...     hd=hd,
     ...     magma_bin="./magma/magma",
     ... )
 
@@ -790,7 +790,7 @@ def run_magma_pipeline(
     if ld_source is None:
         raise ValueError(
             "ld_source is required for run_magma_pipeline. Choose one of: "
-            "'dd_genotypes', 'reference_panel', 'external'.\n"
+            "'hd_genotypes', 'reference_panel', 'external'.\n"
             "For manual control, call prepare_magma_inputs + run_magma_annotation "
             "+ run_magma_gene_analysis separately."
         )
@@ -803,7 +803,7 @@ def run_magma_pipeline(
         genome_build=genome_build,
         gene_id_type=gene_id_type,
         ld_source=ld_source,
-        dd=dd,
+        hd=hd,
         reference_panel=reference_panel,
         external_ld_prefix=external_ld_prefix,
         col_mapping=col_mapping,

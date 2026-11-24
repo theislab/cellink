@@ -18,7 +18,7 @@ def prepare_loader_C(batch_size=1024, chunk_size=128, preload_nchunks=64):
     loader_C = Loader(
         return_index=True,
         batch_sampler=rs1,
-    ).use_collection(DatasetCollection("dd_C_collection.zarr"))
+    ).use_collection(DatasetCollection("hd_C_collection.zarr"))
 
     return loader_C
 

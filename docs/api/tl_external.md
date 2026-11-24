@@ -61,11 +61,11 @@ SAIGE-QTL). See each tool's own documentation for installation instructions.
    tl.external.munge_sumstats
    tl.external.filter_sumstats_by_merge_alleles
    tl.external.make_annot_from_bimfile
-   tl.external.make_annot_from_donor_data
+   tl.external.make_annot_from_hidata
    tl.external.estimate_ld_scores_from_bimfile
-   tl.external.estimate_ld_scores_from_donor_data
+   tl.external.estimate_ld_scores_from_hidata
    tl.external.compute_ld_scores_with_annotations_from_bimfile
-   tl.external.compute_ld_scores_with_annotations_from_donor_data
+   tl.external.compute_ld_scores_with_annotations_from_hidata
    tl.external.estimate_heritability
    tl.external.estimate_celltype_specific_heritability
    tl.external.estimate_genetic_correlation

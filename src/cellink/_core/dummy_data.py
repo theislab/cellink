@@ -8,7 +8,7 @@ from muon import MuData
 
 from cellink._core.data_fields import CAnn, DAnn, GAnn, VAnn
 
-N_DONORS = 10
+N_GROUPS = 10
 N_GENES = 20
 N_PEAKS = 50
 N_SNPS = 5
@@ -108,7 +108,7 @@ def _sim_donor(
 
 
 def sim_mudata(
-    n_donors: int = N_DONORS,
+    n_groups: int = N_GROUPS,
     n_genes: int = N_GENES,
     n_peaks: int = N_PEAKS,
     min_n_cells: int = MIN_N_CELLS,
@@ -123,8 +123,8 @@ def sim_mudata(
 
     Parameters
     ----------
-    n_donors : int, default=N_DONORS
-        Number of donors to simulate.
+    n_groups : int, default=N_GROUPS
+        Number of groups (donors) to simulate.
     n_genes : int, default=N_GENES
         Number of genes in the RNA modality.
     n_peaks : int, default=N_PEAKS
@@ -145,14 +145,14 @@ def sim_mudata(
         - 'donor_id'
     """
     rna = sim_adata(
-        n_donors=n_donors,
+        n_groups=n_groups,
         n_genes=n_genes,
         min_n_cells=min_n_cells,
         max_n_cells=max_n_cells,
         strategy="negative_binomial",
     )
     atac = sim_adata(
-        n_donors=n_donors, n_genes=n_peaks, min_n_cells=min_n_cells, max_n_cells=max_n_cells, strategy="binomial"
+        n_groups=n_groups, n_genes=n_peaks, min_n_cells=min_n_cells, max_n_cells=max_n_cells, strategy="binomial"
     )
     adata = MuData({"rna": rna, "atac": atac})
     adata.obs["celltype"] = rna.obs["celltype"].reindex(adata.obs_names)
@@ -161,7 +161,7 @@ def sim_mudata(
 
 
 def sim_adata(
-    n_donors: int = N_DONORS,
+    n_groups: int = N_GROUPS,
     n_genes: int = N_GENES,
     min_n_cells: int = MIN_N_CELLS,
     max_n_cells: int = MAX_N_CELLS,
@@ -177,8 +177,8 @@ def sim_adata(
 
     Parameters
     ----------
-    n_donors : int, default=N_DONORS
-        Number of donors to simulate.
+    n_groups : int, default=N_GROUPS
+        Number of groups (donors) to simulate.
     n_genes : int, default=N_GENES
         Number of genes to simulate.
     min_n_cells : int, default=MIN_N_CELLS
@@ -196,19 +196,19 @@ def sim_adata(
         - `var` : gene-level metadata including chromosome, start, end
     """
     adatas = []
-    has_all_celltypes = [True] * (n_donors - 1) + [False]
+    has_all_celltypes = [True] * (n_groups - 1) + [False]
     cum_n_cells = 0
-    for i in range(n_donors):
+    for i in range(n_groups):
         n_cells = np.random.randint(min_n_cells, max_n_cells)
         has_all_celltypes = i != 0  # the first donor misses one celltype
         adatas.append(_sim_donor(cum_n_cells, n_cells, n_genes, has_all_celltypes, strategy=strategy))
         cum_n_cells += n_cells
-    donors = [f"{DONOR_PREFIX}{i}" for i in range(n_donors)]
+    donors = [f"{DONOR_PREFIX}{i}" for i in range(n_groups)]
     adata = ad.concat(adatas, merge="first", keys=donors, label=DAnn.donor)
     return adata
 
 
-def sim_gdata(n_donors: int = N_DONORS, n_snps: int = N_SNPS, adata: AnnData | None = None) -> AnnData:
+def sim_gdata(n_groups: int = N_GROUPS, n_snps: int = N_SNPS, adata: AnnData | None = None) -> AnnData:
     """
     Simulate genotype data as an AnnData object.
 
@@ -218,8 +218,8 @@ def sim_gdata(n_donors: int = N_DONORS, n_snps: int = N_SNPS, adata: AnnData | N
 
     Parameters
     ----------
-    n_donors : int, default=N_DONORS
-        Number of donors to simulate.
+    n_groups : int, default=N_GROUPS
+        Number of groups (donors) to simulate.
     n_snps : int, default=N_SNPS
         Number of SNPs to simulate if `adata` is None.
     adata : AnnData, optional
@@ -230,7 +230,7 @@ def sim_gdata(n_donors: int = N_DONORS, n_snps: int = N_SNPS, adata: AnnData | N
     -------
     AnnData
         AnnData object with:
-        - `X` : genotype matrix (n_donors x n_snps), values in {0,1,2}
+        - `X` : genotype matrix (n_groups x n_snps), values in {0,1,2}
         - `obs` : donor IDs
         - `var` : SNP metadata including chromosome, position, alleles, and MAF
     """
@@ -246,8 +246,8 @@ def sim_gdata(n_donors: int = N_DONORS, n_snps: int = N_SNPS, adata: AnnData | N
         pos = np.concatenate(pos)
         n_snps = len(pos)
     mafs = np.random.rand(n_snps)
-    X = np.random.binomial(n=2, p=mafs, size=(n_donors, n_snps))
-    obs = pd.DataFrame(index="D" + pd.RangeIndex(n_donors, name=DAnn.donor).astype(str))
+    X = np.random.binomial(n=2, p=mafs, size=(n_groups, n_snps))
+    obs = pd.DataFrame(index="D" + pd.RangeIndex(n_groups, name=DAnn.donor).astype(str))
 
     var = pd.DataFrame(
         {

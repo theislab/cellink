@@ -13,12 +13,12 @@
     io.read_sgkit_zarr
     io.read_pgen_zarr
     io.stream_pgen_to_zarr
-    io.read_dd
-    io.read_h5_dd
-    io.read_zarr_dd
-    io.write_dd
-    io.write_h5_dd
-    io.write_zarr_dd
+    io.read_hd
+    io.read_h5_hd
+    io.read_zarr_hd
+    io.write_hd
+    io.write_h5_hd
+    io.write_zarr_hd
     io.to_plink
     io.to_pgen
     io.write_variants_to_vcf

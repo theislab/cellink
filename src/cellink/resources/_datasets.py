@@ -7,8 +7,8 @@ import anndata as ad
 import pandas as pd
 
 import cellink as cl
-from cellink._core import DonorData
-from cellink.io import read_h5_dd, read_zarr_dd
+from cellink._core import HiData
+from cellink.io import read_h5_hd, read_zarr_hd
 from cellink.resources._datasets_utils import plink_filter_prune, plink_kinship, preprocess_vcf_to_plink, try_liftover
 from cellink.resources._utils import _download_file, _load_config, _run, get_data_home
 
@@ -416,13 +416,13 @@ def get_onek1k(
     variants_chunk_size: int = 32000,
     samples_chunk_size: int = 981,
     config_dict: dict | None = None,
-) -> DonorData:
+) -> HiData:
     """
     Download and preprocess the OneK1K genotype and expression dataset.
 
     This function downloads genotype and expression files listed in a YAML configuration,
     optionally verifies checksums, converts VCF files to Zarr format, performs PLINK preprocessing
-    including filtering, pruning, and kinship computation, and loads the dataset into a `DonorData` object.
+    including filtering, pruning, and kinship computation, and loads the dataset into a `HiData` object.
 
     Genotype preprocessing **requires PLINK** and is only performed if preprocessed
     outputs are not already present.
@@ -465,8 +465,8 @@ def get_onek1k(
 
     Returns
     -------
-    cellink.DonorData
-        A `DonorData` object containing preprocessed genotype (`D`) and expression (`C`) data,
+    cellink.HiData
+        A `HiData` object containing preprocessed genotype (`G`) and expression (`C`) data,
         along with kinship and principal component metadata.
 
     Raises
@@ -568,9 +568,9 @@ def get_onek1k(
         adata.obs["sex"] = adata.obs["sex"].map({"male": 1, "female": 0}).astype(int)
         adata.obs["age"] = adata.obs["age"].astype("int")
 
-        dd = DonorData(D=gdata, C=adata).copy()
+        hd = HiData(G=gdata, C=adata, group_id="donor_id").copy()
 
-        return dd
+        return hd
 
 
 def get_dummy_onek1k(
@@ -578,7 +578,7 @@ def get_dummy_onek1k(
     data_home: str | None = None,
     verify_checksum: bool = True,
     config_dict: dict | None = None,
-) -> DonorData:
+) -> HiData:
     """
     Download and load the dummy OneK1K dataset.
 
@@ -613,36 +613,36 @@ def get_dummy_onek1k(
 
     Returns
     -------
-    cellink.DonorData
-        A `DonorData` object containing preprocessed genotype (`D`) and expression
+    cellink.HiData
+        A `HiData` object containing preprocessed genotype (`G`) and expression
         (`C`) data, along with kinship and principal component metadata. Gene
-        annotations are already included in `dd.C.var`.
+        annotations are already included in `hd.C.var`.
 
     Examples
     --------
     >>> from cellink.resources import get_dummy_onek1k
-    >>> dd = get_dummy_onek1k()
-    >>> print(dd.shape)  # (n_donors, n_snps, n_cells, n_genes)
+    >>> hd = get_dummy_onek1k()
+    >>> print(hd.shape)  # (n_groups, n_snps, n_cells, n_genes)
     >>> # Gene annotations are already included!
-    >>> print(dd.C.var[[GAnn.start, GAnn.end, GAnn.chrom]].head())
+    >>> print(hd.C.var[[GAnn.start, GAnn.end, GAnn.chrom]].head())
 
     Notes
     -----
     The dummy dataset maintains the same structure as the full OneK1K dataset:
-    - dd.D: Genotype data (donors x SNPs)
-    - dd.C: Single-cell expression data (cells x genes)
-    - dd.D.obsm["gPCs"]: Genotype principal components
-    - dd.D.uns["kinship"]: Kinship matrix
-    - dd.C.var[GAnn.start/end/chrom]: Gene annotations (pre-included!)
+    - hd.G: Genotype data (donors x SNPs)
+    - hd.C: Single-cell expression data (cells x genes)
+    - hd.G.obsm["gPCs"]: Genotype principal components
+    - hd.G.uns["kinship"]: Kinship matrix
+    - hd.C.var[GAnn.start/end/chrom]: Gene annotations (pre-included!)
 
-    The dataset is provided as a single file (.dd.h5 or .dd.zarr) that can be
+    The dataset is provided as a single file (HDF5 or Zarr) that can be
     quickly downloaded and loaded without additional preprocessing.
 
     Key differences from full dataset:
 
     - Gene annotations are pre-included (no BioMart queries needed)
     - Only genes on chromosomes 1-22 within ±500 kb of a kept variant are included
-    - ``dd.D.uns["kinship"]`` covers the kept donors only
+    - ``hd.G.uns["kinship"]`` covers the kept donors only
 
     See Also
     --------
@@ -661,16 +661,16 @@ def get_dummy_onek1k(
     file_path = DATA / filename
     _download_file(file_info["url"], file_path, checksum)
 
-    if filename.endswith(".dd.h5"):
-        dd = read_h5_dd(str(file_path))
-    elif filename.endswith(".dd.zarr"):
-        dd = read_zarr_dd(str(file_path))
+    if filename.endswith(".h5"):
+        hd = read_h5_hd(str(file_path))
+    elif filename.endswith(".zarr"):
+        hd = read_zarr_hd(str(file_path))
     else:
         raise ValueError(f"Unsupported file format: {filename}")
 
-    logging.info(f"Loaded dummy OneK1K dataset: {dd.shape}")
+    logging.info(f"Loaded dummy OneK1K dataset: {hd.shape}")
 
-    return dd
+    return hd
 
 
 if __name__ == "__main__":

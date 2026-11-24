@@ -12,7 +12,7 @@ from cellink.tl.external._ldsc import (
     LDSCRunner,
     compute_ld_scores_with_annotations_from_bimfile,
     estimate_ld_scores_from_bimfile,
-    estimate_ld_scores_from_donor_data,
+    estimate_ld_scores_from_hidata,
 )
 
 
@@ -83,7 +83,7 @@ def test_donor_data_with_real_plink_export_is_not_whole_chromosome(runner, tmp_p
         obs=pd.DataFrame(index=[f"d{i}" for i in range(4)]),
         var=var,
     )
-    cmd = estimate_ld_scores_from_donor_data(SimpleNamespace(D=gdata), str(tmp_path / "ld"), run=False, runner=runner)[
+    cmd = estimate_ld_scores_from_hidata(SimpleNamespace(G=gdata), str(tmp_path / "ld"), run=False, runner=runner)[
         "command"
     ]
     assert "--ld-wind-kb 1000" in cmd

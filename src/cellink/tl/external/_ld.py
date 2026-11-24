@@ -4,7 +4,7 @@ import subprocess
 
 import pandas as pd
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink._core.schema import require_genotypes
 from cellink.io import to_plink
 
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_ld(
-    dd: DonorData,
+    hd: HiData,
     prefix: str,
     out: str = None,
     window_kb: int = 500,
@@ -27,8 +27,8 @@ def calculate_ld(
 
     Parameters
     ----------
-    dd : DonorData
-        Object containing donor-level genotype (`dd.D`) and cell-level expression data (`dd.C`).
+    hd : HiData
+        Object containing group-level genotype (`hd.G`) and cell-level expression data (`hd.C`).
     prefix : str
         PLINK binary file prefix (.bed/.bim/.fam).
     out : str, optional
@@ -60,7 +60,7 @@ def calculate_ld(
     if out is None:
         out = f"{prefix}_ld"
 
-    to_plink(require_genotypes(dd), prefix, **plink_export_kwargs)
+    to_plink(require_genotypes(hd), prefix, **plink_export_kwargs)
 
     cmd = [
         "plink",

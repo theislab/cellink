@@ -8,7 +8,7 @@ import pandas as pd
 import scipy as sp
 from numpy import asarray, atleast_1d
 
-from cellink._core import DonorData
+from cellink._core import HiData
 
 __all__ = [
     "ArrayLike",
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 # To handle multiple data types
 ArrayLike = np.ndarray | pd.Series | pd.DataFrame | list[float] | list[int]
-# If passing Y and X directly | If Y and X are in a DataFrame |   If Y and X are in AnnData | If Y and X are in DonorData
-DataContainer = None | pd.DataFrame | anndata.AnnData | DonorData
+# If passing Y and X directly | If Y and X are in a DataFrame |   If Y and X are in AnnData | If Y and X are in HiData
+DataContainer = None | pd.DataFrame | anndata.AnnData | HiData
 
 
 def xgower_factor_(X):

@@ -127,11 +127,11 @@ def run_scdrs(
     encode_age : bool, default=True
         Whether to include age as a covariate.
     additional_covariates : list of str, optional
-        Additional covariates from dd.C.obs to include.
+        Additional covariates from hd.C.obs to include.
     group_analysis : list of str, optional
-        List of cell group annotations in dd.C.obs for group-level analysis.
+        List of cell group annotations in hd.C.obs for group-level analysis.
     corr_analysis : list of str, optional
-        List of cell-level continuous variables in dd.C.obs for correlation analysis.
+        List of cell-level continuous variables in hd.C.obs for correlation analysis.
     gene_analysis : bool, default=False
         Whether to perform gene-level correlation analysis.
     knn_n_neighbors : int, default=15
@@ -172,14 +172,14 @@ def run_scdrs(
     --------
     >>> # Basic scDRS analysis
     >>> results = run_scdrs(
-    ...     dd,
+    ...     hd,
     ...     gs_file="traits.gs",
     ...     group_analysis=["cell_type"],
     ... )
 
     >>> # With custom gene sets
     >>> gene_sets = {"MyDisease": (["GENE1", "GENE2", "GENE3"], [1.5, 2.0, 1.8])}
-    >>> results = run_scdrs(dd, gene_sets=gene_sets)
+    >>> results = run_scdrs(hd, gene_sets=gene_sets)
     """
     if not SCDRS_AVAILABLE:
         raise ImportError("scdrs is required for run_scdrs. Install it with: pip install scdrs")

@@ -4,7 +4,7 @@ requires = [ "hatchling" ]
 
 [project]
 name = "cellink-tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "cellink enables genetic analyses on single-cell data"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -30,8 +30,8 @@ dependencies = [
   "adjusttext>=1.2",
   "anndata>=0.13.1",
   "dask[array]>=2024.12",
-  "donordata>=0.1.0",
   "h5py>=3.12",
+  "hidata>=0.1.0",
   "matplotlib>=3.10",
   "mudata>=0.3.1",
   "muon>=0.1.7",
@@ -106,10 +106,6 @@ optional-dependencies.ldsc = [
 ]
 optional-dependencies.mixmil = [
   "mixmil>=0.1.2",
-]
-optional-dependencies.ml = [
-  "pytorch-lightning>=2.5",
-  "torch>=2.6",
 ]
 optional-dependencies.pgen = [
   "pgenlib>=0.92",

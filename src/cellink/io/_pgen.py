@@ -81,7 +81,7 @@ def lazy_anndata_zarr_callback(
     var_columns: list[str] | None = None,
 ):
     """``read_dispatched`` callback that reconstructs an AnnData (at any
-    nesting depth, e.g. as ``D``/``C`` inside a larger DonorData zarr store or
+    nesting depth, e.g. as ``G``/``C`` inside a larger HiData zarr store or
     HDF5 file) while keeping a dense ``X``/``layers`` entry lazily backed instead
     of materializing it.
 

@@ -8,7 +8,7 @@ import pandas as pd
 import scipy
 import scipy.stats as st
 
-from cellink._core import DonorData
+from cellink._core import HiData
 from cellink.at.base_model import fetch_raw_slot, to_numpy
 from cellink.at.utils import (
     ArrayLike,
@@ -148,13 +148,13 @@ class Skat:
         data: DataContainer = None,
         Y: ArrayLike | str | None = None,
         X: ArrayLike | str | None = None,
-        target_level: Literal["donor", "cell"] | None = None,
+        target_level: Literal["group", "cell"] | None = None,
     ) -> float:
         """Run SKAT test for association between Y and X.
 
         Uses the same `data=`/formula-string resolver as `GWAS` and `StructLMM`
         (see `cellink.at.get_model_matrix`): `Y`/`X` can be a formula string or
-        bare column name resolved against a `DonorData`, `AnnData`, or
+        bare column name resolved against a `HiData`, `AnnData`, or
         `DataFrame` (e.g. `X="snp0 + snp1 + snp2"` for multiple variants).
         """
         # when data is None, Y and X must be provided as numpy arrays
@@ -164,15 +164,15 @@ class Skat:
             return self._run_test(Y=Y, X=X)
 
         assert isinstance(
-            data, pd.DataFrame | anndata.AnnData | DonorData
-        ), "data must be a pandas DataFrame, anndata.AnnData or DonorData"
+            data, pd.DataFrame | anndata.AnnData | HiData
+        ), "data must be a pandas DataFrame, anndata.AnnData or HiData"
         assert isinstance(Y, str), "Y must be a string"
         assert isinstance(X, str), "X must be a string"
 
-        # Skat's variants are always donor-level; default to that for a DonorData
+        # Skat's variants are always group-level; default to that for a HiData
         # rather than requiring every caller to pass target_level explicitly.
-        if isinstance(data, DonorData) and target_level is None:
-            target_level = "donor"
+        if isinstance(data, HiData) and target_level is None:
+            target_level = "group"
 
         Y_arr = to_numpy(fetch_raw_slot(data, Y, "Y", target_level=target_level, add_intercept=False))
         X_arr = to_numpy(fetch_raw_slot(data, X, "X", target_level=target_level, add_intercept=False))
