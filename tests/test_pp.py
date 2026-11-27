@@ -167,3 +167,25 @@ def test_variant_qc_inplace_filters_caller():
     gdata = _genotypes()
     assert variant_qc(gdata, maf_threshold=0.01, hwe_pval_threshold=1e-6) is None
     assert list(gdata.var_names) == ["2"]
+
+
+def test_variant_qc_maf_ignores_missing_calls():
+    # missing calls (nan, as the PLINK/PGEN readers return them) should not drop common variants
+    # or skew the denominator of the allele frequency
+    X = _genotypes().X.compute()
+    X[0, 2] = np.nan
+    out = variant_qc(anndata.AnnData(X=da.from_array(X)), maf_threshold=0.01, hwe_pval_threshold=1e-6, inplace=False)
+    assert list(out.var_names) == ["2"]
+
+    # 200 donors, 3 variants with missing calls:
+    # 0: 100 nan + 90 ref + 10 het -> called MAF = 10 / (2 * 100) = 0.05 (0.025 if divided by 2 * n_obs)
+    # 1: 100 nan + 100 hom-alt -> called AF = 1.0, MAF = 0.0 (0.5 if divided by 2 * n_obs)
+    # 2: all nan -> uncalled, dropped at maf_threshold > 0
+    X_miss = np.full((200, 3), np.nan)
+    X_miss[:90, 0] = 0.0
+    X_miss[90:100, 0] = 1.0
+    X_miss[:100, 1] = 2.0
+    out_miss = variant_qc(
+        anndata.AnnData(X=da.from_array(X_miss)), maf_threshold=0.04, hwe_pval_threshold=1e-6, inplace=False
+    )
+    assert list(out_miss.var_names) == ["0"]

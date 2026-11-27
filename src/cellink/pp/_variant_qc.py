@@ -37,6 +37,7 @@ def variant_qc(
     """Perform quality control on variants.
 
     This function filters variants based on Minor Allele Frequency (MAF) and Hardy-Weinberg Equilibrium (HWE).
+    The MAF is computed over the called genotypes of each variant (missing ``nan`` calls are skipped).
     The HWE p-value comes from a 1-df chi-square goodness-of-fit test on the counts of hard calls
     (dosages of exactly 0, 1 and 2; missing and non-integer dosages are not counted). This is not
     PLINK's exact test (``--hwe``) and is less reliable for rare variants with few expected
@@ -65,7 +66,8 @@ def variant_qc(
     if not isinstance(X, da.Array):
         raise ValueError("adata.X must be a Dask array.")
 
-    allele_freq = da.sum(X, axis=0) / (2 * X.shape[0])
+    n_called = da.sum(~da.isnan(X), axis=0)
+    allele_freq = da.nansum(X, axis=0) / (2 * da.maximum(n_called, 1))
     maf = da.minimum(allele_freq, 1 - allele_freq)
 
     maf_filter = maf >= maf_threshold
